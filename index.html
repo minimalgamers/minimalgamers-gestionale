@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base href="../">
+    <title>Visualizzatore Ordini Shopify</title>
+    <link rel="icon" type="image/jpeg" href="https://www.minimalgamers.it/cdn/shop/files/LOGO_MINIMAL_GAMERS.jpg?crop=center&height=32&v=1664907101&width=32">
+    <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/style_mobile.css">
+    <script src="assets/vendor/jspdf.umd.min.js"></script>
+    <script src="assets/vendor/jspdf.plugin.autotable.min.js"></script>
+    
+    <script src="assets/vendor/xlsx.min.js"></script>
+</head>
+<body>
+
+    <div id="top-actions-container" class="top-actions-container">
+        <button id="add-manual-order-btn" class="add-manual-order-btn auth-required" title="Aggiungi ordine manuale" style="display: none;">
+            <img src="https://img.icons8.com/?size=512&id=3220&format=png" alt="Aggiungi" style="width: 32px; height: 32px; filter: brightness(0) invert(1);">
+        </button>
+
+        <button id="gpo-mapping-btn" class="gpo-mapping-btn auth-required" title="GPO - Mapping Custom Properties" style="display: none;">
+            <span style="font-weight: 700; font-size: 14px; color: white;">GPO</span>
+        </button>
+
+        <button id="custom-components-btn" class="custom-components-btn auth-required" title="Componenti Amazon Personalizzati" style="display: none;">
+            <img src="https://img.icons8.com/?size=512&id=21295&format=png" alt="Componenti" style="width: 32px; height: 32px; filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(5deg);">
+        </button>
+
+        <button id="export-btn" class="export-btn auth-required" title="Riepilogo Fornitori" style="display: none;">
+            <img src="https://cdn-icons-png.flaticon.com/512/10429/10429223.png" alt="Riepilogo" style="width: 32px; height: 32px;">
+        </button>
+
+        <button id="standard-configs-btn" class="standard-configs-btn auth-required" title="Configurazioni Standard" style="display: none;">
+            <img src="https://img.icons8.com/?size=512&id=eGTjSzMmAhSs&format=png" alt="Configurazioni" style="width: 32px; height: 32px;">
+        </button>
+
+        <button id="message-templates-btn" class="search-btn auth-required" title="Template Messaggi WhatsApp/Email" style="display: none;">
+            <img src="assets/img/whatsapp.avif" alt="Template Messaggi" style="width: 32px; height: 32px; object-fit: contain;">
+        </button>
+
+        <button id="settings-btn" class="settings-btn auth-required" title="Impostazioni" style="display: none;">
+            <img src="https://img.icons8.com/?size=96&id=2969&format=png" alt="Impostazioni" style="width: 32px; height: 32px;">
+        </button>
+    </div>
+    
+    <button id="generate-orders-btn" class="generate-orders-btn-top" title="Genera PDF Ordini" style="display: none;">
+        GENERA PDF
+    </button>
+    
+    <input type="file" id="bg-file-input" accept=".png,.svg,.jpg,.jpeg,.webp,.avif" style="display:none;">
+
+    
+    <div id="search-bar" class="search-bar" style="display: none;">
+        <input type="text" id="search-input" placeholder="Cerca per numero ordine (#1234)..." class="search-input">
+        <button id="search-clear-btn" class="search-clear-btn" title="Cancella">✕</button>
+    </div>
+
+    
+
+    <div id="fixed-header">
+        <img src="https://www.minimalgamers.it/cdn/shop/files/minimal_gamers.avif?v=1763159560&width=360" alt="Logo" class="logo">
+
+        <div class="controls">
+            <h1>CARICA ORDINI DA SHOPIFY</h1>
+            
+            <form onsubmit="return false;" id="passwordForm">
+                <div class="password-container">
+                    <input type="text" id="accessUsername" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" tabindex="-1" aria-hidden="true">
+                    <input type="password" id="accessPassword" placeholder="Inserisci la password" autocomplete="current-password">
+                    <button type="submit" class="submit-arrow" title="Invia password"></button>
+                </div>
+            </form>
+            
+            <div class="error-message" id="errorMessage"></div>
+            <div class="loading" id="loadingMessage" style="display:none;">Caricamento ordini in corso...</div>
+        </div>
+    </div>
+
+    <div id="tabs-container" style="display:none;">
+        <div class="tabs">
+            <button id="hidden-orders-btn" class="hidden-orders-btn auth-required" title="Visualizza ordini nascosti" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;"><img src="https://img.icons8.com/?size=500&id=60022&format=png" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1);"></button>
+            <span id="orders-counter" class="auth-required" style="display: none; margin-right: 8px; color: rgba(255,255,255,0.9); font-size: 0.95em; font-weight: 600; background: rgba(102, 126, 234, 0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.4);">0</span>
+            <button id="select-orders-btn" class="auth-required" title="Seleziona ordini" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;">
+                <img src="https://img.icons8.com/?size=512&id=3pldZIZvVCVB&format=png" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1); transition: all 0.3s ease;">
+            </button>
+            <div id="process-selected-orders-container" class="auth-required" style="display: none; margin-right: 8px; gap: 6px; align-items: center;">
+                <button class="process-selected-orders-btn" data-worksheet="1" title="Elabora ordini selezionati in E1" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; background: #2f62ff; border: 1px solid #5f86ff; color: #ffffff; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 6px 10px; border-radius: 8px; transition: all 0.2s ease;">E1</button>
+                <button class="process-selected-orders-btn" data-worksheet="2" title="Elabora ordini selezionati in E2" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; background: #2f62ff; border: 1px solid #5f86ff; color: #ffffff; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 6px 10px; border-radius: 8px; transition: all 0.2s ease;">E2</button>
+                <button class="process-selected-orders-btn" data-worksheet="3" title="Elabora ordini selezionati in E3" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; background: #2f62ff; border: 1px solid #5f86ff; color: #ffffff; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 6px 10px; border-radius: 8px; transition: all 0.2s ease;">E3</button>
+                <button class="process-selected-orders-btn" data-worksheet="4" title="Elabora ordini selezionati in E4" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; background: #2f62ff; border: 1px solid #5f86ff; color: #ffffff; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 6px 10px; border-radius: 8px; transition: all 0.2s ease;">E4</button>
+            </div>
+            <span id="processed-counter" class="auth-required" style="display: none; margin-right: 8px; color: rgba(255,255,255,0.9); font-size: 0.95em; font-weight: 600; background: rgba(102, 126, 234, 0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.4);">0</span>
+            <button id="bulk-replace-btn" class="bulk-replace-btn auth-required" title="Cerca e Sostituisci di massa" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; color: white; font-size: 1.3em; cursor: pointer; padding: 0; transition: all 0.3s ease;">💡</button>
+            <button id="rielabora-selected-btn" class="auth-required" title="Rielabora ordini selezionati" style="display: none; margin-right: 8px; width: auto; height: auto; background: rgba(46, 204, 113, 0.3); border: 1px solid rgba(46, 204, 113, 0.5); color: #2ecc71; font-size: 0.9em; font-weight: 600; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">🔄 Rielabora</button>
+            <button id="hide-selected-btn" class="auth-required" title="Nascondi ordini selezionati" style="display: none; margin-right: 8px; width: auto; height: auto; background: rgba(231, 76, 60, 0.3); border: 1px solid rgba(231, 76, 60, 0.5); color: #e74c3c; font-size: 0.9em; font-weight: 600; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">👁️ Nascondi</button>
+            <div id="status-box" class="status" style="display:none; margin-right: 8px; border: 1px solid rgba(255,255,255,0.35); border-radius: 8px; padding: 8px 12px; font-size: 0.9em; color: white; white-space: nowrap; max-width: 380px; overflow: hidden; text-overflow: ellipsis;"></div>
+            <div id="tabs-buttons-container" style="display: flex; gap: 8px; transition: all 0.4s ease; flex: 1;">
+                <button class="tab-button active" data-tab="orders" title="Visualizza ordini da processare">Ordini</button>
+                <button class="tab-button" data-tab="processed" title="Visualizza ordini elaborati - Foglio E1">E1</button>
+                <button class="tab-button" data-tab="processed-e2" title="Visualizza ordini elaborati - Foglio E2">E2</button>
+                <button class="tab-button" data-tab="processed-e3" title="Visualizza ordini elaborati - Foglio E3">E3</button>
+                <button class="tab-button" data-tab="processed-e4" title="Visualizza ordini elaborati - Foglio E4">E4</button>
+                <button class="tab-button" data-tab="finalized" title="Visualizza ordini finalizzati" style="display: none;">Finalizzati</button>
+                <button class="tab-button" data-tab="message-templates" title="Template messaggi WhatsApp/Email" style="display: none;">Messaggi</button>
+                <button class="tab-button" data-tab="inventory" title="Gestione inventario" style="display: none;">Inventario</button>
+                <button class="tab-button" data-tab="settings" title="Impostazioni" style="display: none;">Impostazioni</button>
+                <button class="tab-button" data-tab="hidden" title="Visualizza ordini nascosti" style="display: none;">Nascosti</button>
+                <button class="tab-button" data-tab="suppliers" title="Riepilogo per fornitori" style="display: none;">Fornitori</button>
+            </div>
+            <button id="select-processed-btn" class="auth-required" title="Seleziona ordini elaborati" style="display: none; margin-left: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;">
+                <img src="https://img.icons8.com/?size=512&id=3pldZIZvVCVB&format=png" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1); transition: all 0.3s ease;">
+            </button>
+            <button id="finalize-selected-processed-btn" class="auth-required" title="Finalizza ordini selezionati" style="display: none; margin-left: 8px; width: auto; height: auto; background: rgba(46, 204, 113, 0.3); border: 1px solid rgba(46, 204, 113, 0.5); color: #111111; font-size: 0.9em; font-weight: 700; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">✅ Finalizza</button>
+            <button id="move-to-orders-btn" class="auth-required" title="Sposta in Ordini" style="display: none; margin-left: 8px; width: auto; height: auto; background: rgba(241, 196, 15, 0.3); border: 1px solid rgba(241, 196, 15, 0.5); color: #111111; font-size: 0.9em; font-weight: 700; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">📋 Ordini</button>
+            <div id="move-to-worksheet-container" class="auth-required" style="display: none; margin-left: 8px; gap: 6px; align-items: center;">
+                <button class="move-to-worksheet-btn" data-target-worksheet="1" title="Sposta ordini selezionati in E1" style="display: inline-flex; align-items: center; justify-content: center; min-width: 64px; background: rgba(52, 152, 219, 0.35); border: 1px solid rgba(52, 152, 219, 0.55); color: #111111; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 7px 10px; border-radius: 8px; transition: all 0.2s ease;">Sposta E1</button>
+                <button class="move-to-worksheet-btn" data-target-worksheet="2" title="Sposta ordini selezionati in E2" style="display: inline-flex; align-items: center; justify-content: center; min-width: 64px; background: rgba(52, 152, 219, 0.35); border: 1px solid rgba(52, 152, 219, 0.55); color: #111111; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 7px 10px; border-radius: 8px; transition: all 0.2s ease;">Sposta E2</button>
+                <button class="move-to-worksheet-btn" data-target-worksheet="3" title="Sposta ordini selezionati in E3" style="display: inline-flex; align-items: center; justify-content: center; min-width: 64px; background: rgba(52, 152, 219, 0.35); border: 1px solid rgba(52, 152, 219, 0.55); color: #111111; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 7px 10px; border-radius: 8px; transition: all 0.2s ease;">Sposta E3</button>
+                <button class="move-to-worksheet-btn" data-target-worksheet="4" title="Sposta ordini selezionati in E4" style="display: inline-flex; align-items: center; justify-content: center; min-width: 64px; background: rgba(52, 152, 219, 0.35); border: 1px solid rgba(52, 152, 219, 0.55); color: #111111; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 7px 10px; border-radius: 8px; transition: all 0.2s ease;">Sposta E4</button>
+            </div>
+            <button id="select-finalized-btn" class="auth-required" title="Seleziona ordini finalizzati" style="display: none; margin-left: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;">
+                <img src="https://img.icons8.com/?size=512&id=3pldZIZvVCVB&format=png" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1); transition: all 0.3s ease;">
+            </button>
+        </div>
+    </div>
+
+    
+    <div id="processed-stats" style="display: none !important; visibility: hidden; position: fixed; top: 20px; left: 20px; z-index: -1;">
+        <div style="color: white; font-size: 0.9em; font-weight: 600; margin-bottom: 4px;">Elaborati: <span id="processed-count" style="color: white;">0</span></div>
+        <div id="processed-total-container" style="color: white; font-size: 0.9em; font-weight: 600;">Totale: €<span id="processed-total" style="color: white;">0.00</span></div>
+    </div>
+
+    <div id="payment-popup" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001; background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 30px 40px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.3); min-width: 400px;">
+        <h2 style="color: white; font-size: 1.5em; margin-bottom: 20px; text-align: center;">Dettagli Pagamento</h2>
+        <div style="background: rgba(0, 0, 0, 0.2); border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+            <div style="color: white; font-size: 1em; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid rgba(255, 255, 255, 0.2);">
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-bottom: 5px;">Giorni mancanti</div>
+                <div style="font-weight: 600; font-size: 1.1em;" id="days-remaining">-</div>
+                <div style="color: rgba(255, 255, 255, 0.6); font-size: 0.85em; margin-top: 3px;">Emissione fattura ogni 20 del mese</div>
+            </div>
+            <div style="color: white; font-size: 1em; margin-bottom: 15px;">
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-bottom: 5px;">Intestatario</div>
+                <div style="font-weight: 600;">Stetco Cosmin</div>
+            </div>
+            <div style="color: white; font-size: 1em; margin-bottom: 15px;">
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-bottom: 5px;">IBAN</div>
+                <div style="font-weight: 600; font-family: monospace; letter-spacing: 1px; background: rgba(255, 255, 255, 0.1); padding: 8px 12px; border-radius: 6px; cursor: pointer;" onclick="navigator.clipboard.writeText('IT92C0301503200000003930362'); this.style.background='rgba(76, 175, 80, 0.3)'; setTimeout(() => this.style.background='rgba(255, 255, 255, 0.1)', 500);" title="Clicca per copiare">IT92C0301503200000003930362</div>
+            </div>
+            <div style="color: white; font-size: 1em;">
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.9em; margin-bottom: 5px;">Causale</div>
+                <div style="font-weight: 600; background: rgba(255, 255, 255, 0.1); padding: 8px 12px; border-radius: 6px; cursor: pointer;" id="payment-causale" onclick="navigator.clipboard.writeText(this.textContent); this.style.background='rgba(76, 175, 80, 0.3)'; setTimeout(() => this.style.background='rgba(255, 255, 255, 0.1)', 500);" title="Clicca per copiare">-</div>
+            </div>
+        </div>
+        <button id="close-payment-popup" style="width: 100%; background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 12px 24px; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);" onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'; this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(0, 0, 0, 0.3)'" onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform=''; this.style.boxShadow='0 4px 12px rgba(0, 0, 0, 0.2)'">Chiudi</button>
+    </div>
+    <div id="payment-popup-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 1000; transition: all 0.3s ease;"></div>
+
+    
+    <div id="component-search-popup" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3001; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 0; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.3); width: 450px; max-height: 80vh; display: none; flex-direction: column; overflow: hidden;">
+        <div id="component-search-header" style="padding: 16px 24px; cursor: move; background: rgba(255,255,255,0.1); border-radius: 16px 16px 0 0; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <h3 style="margin: 0; color: white; font-size: 1.2em; font-weight: 600;">Cerca Componente</h3>
+            <span style="color: rgba(255,255,255,0.4); font-size: 0.8em;">⋮⋮ trascina</span>
+        </div>
+        <div style="padding: 16px 24px; display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+        <input type="text" id="component-search-input" placeholder="Cerca per nome..." style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em; margin-bottom: 16px; flex-shrink: 0;">
+        <div id="component-search-results" style="flex: 1; overflow-y: auto; min-height: 100px; max-height: 300px; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px;">
+            <p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Digita per cercare...</p>
+        </div>
+        <button id="close-component-search" style="margin-top: 16px; width: 100%; background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 12px; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; flex-shrink: 0;">Chiudi</button>
+        </div>
+    </div>
+    <div id="component-search-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 3000;"></div>
+
+    
+    <div id="add-custom-item-popup" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1002; background: rgba(30, 30, 30, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 0; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.3); width: 450px; display: none; flex-direction: column; overflow: hidden;">
+        <div style="padding: 20px 24px; background: linear-gradient(135deg, rgba(46, 204, 113, 0.2), rgba(39, 174, 96, 0.1)); border-radius: 16px 16px 0 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <h3 style="margin: 0; color: white; font-size: 1.2em; font-weight: 600;">➕ Aggiungi Articolo Manualmente</h3>
+        </div>
+        <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+            <div>
+                <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px; display: block;">Nome Prodotto *</label>
+                <input type="text" id="custom-item-name" placeholder="Es: Intel Core i5-13600K" required style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em;">
+            </div>
+            <div>
+                <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px; display: block;">EAN / Codice *</label>
+                <input type="text" id="custom-item-ean" placeholder="Es: 5032037248716" required style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em;">
+            </div>
+            <div>
+                <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px; display: block;">Categoria *</label>
+                <select id="custom-item-category" required style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em; cursor: pointer;">
+                    <option value="" disabled selected>Seleziona categoria...</option>
+                    <option value="CPU">CPU</option>
+                    <option value="GPU">GPU</option>
+                    <option value="RAM">RAM</option>
+                    <option value="Storage">Storage</option>
+                    <option value="Scheda_Madre">Scheda Madre</option>
+                    <option value="Alimentatore">Alimentatore</option>
+                    <option value="Case_PC">Case PC</option>
+                    <option value="Dissipatore">Dissipatore</option>
+                    <option value="MONITOR">Monitor</option>
+                    <option value="ALTRO">Altro</option>
+                </select>
+            </div>
+            <div>
+                <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px; display: block;">Fornitore *</label>
+                <input type="text" id="custom-item-supplier" list="supplier-suggestions" placeholder="Seleziona o scrivi nuovo..." required style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em;">
+                <datalist id="supplier-suggestions">
+                    <option value="PROKS">
+                    <option value="OMEGA">
+                    <option value="TIER ONE">
+                    <option value="AMAZON">
+                    <option value="ECOM">
+                    <option value="NOUA">
+                </datalist>
+            </div>
+            <div>
+                <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px; display: block;">Prezzo € *</label>
+                <input type="number" id="custom-item-price" placeholder="0.00" step="0.01" min="0" required style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em; -moz-appearance: textfield; appearance: textfield;">
+                <style>
+                    #custom-item-price::-webkit-outer-spin-button,
+                    #custom-item-price::-webkit-inner-spin-button {
+                        -webkit-appearance: none;
+                        margin: 0;
+                    }
+                </style>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 8px;">
+                <button id="save-custom-item" style="flex: 1; background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; border: none; padding: 12px; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.2s;">Salva</button>
+                <button id="cancel-custom-item" style="flex: 1; background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 12px; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; transition: all 0.2s;">Annulla</button>
+            </div>
+        </div>
+    </div>
+    <div id="add-custom-item-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1001;"></div>
+
+    
+    <div id="bulk-replace-popup" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 0; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.3); width: 500px; max-height: 85vh; display: none; flex-direction: column; overflow: hidden;">
+        <div id="bulk-replace-header" style="padding: 16px 24px; cursor: move; background: linear-gradient(135deg, rgba(241, 196, 15, 0.2), rgba(243, 156, 18, 0.1)); border-radius: 16px 16px 0 0; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <h3 style="margin: 0; color: white; font-size: 1.2em; font-weight: 600;">💡 Cerca e Sostituisci di Massa</h3>
+            <span style="color: rgba(255,255,255,0.4); font-size: 0.8em;">⋮⋮ trascina</span>
+        </div>
+        <div style="padding: 16px 24px; display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+            
+            <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px;">🔍 Cerca EAN o testo da sostituire:</label>
+            <input type="text" id="bulk-replace-search" placeholder="Es: RTX 3050 o 1234567890123" style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em; margin-bottom: 12px; flex-shrink: 0;">
+            
+            
+            <div id="bulk-replace-count" style="background: rgba(52, 152, 219, 0.2); border: 1px solid rgba(52, 152, 219, 0.4); border-radius: 8px; padding: 10px 16px; margin-bottom: 16px; display: none; flex-shrink: 0;">
+                <span style="color: #3498db; font-weight: 600;">📊 Trovate: <span id="bulk-replace-count-number">0</span> occorrenze</span>
+            </div>
+            
+            
+            <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; margin-bottom: 6px;">🔄 Cerca nuovo componente:</label>
+            <input type="text" id="bulk-replace-new" placeholder="Cerca nuovo componente..." style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em; margin-bottom: 16px; flex-shrink: 0;" disabled>
+            
+            
+            <div id="bulk-replace-min-qty" style="background: rgba(241, 196, 15, 0.15); border: 1px solid rgba(241, 196, 15, 0.3); border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; display: none; flex-shrink: 0;">
+                <span style="color: #f1c40f; font-size: 0.85em;">⚠️ Mostra solo componenti con quantità ≥ <span id="bulk-replace-min-qty-number">0</span></span>
+            </div>
+            
+            
+            <div id="bulk-replace-results" style="flex: 1; overflow-y: auto; min-height: 100px; max-height: 280px; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 8px;">
+                <p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Inserisci prima il testo/EAN da cercare...</p>
+            </div>
+            
+            <button id="close-bulk-replace" style="margin-top: 16px; width: 100%; background: rgba(255, 255, 255, 0.2); backdrop-filter: blur(10px); color: white; border: 1px solid rgba(255, 255, 255, 0.3); padding: 12px; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; flex-shrink: 0;">Chiudi</button>
+        </div>
+    </div>
+    <div id="bulk-replace-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 1000;"></div>
+
+    
+    <div id="supplier-select-popup" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1002; background: rgba(30, 30, 30, 0.95); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 24px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.3); width: 350px; display: none;">
+        <h3 style="margin: 0 0 8px 0; color: white; font-size: 1.1em; font-weight: 600;">⚠️ EAN non trovato</h3>
+        <p style="color: rgba(255,255,255,0.6); font-size: 0.9em; margin: 0 0 16px 0;">Seleziona il fornitore manualmente:</p>
+        
+        <div id="supplier-select-ean" style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 10px; margin-bottom: 16px; color: rgba(255,255,255,0.7); font-size: 0.85em; word-break: break-all;"></div>
+        
+        <div id="supplier-buttons" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px;">
+            <button class="supplier-option" data-supplier="PROKS" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(231, 76, 60, 0.2); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.4);">PROKS</button>
+            <button class="supplier-option" data-supplier="OMEGA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4);">OMEGA</button>
+            <button class="supplier-option" data-supplier="TIER ONE" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.4);">TIER ONE</button>
+            <button class="supplier-option" data-supplier="AMAZON" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(243, 156, 18, 0.2); color: #f39c12; border: 1px solid rgba(243, 156, 18, 0.4);">AMAZON</button>
+            <button class="supplier-option" data-supplier="NOUA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.4);">NOUA</button>
+            <button class="supplier-option" data-supplier="INTEGRATA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(127, 140, 141, 0.2); color: #7f8c8d; border: 1px solid rgba(127, 140, 141, 0.4);">INTEGRATA</button>
+            <button class="supplier-option" data-supplier="NAVY BLUE" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(26, 86, 219, 0.2); color: #1a56db; border: 1px solid rgba(26, 86, 219, 0.4);">NAVY BLUE</button>
+        </div>
+        
+        <div style="margin-bottom: 16px;">
+            <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Oppure inserisci nuovo fornitore:</label>
+            <input type="text" id="custom-supplier-input" placeholder="Nome nuovo fornitore..." style="width: 100%; box-sizing: border-box; padding: 10px 14px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 0.95em;">
+        </div>
+        
+        <div style="display: flex; gap: 8px;">
+            <button id="confirm-custom-supplier" style="flex: 1; padding: 12px; background: #2ecc71; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">Conferma</button>
+            <button id="cancel-supplier-select" style="flex: 1; padding: 12px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; font-weight: 600; cursor: pointer;">Annulla</button>
+        </div>
+    </div>
+    <div id="supplier-select-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1001;"></div>
+
+    
+    <div id="add-manual-order-popup" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1003; background: rgba(30, 30, 30, 0.98); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 0; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); border: 1px solid rgba(46, 204, 113, 0.3); width: 600px; max-height: 90vh; display: none; flex-direction: column; overflow: hidden;">
+        <div id="add-manual-order-header" style="padding: 16px 24px; cursor: move; background: linear-gradient(135deg, rgba(46, 204, 113, 0.2), rgba(39, 174, 96, 0.1)); border-radius: 16px 16px 0 0; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <h3 style="margin: 0; color: white; font-size: 1.2em; font-weight: 600;">➕ Aggiungi Ordine Manuale</h3>
+            <button id="close-manual-order-popup" style="background: none; border: none; color: rgba(255,255,255,0.6); font-size: 1.5em; cursor: pointer; padding: 0; line-height: 1;">✕</button>
+        </div>
+        <div style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; flex: 1; overflow-y: auto;">
+            
+            <div>
+                <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 6px; display: block; font-weight: 600;">📋 ID/Nome Ordine *</label>
+                <input type="text" id="manual-order-id" placeholder="Es: #9999 o CUSTOM-001" style="width: 100%; box-sizing: border-box; padding: 12px 16px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.3); border-radius: 8px; color: white; font-size: 1em;">
+            </div>
+            
+            
+            <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.1);">
+                <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 12px; display: block; font-weight: 600;">🖥️ Componenti Build <span style="color: #e74c3c; font-size: 0.8em;">(tutti obbligatori)</span></label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">CPU <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative;">
+                            <input type="text" id="manual-cpu" placeholder="Cerca CPU..." class="manual-component-search" data-component="CPU" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                            <span id="manual-cpu-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                        </div>
+                        <input type="hidden" id="manual-cpu-ean">
+                        <input type="hidden" id="manual-cpu-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">MOBO <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative;">
+                            <input type="text" id="manual-mobo" placeholder="Cerca Scheda Madre..." class="manual-component-search" data-component="MOBO" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                            <span id="manual-mobo-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                        </div>
+                        <input type="hidden" id="manual-mobo-ean">
+                        <input type="hidden" id="manual-mobo-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">RAM <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative;">
+                            <input type="text" id="manual-ram" placeholder="Cerca RAM..." class="manual-component-search" data-component="RAM" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                            <span id="manual-ram-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                        </div>
+                        <input type="hidden" id="manual-ram-ean">
+                        <input type="hidden" id="manual-ram-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">GPU <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative;">
+                            <input type="text" id="manual-gpu" placeholder="Cerca GPU..." class="manual-component-search" data-component="GPU" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                            <span id="manual-gpu-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                        </div>
+                        <input type="hidden" id="manual-gpu-ean">
+                        <input type="hidden" id="manual-gpu-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">SSD <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative;">
+                            <input type="text" id="manual-ssd" placeholder="Cerca SSD..." class="manual-component-search" data-component="SSD" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                            <span id="manual-ssd-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                        </div>
+                        <input type="hidden" id="manual-ssd-ean">
+                        <input type="hidden" id="manual-ssd-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">PSU <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative;">
+                            <input type="text" id="manual-psu" placeholder="Cerca Alimentatore..." class="manual-component-search" data-component="PSU" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                            <span id="manual-psu-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                        </div>
+                        <input type="hidden" id="manual-psu-ean">
+                        <input type="hidden" id="manual-psu-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">CASE <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative; display: flex; gap: 8px; align-items: center;">
+                            <div style="position: relative; flex: 1;">
+                                <input type="text" id="manual-case" placeholder="Cerca Case..." class="manual-component-search" data-component="CASE" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                                <span id="manual-case-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                            </div>
+                            <select id="manual-case-color" style="padding: 10px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.85em; cursor: pointer; min-width: 90px;">
+                                <option value="">Colore</option>
+                                <option value="BIANCO">Bianco</option>
+                                <option value="NERO">Nero</option>
+                                <option value="ALTRO">Altro</option>
+                            </select>
+                        </div>
+                        <input type="hidden" id="manual-case-ean">
+                        <input type="hidden" id="manual-case-supplier-value">
+                    </div>
+                    <div class="manual-component-wrapper">
+                        <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">COOLER <span style="color: #e74c3c;">*</span></label>
+                        <div style="position: relative; display: flex; gap: 8px; align-items: center;">
+                            <div style="position: relative; flex: 1;">
+                                <input type="text" id="manual-cooler" placeholder="Cerca Dissipatore..." class="manual-component-search" data-component="COOLER" style="width: 100%; box-sizing: border-box; padding: 10px 12px; padding-right: 70px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                                <span id="manual-cooler-supplier" class="manual-supplier-badge" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7em; padding: 2px 6px; border-radius: 4px; font-weight: 600;"></span>
+                            </div>
+                            <select id="manual-cooler-color" style="padding: 10px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.85em; cursor: pointer; min-width: 90px;">
+                                <option value="">Colore</option>
+                                <option value="BIANCO">Bianco</option>
+                                <option value="NERO">Nero</option>
+                                <option value="ALTRO">Altro</option>
+                            </select>
+                        </div>
+                        <input type="hidden" id="manual-cooler-ean">
+                        <input type="hidden" id="manual-cooler-supplier-value">
+                    </div>
+                </div>
+            </div>
+            
+            
+            <div id="manual-search-results" style="display: none; position: absolute; background: rgba(20,20,20,0.98); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 1010; width: calc(100% - 48px); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>
+            
+            
+            <div>
+                <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 6px; display: block; font-weight: 600;">📝 Voci Personalizzate (opzionale)</label>
+                <div id="manual-custom-items-container" style="display: flex; flex-direction: column; gap: 8px;">
+                    
+                </div>
+                <button id="add-manual-custom-item" style="margin-top: 8px; padding: 8px 16px; background: rgba(52, 152, 219, 0.2); border: 1px dashed rgba(52, 152, 219, 0.5); color: #3498db; border-radius: 6px; cursor: pointer; font-size: 0.85em;">+ Aggiungi voce</button>
+            </div>
+            
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div>
+                    <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">📧 Email (opzionale)</label>
+                    <input type="email" id="manual-order-email" placeholder="email@esempio.com" style="width: 100%; box-sizing: border-box; padding: 10px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                </div>
+                <div>
+                    <label style="color: rgba(255,255,255,0.6); font-size: 0.8em;">📱 Telefono (opzionale)</label>
+                    <input type="tel" id="manual-order-phone" placeholder="+39 123 456 7890" style="width: 100%; box-sizing: border-box; padding: 10px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; font-size: 0.9em;">
+                </div>
+            </div>
+        </div>
+        
+        <div style="padding: 16px 24px; border-top: 1px solid rgba(255,255,255,0.1); display: flex; gap: 12px; flex-shrink: 0;">
+            <button id="save-manual-order" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; border: none; border-radius: 10px; font-weight: 600; font-size: 1em; cursor: pointer; transition: all 0.3s ease;">✅ Salva Ordine</button>
+            <button id="cancel-manual-order" style="flex: 1; padding: 14px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; font-weight: 600; font-size: 1em; cursor: pointer; transition: all 0.3s ease;">Annulla</button>
+        </div>
+    </div>
+    <div id="add-manual-order-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1002;"></div>
+
+    
+    <div id="custom-components-page" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 10, 0.98); z-index: 2000; overflow-y: auto; overflow-x: hidden; padding: 80px 20px 20px;">
+        <button id="close-custom-components" style="position: fixed; top: 90px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.4); cursor: pointer; z-index: 2001; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(10px);" title="Chiudi">
+            <img src="https://img.icons8.com/?size=96&id=46&format=png" alt="Chiudi" style="width: 28px; height: 28px; filter: brightness(0) saturate(100%) invert(52%) sepia(78%) saturate(2476%) hue-rotate(338deg) brightness(98%) contrast(87%);">
+        </button>
+        <div style="max-width: 900px; margin: 0 auto; padding-bottom: 350px;">
+            <div style="margin-bottom: 32px;">
+                <h2 style="color: #f39c12; font-size: 2em; margin: 0; font-weight: 700;">📦 Componenti Amazon Personalizzati</h2>
+                <p style="color: rgba(255,255,255,0.6); margin-top: 8px; font-size: 1em;">Aggiungi componenti personalizzati con fornitore AMAZON. Saranno disponibili nella ricerca EAN.</p>
+            </div>
+            
+            
+            <div style="background: rgba(243, 156, 18, 0.1); border: 1px solid rgba(243, 156, 18, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                <h3 style="color: #f39c12; margin: 0 0 16px 0; font-size: 1.1em;">➕ Aggiungi Nuovo Componente</h3>
+                <div style="display: grid; grid-template-columns: 1fr 2fr 1fr auto; gap: 12px; align-items: end;">
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Categoria</label>
+                        <select id="new-custom-component-category" style="width: 100%; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                            <option value="CPU">CPU</option>
+                            <option value="GPU">GPU</option>
+                            <option value="RAM">RAM</option>
+                            <option value="SSD">SSD</option>
+                            <option value="MOBO">Scheda Madre</option>
+                            <option value="PSU">Alimentatore</option>
+                            <option value="CASE">Case</option>
+                            <option value="COOLER">Dissipatore</option>
+                            <option value="ALTRO">Altro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Nome Componente *</label>
+                        <input type="text" id="new-custom-component-name" placeholder="Es: AMD Ryzen 7 7800X3D" style="width: 100%; box-sizing: border-box; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                    </div>
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">EAN / Codice</label>
+                        <input type="text" id="new-custom-component-ean" placeholder="Es: AMZ-12345" style="width: 100%; box-sizing: border-box; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                    </div>
+                    <button id="add-custom-component-btn" style="padding: 12px 24px; background: linear-gradient(135deg, #f39c12, #e67e22); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; white-space: nowrap;">+ Aggiungi</button>
+                </div>
+            </div>
+            
+            
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+                <h3 style="color: white; margin: 0 0 16px 0; font-size: 1.1em;">📋 Componenti Salvati</h3>
+                <div id="custom-components-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Caricamento...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <div id="gpo-mapping-page" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 10, 0.98); z-index: 2000; overflow-y: auto; overflow-x: hidden; padding: 80px 20px 20px;">
+        <button id="close-gpo-mapping" style="position: fixed; top: 90px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.4); cursor: pointer; z-index: 2001; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(10px);" title="Chiudi">
+            <img src="https://img.icons8.com/?size=96&id=46&format=png" alt="Chiudi" style="width: 28px; height: 28px; filter: brightness(0) saturate(100%) invert(52%) sepia(78%) saturate(2476%) hue-rotate(338deg) brightness(98%) contrast(87%);">
+        </button>
+        <div style="max-width: 1100px; margin: 0 auto; padding-bottom: 350px;">
+            <div style="margin-bottom: 32px;">
+                <h2 style="color: #9b59b6; font-size: 2em; margin: 0; font-weight: 700;">🔗 GPO - Mapping Custom Properties</h2>
+                <p style="color: rgba(255,255,255,0.6); margin-top: 8px; font-size: 1em;">Associa i valori delle varianti (custom properties) agli EAN dei componenti nel database.</p>
+            </div>
+            
+            
+            <div style="background: rgba(155, 89, 182, 0.1); border: 1px solid rgba(155, 89, 182, 0.3); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+                <h3 style="color: #9b59b6; margin: 0 0 16px 0; font-size: 1.1em;">➕ Aggiungi Nuovo Mapping</h3>
+                <div style="display: grid; grid-template-columns: 150px 1fr 1fr 1fr auto; gap: 12px; align-items: end;">
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Variabile</label>
+                        <select id="new-gpo-variable" style="width: 100%; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                            <option value="CPU">CPU</option>
+                            <option value="GPU">GPU</option>
+                            <option value="RAM">RAM</option>
+                            <option value="SSD">SSD</option>
+                            <option value="SSD ADDON">SSD ADDON</option>
+                            <option value="SCHEDA MADRE">SCHEDA MADRE</option>
+                            <option value="PSU">PSU</option>
+                            <option value="CASE">CASE</option>
+                            <option value="COOLER">COOLER</option>
+                            <option value="MONITOR">MONITOR</option>
+                            <option value="KIT">KIT</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Valore Variante *</label>
+                        <input type="text" id="new-gpo-value" placeholder="Es: MINIMAL CASE BLACK" style="width: 100%; box-sizing: border-box; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                    </div>
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">EAN Componente</label>
+                        <input type="text" id="new-gpo-ean" placeholder="Cerca o inserisci EAN..." style="width: 100%; box-sizing: border-box; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                    </div>
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Nome Componente *</label>
+                        <input type="text" id="new-gpo-component-name" placeholder="Nome componente (obbligatorio se EAN vuoto)" style="width: 100%; box-sizing: border-box; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                    </div>
+                    <div>
+                        <label style="color: rgba(255,255,255,0.7); font-size: 0.85em; display: block; margin-bottom: 6px;">Fornitore</label>
+                        <select id="new-gpo-supplier" style="width: 100%; padding: 12px; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; color: white; font-size: 0.95em;">
+                            <option value="">-- Seleziona --</option>
+                            <option value="PROKS">PROKS</option>
+                            <option value="OMEGA">OMEGA</option>
+                            <option value="TIER ONE">TIER ONE</option>
+                            <option value="AMAZON">AMAZON</option>
+                            <option value="NOUA">NOUA</option>
+                            <option value="MSI">MSI</option>
+                            <option value="CASEKING">CASEKING</option>
+                        </select>
+                    </div>
+                    <button id="add-gpo-mapping-btn" style="padding: 12px 24px; background: linear-gradient(135deg, #9b59b6, #8e44ad); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s ease; white-space: nowrap;">+ Aggiungi</button>
+                </div>
+                
+                <div id="gpo-ean-search-results" style="display: none; position: absolute; background: rgba(20,20,20,0.98); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 2010; width: 300px; box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>
+            </div>
+            
+            
+            <div style="margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="gpo-filter-btn active" data-filter="ALL" style="padding: 8px 16px; background: rgba(155, 89, 182, 0.3); border: 1px solid rgba(155, 89, 182, 0.5); color: #9b59b6; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">TUTTI</button>
+                <button class="gpo-filter-btn" data-filter="CPU" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">CPU</button>
+                <button class="gpo-filter-btn" data-filter="GPU" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">GPU</button>
+                <button class="gpo-filter-btn" data-filter="RAM" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">RAM</button>
+                <button class="gpo-filter-btn" data-filter="SSD" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">SSD</button>
+                <button class="gpo-filter-btn" data-filter="SSD ADDON" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">SSD ADDON</button>
+                <button class="gpo-filter-btn" data-filter="SCHEDA MADRE" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">SCHEDA MADRE</button>
+                <button class="gpo-filter-btn" data-filter="CASE" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">CASE</button>
+                <button class="gpo-filter-btn" data-filter="COOLER" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">COOLER</button>
+                <button class="gpo-filter-btn" data-filter="PSU" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">PSU</button>
+                <button class="gpo-filter-btn" data-filter="MONITOR" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">MONITOR</button>
+                <button class="gpo-filter-btn" data-filter="KIT" style="padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.7); border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85em;">KIT</button>
+            </div>
+            
+            
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px;">
+                <h3 style="color: white; margin: 0 0 16px 0; font-size: 1.1em;">📋 Mapping Salvati</h3>
+                <div id="gpo-mapping-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Caricamento...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <div id="standard-configs-page" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 10, 0.98); z-index: 2000; overflow-y: auto; padding: 80px 20px 140px;">
+        <button id="save-all-configs-btn" style="position: fixed; top: 90px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background: rgba(46, 204, 113, 0.2); border: 1px solid rgba(46, 204, 113, 0.4); cursor: pointer; z-index: 2001; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(10px);" title="Salva Tutte le Modifiche">
+            <img src="https://img.icons8.com/?size=512&id=VFaz7MkjAiu0&format=png" alt="Salva" style="width: 32px; height: 32px; filter: brightness(0) saturate(100%) invert(73%) sepia(28%) saturate(1207%) hue-rotate(93deg) brightness(92%) contrast(85%);">
+        </button>
+        <button id="close-standard-configs" style="position: fixed; top: 90px; right: 90px; width: 56px; height: 56px; border-radius: 50%; background: rgba(231, 76, 60, 0.2); border: 1px solid rgba(231, 76, 60, 0.4); cursor: pointer; z-index: 2001; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; backdrop-filter: blur(10px);" title="Chiudi">
+            <img src="https://img.icons8.com/?size=96&id=46&format=png" alt="Chiudi" style="width: 28px; height: 28px; filter: brightness(0) saturate(100%) invert(52%) sepia(78%) saturate(2476%) hue-rotate(338deg) brightness(98%) contrast(87%);">
+        </button>
+        <div style="max-width: 1400px; margin: 0 auto;">
+            <div style="margin-bottom: 32px;">
+                <h2 style="color: white; font-size: 2em; margin: 0; font-weight: 700;">⚙️ Configurazioni Standard</h2>
+            </div>
+            <p style="color: rgba(255,255,255,0.6); margin-bottom: 32px; font-size: 1.05em;">Modifica le configurazioni predefinite dei PC. Le modifiche vengono salvate automaticamente e hanno la precedenza sul file JSON.</p>
+            <div id="standard-configs-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 24px; margin-bottom: 250px;">
+                
+            </div>
+        </div>
+    </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <div id="finalize-all-popup" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1003; background: rgba(255, 255, 255, 0.15); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-radius: 16px; padding: 32px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.3); width: 420px; box-sizing: border-box;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+            <h3 style="margin: 0; color: white; font-size: 1.2em; font-weight: 600;">✅ Finalizza Tutti gli Elaborati</h3>
+            <button id="close-finalize-all-popup" style="background: none; border: none; color: white; font-size: 1.3em; cursor: pointer; opacity: 0.7; transition: opacity 0.3s;">✕</button>
+        </div>
+        <p style="color: rgba(255,255,255,0.8); margin: 0 0 20px 0; font-size: 0.95em; line-height: 1.5;">
+            Stai per spostare <strong id="finalize-count-display">0</strong> ordini dalla tab "Elaborati" alla tab "Finalizzati".
+        </p>
+        <p style="color: rgba(255,255,255,0.6); margin: 0 0 24px 0; font-size: 0.85em;">
+            Questa azione non può essere annullata automaticamente.
+        </p>
+        <div style="display: flex; gap: 12px;">
+            <button id="confirm-finalize-all" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #2ecc71, #27ae60); color: white; border: none; border-radius: 10px; font-weight: 600; font-size: 1em; cursor: pointer; transition: all 0.3s ease;">Conferma Finalizzazione</button>
+            <button id="cancel-finalize-all" style="flex: 1; padding: 14px; background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 10px; font-weight: 600; font-size: 1em; cursor: pointer; transition: all 0.3s ease;">Annulla</button>
+        </div>
+    </div>
+    <div id="finalize-all-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1002;"></div>
+
+    <div id="since-id-filter-container" style="display:none; position: fixed; left: 20px; z-index: 100;">
+        <div class="tabs" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.2);">
+            <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; font-weight: 600;">Carica ordini da ID:</label>
+            <input type="text" id="since-id-input" placeholder="#3500" style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(0, 0, 0, 0.3); color: white; font-size: 0.9em; font-weight: 500; width: 90px; transition: all 0.3s ease; outline: none;" title="Inserisci il numero ordine da cui iniziare (es: #3500 o 3500). Verranno mostrati solo ordini >= a questo numero." onfocus="this.style.borderColor='rgba(255, 255, 255, 0.5)'; this.style.background='rgba(0, 0, 0, 0.4)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.3)'; this.style.background='rgba(0, 0, 0, 0.3)'">
+        </div>
+    </div>
+
+    <div id="operator-filter-container" style="display:none;">
+        <div class="tabs">
+            <button id="export-excel-btn" class="export-excel-btn" title="Esporta ordini in Excel" style="display:none;" disabled>
+                <img src="https://img.icons8.com/?size=96&id=117561&format=png" alt="Excel" style="width: 20px; height: 20px;">
+                <span>Excel</span>
+            </button>
+            <button class="filter-button" data-operator="OperatoreA" title="Filtra ordini per Operatore A">OperatoreA</button>
+            <button class="filter-button" data-operator="OperatoreB" title="Filtra ordini per Operatore B">OperatoreB</button>
+            <button class="filter-reset-button" title="Resetta filtri" style="display:none;">✕</button>
+        </div>
+    </div>
+
+    <div id="orders-container" class="tab-content active" data-content="orders"></div>
+    <div id="processed-container" class="tab-content" data-content="processed"></div>
+    <div id="finalized-container" class="tab-content" data-content="finalized"></div>
+    <div id="inventory-container" class="tab-content" data-content="inventory">
+        <div class="inventory-page" style="width: 100%; margin: 0; padding: 12px 0 28px;">
+            <section style="padding: 4px 0;">
+                <h2 style="margin: 0 0 10px 0; color: white;">Inventario</h2>
+                <p style="margin: 0 0 12px 0; color: rgba(255,255,255,0.75);">Gestione quantità prodotti a magazzino.</p>
+                <div class="inventory-table-container" style="overflow: auto; max-height: calc(100vh - 260px);">
+                    <table class="inventory-table">
+                        <thead>
+                            <tr>
+                                <th>EAN</th>
+                                <th>Nome</th>
+                                <th>Quantità</th>
+                                <th>Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="inventory-table-body">
+                            
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+    <div id="message-templates-container" class="tab-content" data-content="message-templates">
+        <div class="message-templates-tab" style="width: 100%; max-width: none; margin: 0; padding: 12px 0 28px;">
+            <section style="padding: 4px 0;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px;">
+                    <h2 style="margin: 0; color: white;">Template Messaggi WhatsApp / Email</h2>
+                    <button id="template-priority-btn" type="button" style="padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.18); color: white; font-size: 0.82em; cursor: pointer;">Priorita</button>
+                </div>
+                <p style="margin: 0 0 14px 0; color: rgba(255,255,255,0.75);">A sinistra gestisci le regole attive, a destra modifichi la regola selezionata.</p>
+
+                <div id="template-priority-popup" style="display:none; position: fixed; inset: 0; z-index: 3200; background: rgba(0,0,0,0.55); align-items: center; justify-content: center;">
+                    <div style="width:min(92vw, 460px); background: rgba(8,14,24,0.94); border: 1px solid rgba(255,255,255,0.24); border-radius: 12px; padding: 14px;">
+                        <h3 style="margin:0 0 8px 0; color:white; font-size: 1rem;">Priorita Esecuzione Categorie</h3>
+                        <p style="margin:0 0 10px 0; color:rgba(255,255,255,0.72); font-size:0.86em;">Dall'alto verso il basso: maggiore priorita.</p>
+                        <div style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.12); color:white;">1. DISSIPATORE</div>
+                            <div style="padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.12); color:white;">2. MOBO WIFI</div>
+                            <div style="padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.12); color:white;">3. KIT VENTOLE</div>
+                            <div style="padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.12); color:white;">4. CASE</div>
+                            <div style="padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.12); color:white;">5. FPS BOOSTER</div>
+                            <div style="padding:8px 10px; border-radius:8px; background: rgba(255,255,255,0.12); color:white;">Append automatico finale: FPS BOOSTER -> CHIUSURA FINALE</div>
+                        </div>
+                        <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+                            <button id="template-priority-close" type="button" style="padding: 7px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.18); color: white; cursor: pointer;">Chiudi</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 14px; align-items: start;">
+                    <aside style="padding: 2px;">
+                        <button class="settings-action-btn" id="add-rule-btn" type="button" style="width: 100%;">+ Aggiungi Regola</button>
+                        <div id="rules-list" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;"></div>
+                    </aside>
+
+                    <section id="rule-editor-panel" style="padding: 8px 10px; min-height: 420px;">
+                        <div id="rule-editor-empty" style="color: rgba(255,255,255,0.75); border: 1px dashed rgba(255,255,255,0.26); border-radius: 10px; padding: 14px;">
+                            Seleziona una regola a sinistra oppure crea una nuova regola.
+                        </div>
+
+                        <div id="rule-editor" style="display:none;">
+                            <h3 id="rule-editor-title" style="margin: 0 0 10px 0; color: white;">Modifica Regola</h3>
+
+                            <label id="editor-article-search-wrap" style="display:block; color: rgba(255,255,255,0.95); font-size: 0.9em; margin-bottom: 12px;">
+                                Articolo (ricerca GPO)
+                                <input id="editor-article-search" type="text" placeholder="Cerca per EAN, nome articolo, fornitore..." autocomplete="off" style="width:100%; margin-top: 6px; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.25); color: white;" />
+                                <input id="editor-article-ean" type="hidden" />
+                                <div id="editor-search-results" style="display:none; margin-top: 6px; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; background: rgba(8, 14, 24, 0.95); max-height: 230px; overflow-y: auto;"></div>
+                                <div id="editor-selected-articles" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;"></div>
+                            </label>
+
+                            <div id="editor-special-rule-info" style="display:none; margin-bottom: 12px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(56,189,248,0.5); background: rgba(56,189,248,0.16); color: rgba(255,255,255,0.95); font-size: 0.88em; line-height: 1.45;">
+                                <span id="editor-special-rule-info-text"></span>
+                            </div>
+
+                            <label style="display:block; color: rgba(255,255,255,0.95); font-size: 0.9em; margin-bottom: 12px;">
+                                Categoria template
+                                <select id="editor-template-category" style="width:100%; margin-top: 6px; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.25); color: white;">
+                                    <option value="">Seleziona categoria</option>
+                                    <option value="DISSIPATORE">DISSIPATORE</option>
+                                    <option value="MOBO WIFI">MOBO WIFI</option>
+                                    <option value="SCHEDA MADRE">SCHEDA MADRE</option>
+                                    <option value="CASE">CASE</option>
+                                    <option value="KIT VENTOLE">KIT VENTOLE</option>
+                                    <option value="FPS BOOSTER">FPS BOOSTER</option>
+                                    <option value="FINALE">CHIUSURA FINALE</option>
+                                </select>
+                            </label>
+
+                            <label style="display:block; color: rgba(255,255,255,0.95); font-size: 0.9em;">
+                                Template messaggio
+                                <textarea id="editor-message-template" rows="8" placeholder="Scrivi il messaggio da usare quando questo articolo e presente nella build elaborata" style="width:100%; margin-top: 6px; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.25); background: rgba(0,0,0,0.25); color: white;"></textarea>
+                            </label>
+
+                            <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: nowrap;"></div>
+
+                            <p style="font-size: 0.82em; color: rgba(255,255,255,0.72); margin: 10px 0 0 0;">Placeholder: {{customerName}}, {{orderName}}, {{orderNumber}}, {{matchedArticle}}, {{componentsList}}, {{today}}, {{email}}, {{phone}}</p>
+                        </div>
+                    </section>
+                </div>
+            </section>
+        </div>
+    </div>
+    <div id="settings-container" class="tab-content" data-content="settings">
+        <div class="settings-page" style="width: 100%; margin: 0; padding: 12px 0 28px;">
+            <section style="padding: 4px 0;">
+                <h2 style="margin: 0 0 10px 0; color: white;">Impostazioni</h2>
+                <p style="margin: 0 0 14px 0; color: rgba(255,255,255,0.75);">Configurazioni del gestionale in schede rapide.</p>
+
+                <div class="settings-page-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; align-items: stretch;">
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">🖼️</span>
+                            <label>Sfondo Personalizzato</label>
+                        </div>
+                        <div id="bg-drop-zone" class="settings-drop-zone">
+                            <img src="https://img.icons8.com/?size=96&id=yF8LPIFelJU7&format=png" alt="Upload" style="width: 32px; height: 32px; opacity: 0.6; margin-bottom: 8px;">
+                            <p style="margin: 0; color: rgba(255,255,255,0.7); font-size: 0.9em;">Trascina un'immagine qui</p>
+                            <p style="margin: 4px 0 0 0; color: rgba(255,255,255,0.5); font-size: 0.8em;">oppure clicca per selezionare</p>
+                        </div>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">🔔</span>
+                            <label>Notifiche Desktop</label>
+                        </div>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="desktop-notifications-toggle">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Abilita notifiche browser</span>
+                        </label>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">💰</span>
+                            <label>Mostra Totali Ordini</label>
+                        </div>
+                        <label class="settings-toggle">
+                            <input type="checkbox" id="show-totals-toggle">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-label">Visualizza prezzi nelle card</span>
+                        </label>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">🔒</span>
+                            <label>Timeout Sessione</label>
+                        </div>
+                        <select id="session-timeout-select" class="settings-select" title="Timeout Sessione" aria-label="Timeout Sessione">
+                            <option value="0">Mai (disabilitato)</option>
+                            <option value="300000">5 minuti</option>
+                            <option value="600000">10 minuti</option>
+                            <option value="1800000" selected>30 minuti</option>
+                            <option value="14400000">4 ore</option>
+                        </select>
+                        <p class="settings-description">Auto-logout dopo inattività</p>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">🧹</span>
+                            <label>Cache</label>
+                        </div>
+                        <button id="clear-cache-btn" class="settings-action-btn" type="button">Svuota cache e ricarica</button>
+                        <p class="settings-description">Equivalente a Ctrl+Shift+R / Cmd+Shift+R</p>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">✅</span>
+                            <label>Visualizzazione Finalizzati</label>
+                        </div>
+                        <button id="open-finalized-page-btn" class="settings-action-btn" type="button">Apri Pagina Finalizzati</button>
+                        <p class="settings-description">Apre la vista completa degli ordini finalizzati</p>
+                    </div>
+
+                    <div class="settings-option">
+                        <div class="settings-option-header">
+                            <span class="settings-icon">📦</span>
+                            <label>Gestione Inventario</label>
+                        </div>
+                        <button id="open-inventory-page-btn" class="settings-action-btn" type="button">Apri Pagina Inventario</button>
+                        <p class="settings-description">Apre la pagina inventario dedicata</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+    <div id="hidden-container" class="tab-content" data-content="hidden"></div>
+    <div id="suppliers-container" class="tab-content" data-content="suppliers">
+        <div id="suppliers-header" class="suppliers-section-header">
+            <h1>Riepilogo Fornitori</h1>
+            <p>Componenti raggruppati per fornitore</p>
+            <p class="update-time">Ultimo aggiornamento: <span id="suppliers-update-time">-</span></p>
+            
+            <div class="suppliers-log-section">
+                <h3>📋 Cronologia Aggiornamenti</h3>
+                <div id="suppliers-log-list" class="suppliers-log-list">
+                    <p style="color: rgba(255,255,255,0.5); font-size: 0.9em;">Nessun aggiornamento ancora</p>
+                </div>
+            </div>
+        </div>
+        <div id="suppliers-grid" class="suppliers-grid"></div>
+    </div>
+
+    <!-- SUPABASE - Database layer -->
+    <script type="module" src="assets/js/supabase-config.js"></script>
+    <!-- API ADAPTER - intercetta chiamate PHP e le manda a Supabase -->
+    <script src="assets/js/api-adapter.js"></script>
+    <!-- Script originali -->
+    <script src="assets/js/order-config-matcher.js"></script>
+    <script src="assets/js/pc-config-parser.js"></script>
+    <script src="assets/js/multi-order-handler.js"></script>
+    <script src="assets/js/excel-export.js"></script>
+    <script src="assets/js/gpo-manager.js"></script>
+    <script src="assets/js/gpo-page-manager.js"></script>
+    <script src="assets/js/amazon-products-manager.js"></script>
+    <script src="assets/js/message-template-engine.js"></script>
+    <script src="assets/js/message-templates-page.js"></script>
+    <script src="assets/js/app.js"></script>
+    <script src="assets/js/supplier-summary.js"></script>
+</body>
+</html>

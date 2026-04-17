@@ -1,0 +1,1 @@
+# minimalgamers-gestionale

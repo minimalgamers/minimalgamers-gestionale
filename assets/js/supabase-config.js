@@ -20,9 +20,16 @@ const SHOPIFY_PROXY_URL = null; // non usato, chiamata diretta
 // ============================================================
 // INIT SUPABASE CLIENT
 // ============================================================
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+// Import dinamico per funzionare senza type="module"
+let supabaseModule;
+async function getSupabaseClient() {
+    if (!supabaseModule) {
+        supabaseModule = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+    }
+    return supabaseModule.createClient(SUPABASE_URL, SUPABASE_KEY);
+}
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+let supabase = null;
 
 // ============================================================
 // AUTH
@@ -400,6 +407,15 @@ async function fetchShopifyOrders(apiKey) {
 // ============================================================
 // ESPORTA TUTTO GLOBALMENTE
 // ============================================================
+// Inizializza il client Supabase subito
+(async () => {
+    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log('✅ Supabase DB pronto');
+    window.SupabaseDB._ready = true;
+    if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
+})();
+
 window.SupabaseDB = {
     supabase,
     verifyPassword,
@@ -460,4 +476,3 @@ window.SupabaseDB = {
     getShopifyOrders: dbGetShopifyOrders,
 };
 
-console.log('✅ Supabase DB pronto');

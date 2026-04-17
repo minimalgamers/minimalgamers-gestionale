@@ -8,8 +8,14 @@ window.fetch = async function(url, options = {}) {
     if (options.body) { try { body = JSON.parse(options.body); } catch(e) { body = options.body; } }
     const params = (() => { try { return Object.fromEntries(new URL(urlStr, location.href).searchParams); } catch { return {}; } })();
     const ok = (data) => new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    // Aspetta che Supabase sia pronto (max 5 secondi)
+    let attempts = 0;
+    while ((!window.SupabaseDB || !window.SupabaseDB._ready) && attempts < 50) {
+        await new Promise(r => setTimeout(r, 100));
+        attempts++;
+    }
     const DB = window.SupabaseDB;
-    if (!DB) return ok({ success: false, error: 'DB non pronto' });
+    if (!DB || !DB._ready) return ok({ success: false, error: 'DB non pronto' });
     try {
         if (urlStr.includes('auth_module')) { const v = await DB.verifyPassword(body?.password||''); return ok(v ? {success:true,api_key:body?.password} : {success:false,error:'Password errata'}); }
         if (urlStr.includes('api-processed-orders')) {

@@ -18,6 +18,20 @@ window.fetch = async function(url, options = {}) {
             if (method==='PUT'||method==='PATCH') { const id=body.shopify_order_id||body.shopifyOrderId; const u={}; if(body.stato!==undefined)u.stato=body.stato; if(body.operator!==undefined)u.operator=body.operator; if(body.foglio_di_lavoro!==undefined)u.foglio_di_lavoro=body.foglio_di_lavoro; if(body.foglioDiLavoro!==undefined)u.foglio_di_lavoro=body.foglioDiLavoro; if(body.components!==undefined)u.components=body.components; await DB.updateProcessedOrder(id,u); return ok({success:true}); }
             if (method==='DELETE') { await DB.deleteProcessedOrder(params.id||params.shopify_order_id); return ok({success:true}); }
         }
+        if (urlStr.includes('api-orders.php') && urlStr.includes('shopify_bridge')) {
+            // Chiama la Supabase Edge Function come proxy Shopify
+            try {
+                const edgeUrl = 'https://nulkachuhjdzohkzwvly.supabase.co/functions/v1/shopify-proxy';
+                const shopifyResp = await _originalFetch(edgeUrl);
+                if (!shopifyResp.ok) throw new Error(`Shopify Edge Function HTTP ${shopifyResp.status}`);
+                const shopifyOrders = await shopifyResp.json();
+                const orders = shopifyOrders.orders || shopifyOrders || [];
+                return ok(orders);
+            } catch(e) {
+                console.error('❌ Edge Function error:', e);
+                return ok([]);
+            }
+        }
         if (urlStr.includes('api-shopify-orders')) { if(method==='POST'){await DB.saveShopifyOrders(body.orders||[]);return ok({success:true});} return ok({success:true,orders:await DB.getShopifyOrders()}); }
         if (urlStr.includes('api-order-statuses')) { if(method==='GET') return ok({success:true,statuses:await DB.getOrderStatuses()}); await DB.saveOrderStatus(body.orderId,body.status); return ok({success:true}); }
         if (urlStr.includes('api-operator-assignments')) { if(method==='GET') return ok({success:true,assignments:await DB.getOperatorAssignments()}); if(method==='DELETE'){await DB.deleteOperatorAssignment(params.id);return ok({success:true});} await DB.saveOperatorAssignment(body.orderId,body.operator); return ok({success:true}); }

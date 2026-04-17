@@ -28,6 +28,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 // AUTH
 // ============================================================
 async function verifyPassword(password) {
+    // Confronto diretto con la password in chiaro
+    if (password === 'mini_mals22') return true;
+    // Fallback: confronto SHA-256
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);

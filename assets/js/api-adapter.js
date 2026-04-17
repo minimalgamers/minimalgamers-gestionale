@@ -40,7 +40,24 @@ window.fetch = async function(url, options = {}) {
                 return ok([]);
             }
         }
-        if (urlStr.includes('api-shopify-orders')) { if(method==='POST'){await DB.saveShopifyOrders(body.orders||[]);return ok({success:true});} return ok({success:true,orders:await DB.getShopifyOrders()}); }
+        if (urlStr.includes('api-shopify-orders')) {
+            if (method === 'POST') { await DB.saveShopifyOrders(body.orders||[]); return ok({success:true}); }
+            // GET: carica ordini dalla Edge Function Shopify
+            try {
+                const edgeUrl = 'https://nulkachuhjdzohkzwvly.supabase.co/functions/v1/shopify-proxy';
+                const shopifyResp = await _originalFetch(edgeUrl);
+                if (!shopifyResp.ok) throw new Error(`Edge Function HTTP ${shopifyResp.status}`);
+                const shopifyData = await shopifyResp.json();
+                const orders = shopifyData.orders || (Array.isArray(shopifyData) ? shopifyData : []);
+                // Formatta come raw_order_data che si aspetta loadOrdersFromDatabase
+                const formattedOrders = orders.map(o => ({ shopify_order_id: String(o.id), raw_order_data: o }));
+                console.log('✅ Ordini DB caricati:', formattedOrders.length);
+                return ok({success:true, orders: formattedOrders});
+            } catch(e) {
+                console.error('❌ Errore caricamento ordini:', e);
+                return ok({success:true, orders:[]});
+            }
+        }
         if (urlStr.includes('api-order-statuses')) { if(method==='GET') return ok({success:true,statuses:await DB.getOrderStatuses()}); await DB.saveOrderStatus(body.orderId,body.status); return ok({success:true}); }
         if (urlStr.includes('api-operator-assignments')) { if(method==='GET') return ok({success:true,assignments:await DB.getOperatorAssignments()}); if(method==='DELETE'){await DB.deleteOperatorAssignment(params.id);return ok({success:true});} await DB.saveOperatorAssignment(body.orderId,body.operator); return ok({success:true}); }
         if (urlStr.includes('api-hidden-orders')) { if(method==='GET') return ok({success:true,hiddenOrders:await DB.getHiddenOrders()}); if(method==='DELETE'){await DB.restoreHiddenOrder(params.id);return ok({success:true});} await DB.hideOrder(body.orderId); return ok({success:true}); }

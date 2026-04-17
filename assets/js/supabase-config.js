@@ -372,21 +372,11 @@ async function dbGetShopifyOrders() {
 // SHOPIFY API (via Cloudflare Worker proxy)
 // ============================================================
 async function fetchShopifyOrders(apiKey) {
-    // Usa Supabase come proxy per aggirare il CORS di Shopify
-    // Prima prova a caricare dal database locale
-    const cachedOrders = await dbGetShopifyOrders();
-    if (cachedOrders && cachedOrders.length > 0) {
-        console.log('✅ Ordini caricati dalla cache Supabase:', cachedOrders.length);
-        return cachedOrders;
-    }
-    // Se non ci sono ordini in cache, prova il proxy
-    const targetUrl = encodeURIComponent(`https://${SHOPIFY_STORE}/admin/api/2024-10/orders.json?status=any&limit=250&fields=id,name,email,created_at,financial_status,fulfillment_status,total_price,current_total_price,currency,billing_address,customer,line_items,phone`);
-    const proxyUrl = `https://api.allorigins.win/get?url=${targetUrl}`;
-    const proxyResponse = await fetch(proxyUrl);
-    if (!proxyResponse.ok) throw new Error(`Proxy HTTP ${proxyResponse.status}`);
-    const proxyData = await proxyResponse.json();
-    // allorigins restituisce il contenuto in proxyData.contents
-    const data = JSON.parse(proxyData.contents);
+    // Usa Supabase Edge Function come proxy sicuro per Shopify
+    const edgeFunctionUrl = 'https://nulkachuhjdzohkzwvly.supabase.co/functions/v1/shopify-proxy';
+    const response = await fetch(edgeFunctionUrl);
+    if (!response.ok) throw new Error(`Shopify HTTP ${response.status}`);
+    const data = await response.json();
     const orders = data.orders || [];
     // Processa custom_properties come fa il PHP originale
     orders.forEach(order => {

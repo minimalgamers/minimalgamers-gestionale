@@ -132,9 +132,16 @@ async function dbGetConfigs() {
     const result = {};
     if (configs) {
         configs.forEach(cfg => {
+            const cfgComponents = (components || [])
+                .filter(c => c.config_id === cfg.id)
+                .map(c => ({
+                    type: c.type || c.component_type || '',
+                    value: c.value || (c.ean ? (c.supplier ? `${c.ean} (${c.supplier})` : c.ean) : ''),
+                    supplier: c.supplier || ''
+                }));
             result[cfg.config_name] = {
-                ...cfg,
-                components: (components || []).filter(c => c.config_id === cfg.id)
+                fullName: cfg.full_name || cfg.config_name,
+                components: cfgComponents
             };
         });
     }
@@ -362,13 +369,13 @@ async function dbGetShopifyOrders() {
 // SHOPIFY API (via Cloudflare Worker proxy)
 // ============================================================
 async function fetchShopifyOrders(apiKey) {
-    // Chiamata diretta alle API Shopify con CORS proxy pubblico
-    const shopifyUrl = `https://cors-anywhere.herokuapp.com/https://${SHOPIFY_STORE}/admin/api/2024-10/orders.json?status=any&limit=250&fields=id,name,email,created_at,financial_status,fulfillment_status,total_price,current_total_price,currency,billing_address,customer,line_items,phone`;
+    // Usa corsproxy.io come proxy CORS gratuito
+    const targetUrl = `https://${SHOPIFY_STORE}/admin/api/2024-10/orders.json?status=any&limit=250&fields=id,name,email,created_at,financial_status,fulfillment_status,total_price,current_total_price,currency,billing_address,customer,line_items,phone`;
+    const shopifyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
     const response = await fetch(shopifyUrl, {
         headers: {
             'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
+            'Content-Type': 'application/json'
         }
     });
     if (!response.ok) throw new Error(`Shopify HTTP ${response.status}`);

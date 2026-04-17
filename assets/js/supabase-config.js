@@ -361,25 +361,20 @@ async function dbDeleteSupplierLog(id) {
 // SHOPIFY ORDERS CACHE
 // ============================================================
 async function dbSaveShopifyOrders(orders) {
-    if (!orders.length) return;
-    const rows = orders.map(o => ({
-        shopify_order_id: String(o.id),
-        order_data: o,
-        cached_at: new Date().toISOString()
-    }));
-    await supabase.from('shopify_orders').upsert(rows, { onConflict: 'shopify_order_id' });
+    // Cache disabilitata - gli ordini vengono caricati sempre dalla Edge Function
+    return;
 }
 
 async function dbGetShopifyOrders() {
-    const { data } = await supabase.from('shopify_orders').select('order_data');
-    return (data || []).map(r => r.order_data);
+    // Cache disabilitata - restituisce array vuoto per forzare caricamento dalla Edge Function
+    return [];
 }
 
 // ============================================================
 // SHOPIFY API (via Cloudflare Worker proxy)
 // ============================================================
 async function fetchShopifyOrders(apiKey) {
-    // Usa Supabase Edge Function come proxy sicuro per Shopify
+    // Carica sempre dalla Edge Function
     const edgeFunctionUrl = 'https://nulkachuhjdzohkzwvly.supabase.co/functions/v1/shopify-proxy';
     const response = await fetch(edgeFunctionUrl);
     if (!response.ok) throw new Error(`Shopify HTTP ${response.status}`);

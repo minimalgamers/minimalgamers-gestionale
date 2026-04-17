@@ -30,8 +30,10 @@ window.fetch = async function(url, options = {}) {
                 const edgeUrl = 'https://nulkachuhjdzohkzwvly.supabase.co/functions/v1/shopify-proxy';
                 const shopifyResp = await _originalFetch(edgeUrl);
                 if (!shopifyResp.ok) throw new Error(`Shopify Edge Function HTTP ${shopifyResp.status}`);
-                const shopifyOrders = await shopifyResp.json();
-                const orders = shopifyOrders.orders || shopifyOrders || [];
+                const shopifyData = await shopifyResp.json();
+                // Edge Function restituisce {orders: [...]} 
+                const orders = shopifyData.orders || (Array.isArray(shopifyData) ? shopifyData : []);
+                console.log('✅ Ordini Shopify caricati:', orders.length);
                 return ok(orders);
             } catch(e) {
                 console.error('❌ Edge Function error:', e);

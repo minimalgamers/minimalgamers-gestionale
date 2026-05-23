@@ -1,30 +1,34 @@
 // ============================================================
-// SUPABASE CONFIG - Minimal Gamers Gestionale Ordini
+// SUPABASE CONFIG v10 - Minimal Gamers Gestionale Ordini
+// ============================================================
+// v10: Replica fedele del backend PHP originale di Stetco.
+//      - I componenti vanno SEMPRE nella tabella processed_order_components
+//      - GET ricostruisce l'array components[] via JOIN su processed_orders.id
+//      - I custom items (orderId-scoped) usano processed_order_components.is_custom=1
+//      - Il catalogo "articoli_aggiunti" è separato (gestito da api-adapter, non qui)
 // ============================================================
 
 const SUPABASE_URL = 'https://nulkachuhjdzohkzwvly.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
 
-// Password di accesso al gestionale (SHA-256)
-// Cambia questa con l'hash della tua password
-// Genera l'hash su: https://emn178.github.io/online-tools/sha256.html
-const ACCESS_PASSWORD_HASH = '703f23740c261e210b81117806ae3189856ab18163b38e7be4df8e9565b4742d'; // password: mini_mals22
+// Password gestionale (SHA-256 di 'mini_mals22')
+const ACCESS_PASSWORD_HASH = '703f23740c261e210b81117806ae3189856ab18163b38e7be4df8e9565b4742d';
 
-// Shopify Config (da configurare dopo)
-// Shopify - chiamata diretta alle API (token visibile, ok per uso interno)
+// Shopify (chiamata via Edge Function shopify-proxy)
 const SHOPIFY_STORE = 'minimalgamers.myshopify.com';
 const SHOPIFY_ACCESS_TOKEN = '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';
 const SHOPIFY_API_KEY = '483112c3d1d5bd734b3c2f52b50cb5d6';
-const SHOPIFY_PROXY_URL = null; // non usato, chiamata diretta
+const SHOPIFY_PROXY_URL = null;
 
 // ============================================================
-// NOMI TABELLE CATALOGO - case-sensitive PostgreSQL!
-// I dati reali sono stati importati con questi nomi (prima lettera maiuscola)
+// TABELLE CATALOGO - case-sensitive PostgreSQL!
+// I dati reali sono nelle versioni MAIUSCOLE (verificato su DB live).
+// Le versioni lowercase esistono ma sono vuote (artefatto migrazione MySQL).
 // ============================================================
 const CATALOG_TABLES = ['CPU', 'GPU', 'RAM', 'SSD', 'HDD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore', 'Scheda_Aggiuntiva'];
 const CATALOG_TABLES_SEARCH = ['CPU', 'GPU', 'RAM', 'SSD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore'];
 
-// Colonne valide della tabella processed_orders (whitelist per evitare errori upsert)
+// Whitelist colonne valide di processed_orders (per evitare PGRST204)
 const PROCESSED_ORDERS_COLS = new Set([
     'shopify_order_id', 'order_id_flip', 'operator', 'config_name', 'pc_item_name',
     'custom_properties', 'customer_email', 'customer_phone', 'stato', 'foglio_di_lavoro',
@@ -34,24 +38,21 @@ const PROCESSED_ORDERS_COLS = new Set([
 // ============================================================
 // INIT SUPABASE CLIENT
 // ============================================================
-// Import dinamico per funzionare senza type="module"
-let supabaseModule;
-async function getSupabaseClient() {
-    if (!supabaseModule) {
-        supabaseModule = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
-    }
-    return supabaseModule.createClient(SUPABASE_URL, SUPABASE_KEY);
-}
-
 let supabase = null;
+
+(async () => {
+    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    console.log('✅ Supabase DB pronto (v10)');
+    window.SupabaseDB._ready = true;
+    if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
+})();
 
 // ============================================================
 // AUTH
 // ============================================================
 async function verifyPassword(password) {
-    // Confronto diretto con la password in chiaro
     if (password === 'mini_mals22') return true;
-    // Fallback: confronto SHA-256
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -61,31 +62,10 @@ async function verifyPassword(password) {
 }
 
 // ============================================================
-// PROCESSED ORDERS
+// PROCESSED ORDERS + COMPONENTS (replica fedele del PHP originale)
 // ============================================================
-async function dbGetProcessedOrders() {
-    const { data, error } = await supabase.from('processed_orders').select('*');
-    if (error) throw error;
-    const result = {};
-    (data || []).forEach(row => {
-        // Parse custom_properties se è stringa
-        if (row.custom_properties && typeof row.custom_properties === 'string') {
-            try { row.custom_properties = JSON.parse(row.custom_properties); } catch {}
-        }
-        // Carica anche components in stile vecchio gestionale (array di {type,name,ean,supplier})
-        // a partire da custom_properties
-        if (!row.components && row.custom_properties && typeof row.custom_properties === 'object') {
-            row.components = Object.entries(row.custom_properties)
-                .filter(([k,v]) => !String(k).startsWith('_') && v)
-                .map(([type, name]) => ({ type, name: String(name), ean: '', supplier: '' }));
-        }
-        result[row.shopify_order_id] = row;
-    });
-    return result;
-}
 
 // Filtra solo le colonne valide della tabella processed_orders
-// Evita errori del tipo "Could not find the X column in schema cache"
 function sanitizeProcessedOrderFields(orderData) {
     const clean = {};
     for (const [k, v] of Object.entries(orderData || {})) {
@@ -94,141 +74,399 @@ function sanitizeProcessedOrderFields(orderData) {
     return clean;
 }
 
+// GET tutti gli ordini elaborati + JOIN con processed_order_components.
+// Il frontend si aspetta una mappa { [shopifyOrderId]: orderObj }
+// dove orderObj.components è array di {type, ean, name, supplier, price, quantity}.
+async function dbGetProcessedOrders() {
+    // 1. Carico tutti gli ordini
+    const { data: orders, error: errOrders } = await supabase
+        .from('processed_orders')
+        .select('id, shopify_order_id, order_id_flip, operator, config_name, pc_item_name, custom_properties, customer_email, customer_phone, stato, foglio_di_lavoro')
+        .order('created_at', { ascending: false });
+    if (errOrders) throw errOrders;
+    if (!orders || orders.length === 0) return {};
+
+    // 2. Carico TUTTI i componenti in un colpo solo
+    const orderIds = orders.map(o => o.id);
+    const { data: components, error: errComps } = await supabase
+        .from('processed_order_components')
+        .select('order_id, component_type, ean, product_name, supplier, price, quantity, is_custom')
+        .in('order_id', orderIds);
+    if (errComps) throw errComps;
+
+    // 3. Indicizzo i componenti per order_id (FK numerica)
+    const compsByOrderId = {};
+    (components || []).forEach(c => {
+        if (!compsByOrderId[c.order_id]) compsByOrderId[c.order_id] = [];
+        compsByOrderId[c.order_id].push({
+            type: c.component_type,
+            ean: c.ean || '',
+            name: c.product_name || '',
+            supplier: c.supplier || '',
+            price: c.price,
+            quantity: c.quantity || 1,
+            isCustom: !!c.is_custom
+        });
+    });
+
+    // 4. Costruisco l'output con la stessa shape che usava il PHP
+    const result = {};
+    orders.forEach(o => {
+        // Parse custom_properties se è stringa
+        let cp = o.custom_properties;
+        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { cp = null; } }
+        result[o.shopify_order_id] = {
+            // shape PHP-compatibile (camelCase)
+            orderIdFlip: o.order_id_flip,
+            operator: o.operator,
+            configName: o.config_name,
+            pcItemName: o.pc_item_name,
+            customProperties: cp,
+            stato: o.stato || 'elaborati',
+            foglioDiLavoro: parseInt(o.foglio_di_lavoro, 10) || 1,
+            components: (compsByOrderId[o.id] || []).filter(c => !c.isCustom),
+            // shape snake_case (alcuni punti di app.js leggono così)
+            shopify_order_id: o.shopify_order_id,
+            order_id_flip: o.order_id_flip,
+            config_name: o.config_name,
+            pc_item_name: o.pc_item_name,
+            custom_properties: cp,
+            customer_email: o.customer_email,
+            customer_phone: o.customer_phone,
+            foglio_di_lavoro: parseInt(o.foglio_di_lavoro, 10) || 1,
+            _internalId: o.id  // ci serve per i salvataggi successivi
+        };
+    });
+    return result;
+}
+
+// POST: salva (upsert) un ordine + sostituisce TUTTI i suoi componenti.
+// Replica esatta del PHP: DELETE * WHERE order_id = X, poi INSERT dei nuovi.
 async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
-    // Estrai i componenti se presenti (vanno in custom_properties come JSON)
     const incoming = { ...(orderData || {}) };
+
+    // Estraggo l'array components prima di sanificare
     let componentsArray = null;
     if (Array.isArray(incoming.components)) {
         componentsArray = incoming.components;
         delete incoming.components;
     }
 
-    // Se ci sono componenti in formato array, li convertiamo in oggetto JSON (key=type, value=name)
-    // SENZA sovrascrivere eventuali custom_properties già esistenti (merge)
-    if (componentsArray && componentsArray.length > 0) {
-        let cp = incoming.custom_properties || {};
-        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { cp = {}; } }
-        const cpObj = (cp && typeof cp === 'object' && !Array.isArray(cp)) ? { ...cp } : {};
-        // Salviamo anche metadati EAN e supplier in chiavi parallele
-        const eanMap = {};
-        const supplierMap = {};
-        componentsArray.forEach(comp => {
-            if (!comp || !comp.type) return;
-            if (comp.name) cpObj[comp.type] = comp.name;
-            if (comp.ean) eanMap[comp.type] = comp.ean;
-            if (comp.supplier) supplierMap[comp.type] = comp.supplier;
-        });
-        if (Object.keys(eanMap).length) cpObj._components_ean = eanMap;
-        if (Object.keys(supplierMap).length) cpObj._components_supplier = supplierMap;
-        incoming.custom_properties = cpObj;
+    // Normalizza foglio_di_lavoro (1-4)
+    if (incoming.foglio_di_lavoro !== undefined) {
+        const f = parseInt(incoming.foglio_di_lavoro, 10) || 1;
+        incoming.foglio_di_lavoro = Math.min(4, Math.max(1, f));
     }
+    if (incoming.foglioDiLavoro !== undefined) {
+        const f = parseInt(incoming.foglioDiLavoro, 10) || 1;
+        incoming.foglio_di_lavoro = Math.min(4, Math.max(1, f));
+        delete incoming.foglioDiLavoro;
+    }
+    // Normalizza camelCase residui
+    if (incoming.orderIdFlip !== undefined) { incoming.order_id_flip = incoming.orderIdFlip; delete incoming.orderIdFlip; }
+    if (incoming.configName !== undefined) { incoming.config_name = incoming.configName; delete incoming.configName; }
+    if (incoming.pcItemName !== undefined) { incoming.pc_item_name = incoming.pcItemName; delete incoming.pcItemName; }
+    if (incoming.customProperties !== undefined) { incoming.custom_properties = incoming.customProperties; delete incoming.customProperties; }
+    if (incoming.customerEmail !== undefined) { incoming.customer_email = incoming.customerEmail; delete incoming.customerEmail; }
+    if (incoming.customerPhone !== undefined) { incoming.customer_phone = incoming.customerPhone; delete incoming.customerPhone; }
 
     const clean = sanitizeProcessedOrderFields(incoming);
-    const { error } = await supabase.from('processed_orders').upsert({
-        shopify_order_id: String(shopifyOrderId),
-        ...clean,
-        updated_at: new Date().toISOString()
-    }, { onConflict: 'shopify_order_id' });
-    if (error) throw error;
+
+    // Upsert dell'ordine (RESTITUISCE l'id interno per la FK)
+    const { data: upserted, error: errUp } = await supabase
+        .from('processed_orders')
+        .upsert({
+            shopify_order_id: String(shopifyOrderId),
+            ...clean,
+            updated_at: new Date().toISOString()
+        }, { onConflict: 'shopify_order_id' })
+        .select('id')
+        .single();
+    if (errUp) throw errUp;
+    const internalId = upserted.id;
+
+    // Se sono stati passati componenti, REPLACE: DELETE non-custom + INSERT
+    // ATTENZIONE: NON tocco i record con is_custom=1 (gestiti separatamente)
+    if (componentsArray && Array.isArray(componentsArray)) {
+        // Cancello solo i componenti standard, lascio in vita i custom
+        const { error: errDel } = await supabase
+            .from('processed_order_components')
+            .delete()
+            .eq('order_id', internalId)
+            .or('is_custom.is.null,is_custom.eq.0');
+        if (errDel) throw errDel;
+
+        // Inserisco i nuovi (se ce ne sono)
+        if (componentsArray.length > 0) {
+            const rows = componentsArray
+                .filter(c => c && c.type)
+                .map(c => ({
+                    order_id: internalId,
+                    component_type: c.type,
+                    ean: c.ean || null,
+                    product_name: c.name || null,
+                    supplier: c.supplier || null,
+                    price: (c.price !== undefined && c.price !== null && c.price !== '') ? c.price : null,
+                    quantity: parseInt(c.quantity, 10) || 1,
+                    is_custom: 0
+                }));
+            if (rows.length > 0) {
+                const { error: errIns } = await supabase
+                    .from('processed_order_components')
+                    .insert(rows);
+                if (errIns) throw errIns;
+            }
+        }
+    }
 }
 
+// PUT: aggiorna SOLO i campi scalari dell'ordine (operator, configName, stato, foglio).
+// Non tocca i componenti.
 async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
-    const clean = sanitizeProcessedOrderFields(fields);
-    const { error } = await supabase.from('processed_orders')
+    const f = { ...(fields || {}) };
+    // Normalizza camelCase
+    if (f.orderIdFlip !== undefined) { f.order_id_flip = f.orderIdFlip; delete f.orderIdFlip; }
+    if (f.configName !== undefined) { f.config_name = f.configName; delete f.configName; }
+    if (f.pcItemName !== undefined) { f.pc_item_name = f.pcItemName; delete f.pcItemName; }
+    if (f.customProperties !== undefined) { f.custom_properties = f.customProperties; delete f.customProperties; }
+    if (f.foglioDiLavoro !== undefined) {
+        const v = parseInt(f.foglioDiLavoro, 10) || 1;
+        f.foglio_di_lavoro = Math.min(4, Math.max(1, v));
+        delete f.foglioDiLavoro;
+    }
+    const clean = sanitizeProcessedOrderFields(f);
+    if (Object.keys(clean).length === 0) return;
+    const { error } = await supabase
+        .from('processed_orders')
         .update({ ...clean, updated_at: new Date().toISOString() })
         .eq('shopify_order_id', String(shopifyOrderId));
     if (error) throw error;
 }
 
+// PATCH: aggiorna o inserisce UN singolo componente (per type)
+// Replica del PATCH del PHP api-processed-orders.php
+async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, productName, supplier) {
+    // Trovo l'id interno dell'ordine
+    const { data: orderRow, error: errOrd } = await supabase
+        .from('processed_orders')
+        .select('id')
+        .eq('shopify_order_id', String(shopifyOrderId))
+        .maybeSingle();
+    if (errOrd) throw errOrd;
+    if (!orderRow) throw new Error('Ordine non trovato');
+    const internalId = orderRow.id;
+
+    // Cerco se esiste già un componente per questo type
+    const { data: existing, error: errEx } = await supabase
+        .from('processed_order_components')
+        .select('id')
+        .eq('order_id', internalId)
+        .eq('component_type', componentType)
+        .or('is_custom.is.null,is_custom.eq.0')
+        .maybeSingle();
+    if (errEx) throw errEx;
+
+    if (existing) {
+        const { error } = await supabase
+            .from('processed_order_components')
+            .update({
+                ean: ean || null,
+                product_name: productName || null,
+                supplier: supplier || null
+            })
+            .eq('id', existing.id);
+        if (error) throw error;
+        return 'update';
+    } else {
+        const { error } = await supabase
+            .from('processed_order_components')
+            .insert({
+                order_id: internalId,
+                component_type: componentType,
+                ean: ean || null,
+                product_name: productName || null,
+                supplier: supplier || null,
+                quantity: 1,
+                is_custom: 0
+            });
+        if (error) throw error;
+        return 'insert';
+    }
+}
+
 async function dbDeleteProcessedOrder(shopifyOrderId) {
+    // Le righe in processed_order_components hanno ON DELETE CASCADE? Per sicurezza cancello a mano:
+    const { data: orderRow } = await supabase
+        .from('processed_orders').select('id')
+        .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    if (orderRow) {
+        await supabase.from('processed_order_components').delete().eq('order_id', orderRow.id);
+    }
     const { error } = await supabase.from('processed_orders')
         .delete().eq('shopify_order_id', String(shopifyOrderId));
     if (error) throw error;
 }
 
 // ============================================================
-// COMPONENTS (ricerca per EAN)
+// CUSTOM ITEMS PER ORDINE
+// (voci aggiuntive a specifici ordini, salvate con is_custom=1)
+// Replica fedele di processed_orders_service/api-custom-items.php
 // ============================================================
-async function dbGetComponentByEan(ean) {
+async function dbGetCustomItemsByOrder(shopifyOrderId) {
+    const { data: orderRow } = await supabase
+        .from('processed_orders').select('id')
+        .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    if (!orderRow) return [];
+    const { data, error } = await supabase
+        .from('processed_order_components')
+        .select('component_type, product_name, supplier, ean')
+        .eq('order_id', orderRow.id)
+        .eq('is_custom', 1)
+        .order('id', { ascending: true });
+    if (error) return [];
+    return (data || []).map(it => ({
+        name: it.component_type,
+        value: it.product_name,
+        supplier: it.supplier || '',
+        ean: it.ean || ''
+    }));
+}
+
+async function dbSaveCustomItemsForOrder(shopifyOrderId, customItems) {
+    if (!Array.isArray(customItems)) customItems = [];
+    if (customItems.length > 5) customItems = customItems.slice(0, 5);
+
+    // Upsert "stub" dell'ordine se non esiste
+    const { data: existing } = await supabase
+        .from('processed_orders').select('id')
+        .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    let internalId;
+    if (existing) {
+        internalId = existing.id;
+    } else {
+        const { data: created, error } = await supabase
+            .from('processed_orders')
+            .insert({ shopify_order_id: String(shopifyOrderId), stato: 'elaborati', foglio_di_lavoro: 1 })
+            .select('id').single();
+        if (error) throw error;
+        internalId = created.id;
+    }
+
+    // Cancello i custom esistenti e re-inserisco
+    await supabase.from('processed_order_components')
+        .delete().eq('order_id', internalId).eq('is_custom', 1);
+
+    if (customItems.length > 0) {
+        const rows = customItems.map(it => ({
+            order_id: internalId,
+            component_type: it.name || '',
+            product_name: it.value || '',
+            supplier: it.supplier || '',
+            ean: it.ean || '',
+            quantity: 1,
+            is_custom: 1
+        }));
+        const { error } = await supabase.from('processed_order_components').insert(rows);
+        if (error) throw error;
+    }
+    return true;
+}
+
+async function dbDeleteCustomItemsForOrder(shopifyOrderId) {
+    const { data: orderRow } = await supabase
+        .from('processed_orders').select('id')
+        .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    if (!orderRow) return 0;
+    const { error, count } = await supabase
+        .from('processed_order_components')
+        .delete({ count: 'exact' })
+        .eq('order_id', orderRow.id).eq('is_custom', 1);
+    if (error) throw error;
+    return count || 0;
+}
+
+// ============================================================
+// ARTICOLI AGGIUNTI (catalogo riutilizzabile)
+// Replica di components_service/api-custom-items.php
+// ============================================================
+async function dbSearchArticoliAggiunti(search, type) {
+    let query = supabase.from('articoli_aggiunti').select('*');
+    if (search) query = query.or(`nome.ilike.%${search}%,ean.ilike.%${search}%`);
+    if (type) query = query.eq('categoria', type);
+    const { data, error } = await query.order('created_at', { ascending: false }).limit(100);
+    if (error) return [];
+    return data || [];
+}
+
+async function dbInsertArticoloAggiunto(nome, ean, categoria, fornitore, prezzo) {
+    if (!nome) throw new Error('Nome obbligatorio');
+    if (!ean) throw new Error('EAN obbligatorio');
+    // Check duplicato EAN
+    const { data: dup } = await supabase
+        .from('articoli_aggiunti').select('id').eq('ean', ean).maybeSingle();
+    if (dup) throw new Error('EAN già esistente');
+    const { data, error } = await supabase
+        .from('articoli_aggiunti')
+        .insert({ nome, ean, categoria: categoria || null, fornitore: fornitore || null, prezzo: parseFloat(prezzo) || 0, quantita: 999 })
+        .select('id').single();
+    if (error) throw error;
+    return data.id;
+}
+
+async function dbDeleteArticoloAggiunto({ id, ean }) {
+    let q = supabase.from('articoli_aggiunti').delete({ count: 'exact' });
+    if (id) q = q.eq('id', id);
+    else if (ean) q = q.eq('ean', ean);
+    else throw new Error('ID o EAN richiesto');
+    const { error, count } = await q;
+    if (error) throw error;
+    return count || 0;
+}
+
+// ============================================================
+// COMPONENTS (ricerca per EAN o testo)
+// ============================================================
+async function dbGetComponentByEan(ean, supplier = null) {
+    // 1. Cerca prima in custom_amazon_components
+    try {
+        let q = supabase.from('custom_amazon_components').select('*').eq('ean', ean);
+        if (supplier) q = q.ilike('fornitore', supplier);
+        const { data } = await q.limit(1);
+        if (data && data.length > 0) return { ...data[0], _table: 'custom_amazon_components' };
+    } catch(e) {}
+
+    // 2. Cerca in articoli_aggiunti
+    try {
+        const { data } = await supabase.from('articoli_aggiunti').select('*').eq('ean', ean).limit(1);
+        if (data && data.length > 0) return { ...data[0], _table: 'articoli_aggiunti' };
+    } catch(e) {}
+
+    // 3. Itera sulle tabelle catalogo MAIUSCOLE
     for (const table of CATALOG_TABLES) {
         try {
-            const { data, error } = await supabase.from(table).select('*').eq('ean', ean).limit(1);
+            let q = supabase.from(table).select('*').eq('ean', ean);
+            if (supplier) q = q.ilike('fornitore', supplier);
+            const { data, error } = await q.limit(1);
             if (error) continue;
             if (data && data.length > 0) return { ...data[0], _table: table };
-        } catch(e) { /* salta tabella non esistente */ }
+        } catch(e) {}
     }
-    // Cerca anche in articoli_aggiunti e custom_amazon_components
-    try {
-        const { data: extra } = await supabase.from('articoli_aggiunti').select('*').eq('ean', ean).limit(1);
-        if (extra && extra.length > 0) return { ...extra[0], _table: 'articoli_aggiunti' };
-    } catch(e){}
-    try {
-        const { data: amazon } = await supabase.from('custom_amazon_components').select('*').eq('ean', ean).limit(1);
-        if (amazon && amazon.length > 0) return { ...amazon[0], _table: 'custom_amazon_components' };
-    } catch(e){}
     return null;
 }
 
 async function dbSearchComponents(searchText, categoria = '') {
     const results = [];
-    for (const table of CATALOG_TABLES_SEARCH) {
+    const tables = categoria && CATALOG_TABLES.includes(categoria) ? [categoria] : CATALOG_TABLES_SEARCH;
+    for (const table of tables) {
         try {
             let query = supabase.from(table).select('id, ean, nome, fornitore, prezzo, quantita').gt('quantita', 0);
             if (searchText) query = query.ilike('nome', `%${searchText}%`);
             const { data, error } = await query.limit(10);
             if (error) continue;
             if (data) results.push(...data.map(r => ({ ...r, _table: table })));
-        } catch(e) { /* salta tabella non esistente */ }
+        } catch(e) {}
     }
     return results;
-}
-
-// ============================================================
-// CUSTOM ITEMS PER ORDINE (voci personalizzate aggiunte manualmente)
-// Sostituisce l'endpoint PHP api-custom-items.php
-// ============================================================
-async function dbGetCustomItemsByOrder(orderId) {
-    // Le voci personalizzate sono salvate in custom_properties->>'_custom_items' come JSON array
-    try {
-        const { data, error } = await supabase.from('processed_orders')
-            .select('custom_properties')
-            .eq('shopify_order_id', String(orderId))
-            .maybeSingle();
-        if (error) return [];
-        if (!data || !data.custom_properties) return [];
-        let cp = data.custom_properties;
-        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { return []; } }
-        const items = cp && cp._custom_items;
-        return Array.isArray(items) ? items : [];
-    } catch(e) {
-        return [];
-    }
-}
-
-async function dbSaveCustomItemsForOrder(orderId, customItems) {
-    // Salva i custom items dentro custom_properties._custom_items
-    try {
-        const { data } = await supabase.from('processed_orders')
-            .select('custom_properties')
-            .eq('shopify_order_id', String(orderId))
-            .maybeSingle();
-        let cp = data?.custom_properties;
-        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { cp = {}; } }
-        if (!cp || typeof cp !== 'object') cp = {};
-        cp._custom_items = Array.isArray(customItems) ? customItems : [];
-
-        // Se l'ordine non esiste ancora, lo creiamo
-        const { error } = await supabase.from('processed_orders').upsert({
-            shopify_order_id: String(orderId),
-            custom_properties: cp,
-            updated_at: new Date().toISOString()
-        }, { onConflict: 'shopify_order_id' });
-        if (error) throw error;
-        return true;
-    } catch(e) {
-        console.error('dbSaveCustomItemsForOrder', e);
-        return false;
-    }
 }
 
 // ============================================================
@@ -239,18 +477,15 @@ async function dbGetGpoMappings() {
     if (error) throw error;
     return data || [];
 }
-
 async function dbSaveGpoMapping(mappingData) {
     const { data, error } = await supabase.from('gpo_mapping').insert(mappingData).select();
     if (error) throw error;
     return data[0]?.id;
 }
-
 async function dbUpdateGpoMapping(id, fields) {
     const { error } = await supabase.from('gpo_mapping').update(fields).eq('id', id);
     if (error) throw error;
 }
-
 async function dbDeleteGpoMapping(id) {
     const { error } = await supabase.from('gpo_mapping').delete().eq('id', id);
     if (error) throw error;
@@ -268,8 +503,8 @@ async function dbGetConfigs() {
             const cfgComponents = (components || [])
                 .filter(c => c.config_id === cfg.id)
                 .map(c => ({
-                    type: c.type || c.component_type || '',
-                    value: c.value || (c.ean ? (c.supplier ? `${c.ean} (${c.supplier})` : c.ean) : ''),
+                    type: c.component_type || '',
+                    value: c.ean_value || '',
                     supplier: c.supplier || ''
                 }));
             result[cfg.config_name] = {
@@ -280,20 +515,25 @@ async function dbGetConfigs() {
     }
     return result;
 }
-
 async function dbSaveConfig(configName, configData) {
     const { data, error } = await supabase.from('standard_configs')
-        .upsert({ config_name: configName, full_name: configData.fullName }, { onConflict: 'config_name' })
+        .upsert({ config_name: configName, full_name: configData.fullName, updated_at: new Date().toISOString() }, { onConflict: 'config_name' })
         .select();
     if (error) throw error;
     const configId = data[0].id;
     if (configData.components) {
         await supabase.from('standard_config_components').delete().eq('config_id', configId);
-        const comps = configData.components.map(c => ({ config_id: configId, ...c }));
-        await supabase.from('standard_config_components').insert(comps);
+        const comps = configData.components
+            .filter(c => c && c.type)
+            .map(c => ({
+                config_id: configId,
+                component_type: c.type,
+                ean_value: c.value || '',
+                supplier: c.supplier || null
+            }));
+        if (comps.length > 0) await supabase.from('standard_config_components').insert(comps);
     }
 }
-
 async function dbDeleteConfig(configName) {
     const { data } = await supabase.from('standard_configs').select('id').eq('config_name', configName).single();
     if (data) {
@@ -311,10 +551,9 @@ async function dbGetOrderStatuses() {
     (data || []).forEach(row => { result[row.shopify_order_id] = row.status; });
     return result;
 }
-
 async function dbSaveOrderStatus(orderId, status) {
     const { error } = await supabase.from('order_statuses')
-        .upsert({ shopify_order_id: String(orderId), status }, { onConflict: 'shopify_order_id' });
+        .upsert({ shopify_order_id: String(orderId), status, updated_at: new Date().toISOString() }, { onConflict: 'shopify_order_id' });
     if (error) throw error;
 }
 
@@ -327,16 +566,13 @@ async function dbGetOperatorAssignments() {
     (data || []).forEach(row => { result[row.shopify_order_id] = row.operator; });
     return result;
 }
-
 async function dbSaveOperatorAssignment(orderId, operator) {
     const { error } = await supabase.from('operator_assignments')
-        .upsert({ shopify_order_id: String(orderId), operator }, { onConflict: 'shopify_order_id' });
+        .upsert({ shopify_order_id: String(orderId), operator, updated_at: new Date().toISOString() }, { onConflict: 'shopify_order_id' });
     if (error) throw error;
 }
-
 async function dbDeleteOperatorAssignment(orderId) {
-    const { error } = await supabase.from('operator_assignments')
-        .delete().eq('shopify_order_id', String(orderId));
+    const { error } = await supabase.from('operator_assignments').delete().eq('shopify_order_id', String(orderId));
     if (error) throw error;
 }
 
@@ -347,12 +583,9 @@ async function dbGetHiddenOrders() {
     const { data } = await supabase.from('hidden_orders').select('shopify_order_id');
     return (data || []).map(r => r.shopify_order_id);
 }
-
 async function dbHideOrder(orderId) {
-    await supabase.from('hidden_orders')
-        .upsert({ shopify_order_id: String(orderId) }, { onConflict: 'shopify_order_id' });
+    await supabase.from('hidden_orders').upsert({ shopify_order_id: String(orderId) }, { onConflict: 'shopify_order_id' });
 }
-
 async function dbRestoreHiddenOrder(orderId) {
     await supabase.from('hidden_orders').delete().eq('shopify_order_id', String(orderId));
 }
@@ -364,51 +597,47 @@ async function dbGetOrderedIds() {
     const { data } = await supabase.from('ordered_ids').select('shopify_order_id');
     return (data || []).map(r => r.shopify_order_id);
 }
-
 async function dbAddOrderedId(orderId) {
-    await supabase.from('ordered_ids')
-        .upsert({ shopify_order_id: String(orderId) }, { onConflict: 'shopify_order_id' });
+    await supabase.from('ordered_ids').upsert({ shopify_order_id: String(orderId) }, { onConflict: 'shopify_order_id' });
 }
-
 async function dbRemoveOrderedId(orderId) {
     await supabase.from('ordered_ids').delete().eq('shopify_order_id', String(orderId));
 }
 
 // ============================================================
-// MONTHLY COUNTER
+// MONTHLY COUNTER (gestione robusta: niente errori 406 se manca la riga)
 // ============================================================
 async function dbGetMonthlyCounter() {
     const now = new Date();
     const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    // .maybeSingle() restituisce null se la riga non c'è (no 406)
     const { data } = await supabase.from('monthly_counter')
-        .select('counter_value').eq('month_year', monthYear).single();
+        .select('counter_value').eq('month_year', monthYear).maybeSingle();
     return data?.counter_value || 0;
 }
-
 async function dbIncrementMonthlyCounter(amount = 1) {
     const now = new Date();
     const monthYear = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const current = await dbGetMonthlyCounter();
+    const newValue = current + amount;
     await supabase.from('monthly_counter').upsert(
-        { month_year: monthYear, counter_value: current + amount, last_reset: new Date().toISOString() },
+        { month_year: monthYear, counter_value: newValue, last_reset: new Date().toISOString() },
         { onConflict: 'month_year' }
     );
-    return current + amount;
+    return newValue;
 }
 
 // ============================================================
-// INVENTORY (warehouse)
+// INVENTORY
 // ============================================================
 async function dbGetInventory() {
     const { data } = await supabase.from('warehouse_inventory').select('*');
     return data || [];
 }
-
 async function dbSaveInventoryItem(ean, name, quantity) {
     await supabase.from('warehouse_inventory')
-        .upsert({ ean, name, quantity }, { onConflict: 'ean' });
+        .upsert({ ean, name, quantity, updated_at: new Date().toISOString() }, { onConflict: 'ean' });
 }
-
 async function dbDeleteInventoryItem(ean) {
     await supabase.from('warehouse_inventory').delete().eq('ean', ean);
 }
@@ -424,7 +653,6 @@ async function dbGetMessageTemplateConfig() {
     }
     return null;
 }
-
 async function dbSaveMessageTemplateConfig(config) {
     const { data: existing } = await supabase.from('message_template_configs').select('id').limit(1);
     const json = JSON.stringify(config);
@@ -434,7 +662,7 @@ async function dbSaveMessageTemplateConfig(config) {
             .eq('id', existing[0].id);
     } else {
         await supabase.from('message_template_configs')
-            .insert({ config_json: json, updated_at: new Date().toISOString() });
+            .insert({ id: 1, config_json: json, updated_at: new Date().toISOString() });
     }
 }
 
@@ -445,17 +673,14 @@ async function dbGetCustomAmazonComponents() {
     const { data } = await supabase.from('custom_amazon_components').select('*');
     return data || [];
 }
-
 async function dbSaveCustomAmazonComponent(compData) {
     const { data, error } = await supabase.from('custom_amazon_components').insert(compData).select();
     if (error) throw error;
     return data[0]?.id;
 }
-
 async function dbUpdateCustomAmazonComponent(id, fields) {
     await supabase.from('custom_amazon_components').update(fields).eq('id', id);
 }
-
 async function dbDeleteCustomAmazonComponent(id) {
     await supabase.from('custom_amazon_components').delete().eq('id', id);
 }
@@ -468,42 +693,31 @@ async function dbGetSupplierLogs() {
         .order('created_at', { ascending: false }).limit(20);
     return data || [];
 }
-
 async function dbSaveSupplierLog(orderIds, supplierData) {
     const { data } = await supabase.from('supplier_logs')
-        .insert({ order_ids: orderIds, count: orderIds.length, supplier_data: supplierData })
+        .insert({ order_count: orderIds.length })
         .select();
     return data?.[0]?.id;
 }
-
 async function dbDeleteSupplierLog(id) {
     await supabase.from('supplier_logs').delete().eq('id', id);
 }
 
 // ============================================================
-// SHOPIFY ORDERS CACHE
+// SHOPIFY ORDERS CACHE (DISABILITATA - sempre via Edge Function)
 // ============================================================
-async function dbSaveShopifyOrders(orders) {
-    // Cache disabilitata - gli ordini vengono caricati sempre dalla Edge Function
-    return;
-}
-
-async function dbGetShopifyOrders() {
-    // Cache disabilitata - restituisce array vuoto per forzare caricamento dalla Edge Function
-    return [];
-}
+async function dbSaveShopifyOrders(orders) { return; }
+async function dbGetShopifyOrders() { return []; }
 
 // ============================================================
-// SHOPIFY API (via Cloudflare Worker proxy)
+// SHOPIFY API via Edge Function
 // ============================================================
 async function fetchShopifyOrders(apiKey) {
-    // Carica sempre dalla Edge Function
     const edgeFunctionUrl = 'https://nulkachuhjdzohkzwvly.supabase.co/functions/v1/shopify-proxy';
     const response = await fetch(edgeFunctionUrl);
     if (!response.ok) throw new Error(`Shopify HTTP ${response.status}`);
     const data = await response.json();
     const orders = data.orders || [];
-    // Processa custom_properties come fa il PHP originale
     orders.forEach(order => {
         if (order.line_items) {
             order.line_items.forEach(item => {
@@ -523,17 +737,8 @@ async function fetchShopifyOrders(apiKey) {
 }
 
 // ============================================================
-// ESPORTA TUTTO GLOBALMENTE
+// EXPORT GLOBALE
 // ============================================================
-// Inizializza il client Supabase subito
-(async () => {
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
-    supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase DB pronto');
-    window.SupabaseDB._ready = true;
-    if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
-})();
-
 window.SupabaseDB = {
     supabase,
     verifyPassword,
@@ -543,9 +748,15 @@ window.SupabaseDB = {
     saveProcessedOrder: dbSaveProcessedOrder,
     updateProcessedOrder: dbUpdateProcessedOrder,
     deleteProcessedOrder: dbDeleteProcessedOrder,
-    // Custom items per ordine (voci aggiuntive)
+    upsertSingleComponent: dbUpsertSingleComponent,
+    // Custom items per ordine
     getCustomItemsByOrder: dbGetCustomItemsByOrder,
     saveCustomItemsForOrder: dbSaveCustomItemsForOrder,
+    deleteCustomItemsForOrder: dbDeleteCustomItemsForOrder,
+    // Articoli aggiunti (catalogo)
+    searchArticoliAggiunti: dbSearchArticoliAggiunti,
+    insertArticoloAggiunto: dbInsertArticoloAggiunto,
+    deleteArticoloAggiunto: dbDeleteArticoloAggiunto,
     // Components
     getComponentByEan: dbGetComponentByEan,
     searchComponents: dbSearchComponents,
@@ -592,7 +803,7 @@ window.SupabaseDB = {
     getSupplierLogs: dbGetSupplierLogs,
     saveSupplierLog: dbSaveSupplierLog,
     deleteSupplierLog: dbDeleteSupplierLog,
-    // Shopify cache
+    // Shopify cache (no-op)
     saveShopifyOrders: dbSaveShopifyOrders,
     getShopifyOrders: dbGetShopifyOrders,
 };

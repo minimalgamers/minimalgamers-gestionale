@@ -18,10 +18,37 @@ window.fetch = async function(url, options = {}) {
     if (!DB || !DB._ready) return ok({ success: false, error: 'DB non pronto' });
     try {
         if (urlStr.includes('auth_module')) { const v = await DB.verifyPassword(body?.password||''); return ok(v ? {success:true,api_key:body?.password} : {success:false,error:'Password errata'}); }
+
+        // Custom items per ordine - DEVE essere prima di api-processed-orders per intercettare l'URL specifico
+        if (urlStr.includes('api-custom-items')) {
+            if (method === 'GET') {
+                const orderId = params.orderId || params.order_id;
+                if (!orderId) return ok({ success: true, customItems: [] });
+                const items = await DB.getCustomItemsByOrder(orderId);
+                return ok({ success: true, customItems: items });
+            }
+            if (method === 'POST') {
+                const orderId = body?.orderId || body?.order_id;
+                const items = body?.customItems || [];
+                if (!orderId) return ok({ success: false, error: 'orderId mancante' });
+                const okSave = await DB.saveCustomItemsForOrder(orderId, items);
+                return ok({ success: okSave });
+            }
+            return ok({ success: true });
+        }
+
         if (urlStr.includes('api-processed-orders')) {
             if (method==='GET') return ok({success:true, orders: await DB.getProcessedOrders()});
-            if (method==='POST') { await DB.saveProcessedOrder(body.shopify_order_id, body); return ok({success:true}); }
-            if (method==='PUT'||method==='PATCH') { const id=body.shopify_order_id||body.shopifyOrderId; const u={}; if(body.stato!==undefined)u.stato=body.stato; if(body.operator!==undefined)u.operator=body.operator; if(body.foglio_di_lavoro!==undefined)u.foglio_di_lavoro=body.foglio_di_lavoro; if(body.foglioDiLavoro!==undefined)u.foglio_di_lavoro=body.foglioDiLavoro; if(body.components!==undefined)u.components=body.components; await DB.updateProcessedOrder(id,u); return ok({success:true}); }
+            if (method==='POST') {
+                // Normalizza il body: il frontend usa shopifyOrderId (camelCase) o shopify_order_id (snake_case)
+                const id = body?.shopify_order_id || body?.shopifyOrderId;
+                if (!id) return ok({ success: false, error: 'shopify_order_id mancante' });
+                // Rimuove shopifyOrderId dal body in modo da non crearla come colonna
+                const { shopifyOrderId, ...rest } = body || {};
+                await DB.saveProcessedOrder(id, rest);
+                return ok({success:true});
+            }
+            if (method==='PUT'||method==='PATCH') { const id=body.shopify_order_id||body.shopifyOrderId; const u={}; if(body.stato!==undefined)u.stato=body.stato; if(body.operator!==undefined)u.operator=body.operator; if(body.foglio_di_lavoro!==undefined)u.foglio_di_lavoro=body.foglio_di_lavoro; if(body.foglioDiLavoro!==undefined)u.foglio_di_lavoro=body.foglioDiLavoro; if(body.custom_properties!==undefined)u.custom_properties=body.custom_properties; await DB.updateProcessedOrder(id,u); return ok({success:true}); }
             if (method==='DELETE') { await DB.deleteProcessedOrder(params.id||params.shopify_order_id); return ok({success:true}); }
         }
         if (urlStr.includes('api-orders.php') && urlStr.includes('shopify_bridge')) {

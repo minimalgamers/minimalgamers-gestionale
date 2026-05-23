@@ -18,6 +18,20 @@ const SHOPIFY_API_KEY = '483112c3d1d5bd734b3c2f52b50cb5d6';
 const SHOPIFY_PROXY_URL = null; // non usato, chiamata diretta
 
 // ============================================================
+// NOMI TABELLE CATALOGO - case-sensitive PostgreSQL!
+// I dati reali sono stati importati con questi nomi (prima lettera maiuscola)
+// ============================================================
+const CATALOG_TABLES = ['CPU', 'GPU', 'RAM', 'SSD', 'HDD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore', 'Scheda_Aggiuntiva'];
+const CATALOG_TABLES_SEARCH = ['CPU', 'GPU', 'RAM', 'SSD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore'];
+
+// Colonne valide della tabella processed_orders (whitelist per evitare errori upsert)
+const PROCESSED_ORDERS_COLS = new Set([
+    'shopify_order_id', 'order_id_flip', 'operator', 'config_name', 'pc_item_name',
+    'custom_properties', 'customer_email', 'customer_phone', 'stato', 'foglio_di_lavoro',
+    'created_at', 'updated_at'
+]);
+
+// ============================================================
 // INIT SUPABASE CLIENT
 // ============================================================
 // Import dinamico per funzionare senza type="module"
@@ -53,22 +67,75 @@ async function dbGetProcessedOrders() {
     const { data, error } = await supabase.from('processed_orders').select('*');
     if (error) throw error;
     const result = {};
-    data.forEach(row => { result[row.shopify_order_id] = row; });
+    (data || []).forEach(row => {
+        // Parse custom_properties se è stringa
+        if (row.custom_properties && typeof row.custom_properties === 'string') {
+            try { row.custom_properties = JSON.parse(row.custom_properties); } catch {}
+        }
+        // Carica anche components in stile vecchio gestionale (array di {type,name,ean,supplier})
+        // a partire da custom_properties
+        if (!row.components && row.custom_properties && typeof row.custom_properties === 'object') {
+            row.components = Object.entries(row.custom_properties)
+                .filter(([k,v]) => !String(k).startsWith('_') && v)
+                .map(([type, name]) => ({ type, name: String(name), ean: '', supplier: '' }));
+        }
+        result[row.shopify_order_id] = row;
+    });
     return result;
 }
 
+// Filtra solo le colonne valide della tabella processed_orders
+// Evita errori del tipo "Could not find the X column in schema cache"
+function sanitizeProcessedOrderFields(orderData) {
+    const clean = {};
+    for (const [k, v] of Object.entries(orderData || {})) {
+        if (PROCESSED_ORDERS_COLS.has(k)) clean[k] = v;
+    }
+    return clean;
+}
+
 async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
+    // Estrai i componenti se presenti (vanno in custom_properties come JSON)
+    const incoming = { ...(orderData || {}) };
+    let componentsArray = null;
+    if (Array.isArray(incoming.components)) {
+        componentsArray = incoming.components;
+        delete incoming.components;
+    }
+
+    // Se ci sono componenti in formato array, li convertiamo in oggetto JSON (key=type, value=name)
+    // SENZA sovrascrivere eventuali custom_properties già esistenti (merge)
+    if (componentsArray && componentsArray.length > 0) {
+        let cp = incoming.custom_properties || {};
+        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { cp = {}; } }
+        const cpObj = (cp && typeof cp === 'object' && !Array.isArray(cp)) ? { ...cp } : {};
+        // Salviamo anche metadati EAN e supplier in chiavi parallele
+        const eanMap = {};
+        const supplierMap = {};
+        componentsArray.forEach(comp => {
+            if (!comp || !comp.type) return;
+            if (comp.name) cpObj[comp.type] = comp.name;
+            if (comp.ean) eanMap[comp.type] = comp.ean;
+            if (comp.supplier) supplierMap[comp.type] = comp.supplier;
+        });
+        if (Object.keys(eanMap).length) cpObj._components_ean = eanMap;
+        if (Object.keys(supplierMap).length) cpObj._components_supplier = supplierMap;
+        incoming.custom_properties = cpObj;
+    }
+
+    const clean = sanitizeProcessedOrderFields(incoming);
     const { error } = await supabase.from('processed_orders').upsert({
         shopify_order_id: String(shopifyOrderId),
-        ...orderData,
+        ...clean,
         updated_at: new Date().toISOString()
     }, { onConflict: 'shopify_order_id' });
     if (error) throw error;
 }
 
 async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
+    const clean = sanitizeProcessedOrderFields(fields);
     const { error } = await supabase.from('processed_orders')
-        .update({ ...fields, updated_at: new Date().toISOString() })
+        .update({ ...clean, updated_at: new Date().toISOString() })
         .eq('shopify_order_id', String(shopifyOrderId));
     if (error) throw error;
 }
@@ -83,29 +150,85 @@ async function dbDeleteProcessedOrder(shopifyOrderId) {
 // COMPONENTS (ricerca per EAN)
 // ============================================================
 async function dbGetComponentByEan(ean) {
-    const tables = ['cpu', 'gpu', 'ram', 'ssd', 'alimentatore', 'scheda_madre', 'case_pc', 'dissipatore', 'hdd', 'scheda_aggiuntiva'];
-    for (const table of tables) {
-        const { data } = await supabase.from(table).select('*').eq('ean', ean).limit(1);
-        if (data && data.length > 0) return { ...data[0], _table: table };
+    for (const table of CATALOG_TABLES) {
+        try {
+            const { data, error } = await supabase.from(table).select('*').eq('ean', ean).limit(1);
+            if (error) continue;
+            if (data && data.length > 0) return { ...data[0], _table: table };
+        } catch(e) { /* salta tabella non esistente */ }
     }
     // Cerca anche in articoli_aggiunti e custom_amazon_components
-    const { data: extra } = await supabase.from('articoli_aggiunti').select('*').eq('ean', ean).limit(1);
-    if (extra && extra.length > 0) return { ...extra[0], _table: 'articoli_aggiunti' };
-    const { data: amazon } = await supabase.from('custom_amazon_components').select('*').eq('ean', ean).limit(1);
-    if (amazon && amazon.length > 0) return { ...amazon[0], _table: 'custom_amazon_components' };
+    try {
+        const { data: extra } = await supabase.from('articoli_aggiunti').select('*').eq('ean', ean).limit(1);
+        if (extra && extra.length > 0) return { ...extra[0], _table: 'articoli_aggiunti' };
+    } catch(e){}
+    try {
+        const { data: amazon } = await supabase.from('custom_amazon_components').select('*').eq('ean', ean).limit(1);
+        if (amazon && amazon.length > 0) return { ...amazon[0], _table: 'custom_amazon_components' };
+    } catch(e){}
     return null;
 }
 
 async function dbSearchComponents(searchText, categoria = '') {
-    const tables = ['cpu', 'gpu', 'ram', 'ssd', 'alimentatore', 'scheda_madre', 'case_pc', 'dissipatore'];
     const results = [];
-    for (const table of tables) {
-        let query = supabase.from(table).select('id, ean, nome, fornitore, prezzo, quantita').gt('quantita', 0);
-        if (searchText) query = query.ilike('nome', `%${searchText}%`);
-        const { data } = await query.limit(10);
-        if (data) results.push(...data.map(r => ({ ...r, _table: table })));
+    for (const table of CATALOG_TABLES_SEARCH) {
+        try {
+            let query = supabase.from(table).select('id, ean, nome, fornitore, prezzo, quantita').gt('quantita', 0);
+            if (searchText) query = query.ilike('nome', `%${searchText}%`);
+            const { data, error } = await query.limit(10);
+            if (error) continue;
+            if (data) results.push(...data.map(r => ({ ...r, _table: table })));
+        } catch(e) { /* salta tabella non esistente */ }
     }
     return results;
+}
+
+// ============================================================
+// CUSTOM ITEMS PER ORDINE (voci personalizzate aggiunte manualmente)
+// Sostituisce l'endpoint PHP api-custom-items.php
+// ============================================================
+async function dbGetCustomItemsByOrder(orderId) {
+    // Le voci personalizzate sono salvate in custom_properties->>'_custom_items' come JSON array
+    try {
+        const { data, error } = await supabase.from('processed_orders')
+            .select('custom_properties')
+            .eq('shopify_order_id', String(orderId))
+            .maybeSingle();
+        if (error) return [];
+        if (!data || !data.custom_properties) return [];
+        let cp = data.custom_properties;
+        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { return []; } }
+        const items = cp && cp._custom_items;
+        return Array.isArray(items) ? items : [];
+    } catch(e) {
+        return [];
+    }
+}
+
+async function dbSaveCustomItemsForOrder(orderId, customItems) {
+    // Salva i custom items dentro custom_properties._custom_items
+    try {
+        const { data } = await supabase.from('processed_orders')
+            .select('custom_properties')
+            .eq('shopify_order_id', String(orderId))
+            .maybeSingle();
+        let cp = data?.custom_properties;
+        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { cp = {}; } }
+        if (!cp || typeof cp !== 'object') cp = {};
+        cp._custom_items = Array.isArray(customItems) ? customItems : [];
+
+        // Se l'ordine non esiste ancora, lo creiamo
+        const { error } = await supabase.from('processed_orders').upsert({
+            shopify_order_id: String(orderId),
+            custom_properties: cp,
+            updated_at: new Date().toISOString()
+        }, { onConflict: 'shopify_order_id' });
+        if (error) throw error;
+        return true;
+    } catch(e) {
+        console.error('dbSaveCustomItemsForOrder', e);
+        return false;
+    }
 }
 
 // ============================================================
@@ -420,6 +543,9 @@ window.SupabaseDB = {
     saveProcessedOrder: dbSaveProcessedOrder,
     updateProcessedOrder: dbUpdateProcessedOrder,
     deleteProcessedOrder: dbDeleteProcessedOrder,
+    // Custom items per ordine (voci aggiuntive)
+    getCustomItemsByOrder: dbGetCustomItemsByOrder,
+    saveCustomItemsForOrder: dbSaveCustomItemsForOrder,
     // Components
     getComponentByEan: dbGetComponentByEan,
     searchComponents: dbSearchComponents,
@@ -470,4 +596,3 @@ window.SupabaseDB = {
     saveShopifyOrders: dbSaveShopifyOrders,
     getShopifyOrders: dbGetShopifyOrders,
 };
-

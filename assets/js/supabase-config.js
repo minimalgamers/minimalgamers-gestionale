@@ -1,6 +1,8 @@
 // ============================================================
-// SUPABASE CONFIG v10 - Minimal Gamers Gestionale Ordini
+// SUPABASE CONFIG v11 - Minimal Gamers Gestionale Ordini
 // ============================================================
+// v11: Fix ilike→eq sul fornitore (causava 400 quando il valore
+//      non conteneva % wildcard, es. "PROKS", "OMEGA").
 // v10: Replica fedele del backend PHP originale di Stetco.
 //      - I componenti vanno SEMPRE nella tabella processed_order_components
 //      - GET ricostruisce l'array components[] via JOIN su processed_orders.id
@@ -43,7 +45,7 @@ let supabase = null;
 (async () => {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
     supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase DB pronto (v10)');
+    console.log('✅ Supabase DB pronto (v11)');
     window.SupabaseDB._ready = true;
     if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
 })();
@@ -427,25 +429,35 @@ async function dbDeleteArticoloAggiunto({ id, ean }) {
 // COMPONENTS (ricerca per EAN o testo)
 // ============================================================
 async function dbGetComponentByEan(ean, supplier = null) {
+    // Skip se l'ean è palesemente non valido (vuoto o troppo "strano")
+    if (!ean || typeof ean !== 'string' || ean.trim() === '') return null;
+    const eanClean = ean.trim();
+
+    // Normalizza il fornitore: trim + uppercase per fare match consistente
+    const supplierNorm = (supplier && typeof supplier === 'string')
+        ? supplier.trim().toUpperCase()
+        : null;
+    const useSupplierFilter = supplierNorm && supplierNorm !== '' && supplierNorm !== 'N/D' && supplierNorm !== '--' && supplierNorm !== 'FORNITORE';
+
     // 1. Cerca prima in custom_amazon_components
     try {
-        let q = supabase.from('custom_amazon_components').select('*').eq('ean', ean);
-        if (supplier) q = q.ilike('fornitore', supplier);
+        let q = supabase.from('custom_amazon_components').select('*').eq('ean', eanClean);
+        if (useSupplierFilter) q = q.eq('fornitore', supplierNorm);
         const { data } = await q.limit(1);
         if (data && data.length > 0) return { ...data[0], _table: 'custom_amazon_components' };
     } catch(e) {}
 
     // 2. Cerca in articoli_aggiunti
     try {
-        const { data } = await supabase.from('articoli_aggiunti').select('*').eq('ean', ean).limit(1);
+        const { data } = await supabase.from('articoli_aggiunti').select('*').eq('ean', eanClean).limit(1);
         if (data && data.length > 0) return { ...data[0], _table: 'articoli_aggiunti' };
     } catch(e) {}
 
     // 3. Itera sulle tabelle catalogo MAIUSCOLE
     for (const table of CATALOG_TABLES) {
         try {
-            let q = supabase.from(table).select('*').eq('ean', ean);
-            if (supplier) q = q.ilike('fornitore', supplier);
+            let q = supabase.from(table).select('*').eq('ean', eanClean);
+            if (useSupplierFilter) q = q.eq('fornitore', supplierNorm);
             const { data, error } = await q.limit(1);
             if (error) continue;
             if (data && data.length > 0) return { ...data[0], _table: table };

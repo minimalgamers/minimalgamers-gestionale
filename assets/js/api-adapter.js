@@ -1,5 +1,5 @@
 // ============================================================
-// API ADAPTER v10 - Minimal Gamers
+// API ADAPTER v11 - Minimal Gamers
 // Intercetta fetch verso endpoint PHP e li reindirizza a Supabase.
 // ============================================================
 const _originalFetch = window.fetch.bind(window);
@@ -296,4 +296,4 @@ window.fetch = async function(url, options = {}) {
     }
 };
 
-console.log('✅ API Adapter v10 attivo');
+console.log('✅ API Adapter v11 attivo');

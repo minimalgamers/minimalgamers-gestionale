@@ -1,6 +1,9 @@
 // ============================================================
-// API ADAPTER v13 - Minimal Gamers
+// API ADAPTER v14 - Minimal Gamers
 // Intercetta fetch verso endpoint PHP e li reindirizza a Supabase.
+//
+// v14: processa item.properties → item.custom_properties per ordini Shopify
+//      (fix definitivo per scheda blu coi componenti GPO sugli ordini nuovi)
 // ============================================================
 const _originalFetch = window.fetch.bind(window);
 
@@ -156,6 +159,29 @@ window.fetch = async function(url, options = {}) {
             }
         }
 
+        // Helper: trasforma item.properties (formato Shopify) in item.custom_properties (formato che vuole il frontend)
+        function processShopifyOrderProperties(orders) {
+            const SKIP_KEYS = ['_gpo_product_group','_gpo_personalize','gpo_field_name','gpo_parent_product_group','_gpo_field_name','_gpo_parent_product_group'];
+            orders.forEach(order => {
+                if (!order || !order.line_items) return;
+                order.line_items.forEach(item => {
+                    if (item.properties && item.properties.length > 0) {
+                        const metafields = {};
+                        item.properties.forEach(prop => {
+                            const name = String(prop.name || '').trim();
+                            if (name && !SKIP_KEYS.includes(name)) {
+                                metafields[name] = prop.value || '';
+                            }
+                        });
+                        item.custom_properties = metafields;
+                    } else {
+                        item.custom_properties = item.custom_properties || {};
+                    }
+                });
+            });
+            return orders;
+        }
+
         // -------- SHOPIFY ORDERS via Edge Function --------
         if (urlStr.includes('api-orders.php') && urlStr.includes('shopify_bridge')) {
             try {
@@ -163,7 +189,8 @@ window.fetch = async function(url, options = {}) {
                 const r = await _originalFetch(edgeUrl);
                 if (!r.ok) throw new Error(`Edge Function HTTP ${r.status}`);
                 const d = await r.json();
-                const orders = d.orders || (Array.isArray(d) ? d : []);
+                let orders = d.orders || (Array.isArray(d) ? d : []);
+                orders = processShopifyOrderProperties(orders);
                 console.log('✅ Ordini Shopify caricati:', orders.length);
                 return ok(orders);
             } catch(e) {
@@ -179,7 +206,8 @@ window.fetch = async function(url, options = {}) {
                 const r = await _originalFetch(edgeUrl);
                 if (!r.ok) throw new Error(`Edge Function HTTP ${r.status}`);
                 const d = await r.json();
-                const orders = d.orders || (Array.isArray(d) ? d : []);
+                let orders = d.orders || (Array.isArray(d) ? d : []);
+                orders = processShopifyOrderProperties(orders);
                 const formatted = orders.map(o => ({ shopify_order_id: String(o.id), raw_order_data: o }));
                 return ok({ success: true, orders: formatted });
             } catch(e) {
@@ -296,4 +324,4 @@ window.fetch = async function(url, options = {}) {
     }
 };
 
-console.log('✅ API Adapter v13 attivo');
+console.log('✅ API Adapter v14 attivo');

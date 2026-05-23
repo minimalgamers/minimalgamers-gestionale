@@ -1,6 +1,11 @@
 // ============================================================
-// SUPABASE CONFIG v11 - Minimal Gamers Gestionale Ordini
+// SUPABASE CONFIG v13 - Minimal Gamers Gestionale Ordini
 // ============================================================
+// v13: bump versione (nessun cambio funzionale qui).
+//      Il fix è in order-config-matcher.js v13 (fuzzy matcher).
+// v12: Skip filtro `fornitore` sulle tabelle che NON hanno quella
+//      colonna (RAM, HDD, Scheda_Aggiuntiva). Verificato via
+//      information_schema.columns.
 // v11: Fix ilike→eq sul fornitore (causava 400 quando il valore
 //      non conteneva % wildcard, es. "PROKS", "OMEGA").
 // v10: Replica fedele del backend PHP originale di Stetco.
@@ -30,6 +35,10 @@ const SHOPIFY_PROXY_URL = null;
 const CATALOG_TABLES = ['CPU', 'GPU', 'RAM', 'SSD', 'HDD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore', 'Scheda_Aggiuntiva'];
 const CATALOG_TABLES_SEARCH = ['CPU', 'GPU', 'RAM', 'SSD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore'];
 
+// Solo queste tabelle hanno la colonna `fornitore` (verificato su DB live).
+// Su RAM, HDD, Scheda_Aggiuntiva la colonna NON esiste: filtrando esplode con 400.
+const TABLES_WITH_FORNITORE = new Set(['CPU', 'GPU', 'SSD', 'Alimentatore', 'Scheda_Madre', 'Case_PC', 'Dissipatore']);
+
 // Whitelist colonne valide di processed_orders (per evitare PGRST204)
 const PROCESSED_ORDERS_COLS = new Set([
     'shopify_order_id', 'order_id_flip', 'operator', 'config_name', 'pc_item_name',
@@ -45,7 +54,7 @@ let supabase = null;
 (async () => {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
     supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase DB pronto (v11)');
+    console.log('✅ Supabase DB pronto (v13)');
     window.SupabaseDB._ready = true;
     if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
 })();
@@ -457,7 +466,10 @@ async function dbGetComponentByEan(ean, supplier = null) {
     for (const table of CATALOG_TABLES) {
         try {
             let q = supabase.from(table).select('*').eq('ean', eanClean);
-            if (useSupplierFilter) q = q.eq('fornitore', supplierNorm);
+            // Applica il filtro fornitore SOLO sulle tabelle che hanno quella colonna
+            if (useSupplierFilter && TABLES_WITH_FORNITORE.has(table)) {
+                q = q.eq('fornitore', supplierNorm);
+            }
             const { data, error } = await q.limit(1);
             if (error) continue;
             if (data && data.length > 0) return { ...data[0], _table: table };

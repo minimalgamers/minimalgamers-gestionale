@@ -1,8 +1,11 @@
 // ============================================================
-// SUPABASE CONFIG v13 - Minimal Gamers Gestionale Ordini
+// SUPABASE CONFIG v15 - Minimal Gamers Gestionale Ordini
 // ============================================================
+// v15: fix URL troppo lungo in dbGetProcessedOrders.
+//      Con 400+ ordini, .in('order_id', orderIds) generava URL
+//      che PostgREST troncava silenziosamente → 0 components ritornati.
+//      Soluzione: carico tutti i components paginati e indicizzo client-side.
 // v13: bump versione (nessun cambio funzionale qui).
-//      Il fix è in order-config-matcher.js v13 (fuzzy matcher).
 // v12: Skip filtro `fornitore` sulle tabelle che NON hanno quella
 //      colonna (RAM, HDD, Scheda_Aggiuntiva). Verificato via
 //      information_schema.columns.
@@ -54,7 +57,7 @@ let supabase = null;
 (async () => {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
     supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase DB pronto (v13)');
+    console.log('✅ Supabase DB pronto (v15)');
     window.SupabaseDB._ready = true;
     if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
 })();
@@ -97,17 +100,30 @@ async function dbGetProcessedOrders() {
     if (errOrders) throw errOrders;
     if (!orders || orders.length === 0) return {};
 
-    // 2. Carico TUTTI i componenti in un colpo solo
-    const orderIds = orders.map(o => o.id);
-    const { data: components, error: errComps } = await supabase
-        .from('processed_order_components')
-        .select('order_id, component_type, ean, product_name, supplier, price, quantity, is_custom')
-        .in('order_id', orderIds);
-    if (errComps) throw errComps;
+    // 2. Carico TUTTI i componenti senza filtro .in() perché con tanti id
+    //    l'URL diventa troppo lungo (~2-4 KB max) e PostgREST tronca silenziosamente.
+    //    Più semplice scaricarli tutti (sono qualche migliaio, gestibile) e
+    //    indicizzarli lato client. Uso paginazione esplicita perché Supabase
+    //    di default limita a 1000 righe per query.
+    const components = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    while (true) {
+        const { data: page, error: errComps } = await supabase
+            .from('processed_order_components')
+            .select('order_id, component_type, ean, product_name, supplier, price, quantity, is_custom')
+            .range(offset, offset + PAGE_SIZE - 1);
+        if (errComps) throw errComps;
+        if (!page || page.length === 0) break;
+        components.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+        if (offset > 50000) break; // safety guard
+    }
 
     // 3. Indicizzo i componenti per order_id (FK numerica)
     const compsByOrderId = {};
-    (components || []).forEach(c => {
+    components.forEach(c => {
         if (!compsByOrderId[c.order_id]) compsByOrderId[c.order_id] = [];
         compsByOrderId[c.order_id].push({
             type: c.component_type,

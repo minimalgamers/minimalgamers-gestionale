@@ -51,6 +51,14 @@ function getMonitorDisplayValue(monitorItem) {
         return PRODUCT_ID_MAP[productId];
     }
     
+    // v23: tutti i bundle "[PC+MONITOR+KIT]" includono lo stesso monitor MSI 24,5" Full HD.
+    // Riconosco dal nome del prodotto per non dover aggiornare la mappa product_id ogni volta
+    // che si crea un nuovo bundle su Shopify.
+    const itemName = String(monitorItem.name || monitorItem.title || '');
+    if (/\[PC\+MONITOR\+KIT\]/i.test(itemName)) {
+        return "MONITOR 24'' 180HZ - FULL HD";
+    }
+    
     // Pattern fallback dai nomi: estraggo dimensione + Hz + risoluzione
     const name = String(monitorItem.name || monitorItem.title || '').toUpperCase();
     if (name) {

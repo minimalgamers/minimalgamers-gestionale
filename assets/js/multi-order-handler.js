@@ -555,6 +555,15 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 c.type.toUpperCase() === String(resolved.baseComponentType).toUpperCase()
             );
 
+            // v28: preserva CASE NOUA VITRA settato da v27
+            if (resolved.gpoSearchType === 'CASE' && componentIndex !== -1) {
+                const currentCaseValue = String(finalComponents[componentIndex].value || '');
+                if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
+                    console.log(`🔒 [VITRA-LOCK v28] split: CASE "${currentCaseValue}" preservato`);
+                    continue;
+                }
+            }
+
             const gpoMatch = findGpoMapping(resolved.gpoSearchType, value);
             const finalValue = gpoMatch
                 ? (gpoMatch.supplier ? `${gpoMatch.ean} (${gpoMatch.supplier})` : gpoMatch.ean)
@@ -770,6 +779,15 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                 const componentIndex = finalComponents.findIndex(c =>
                     c.type.toUpperCase() === String(resolved.baseComponentType).toUpperCase()
                 );
+
+                // v28: preserva CASE NOUA VITRA settato da v27
+                if (resolved.gpoSearchType === 'CASE' && componentIndex !== -1) {
+                    const currentCaseValue = String(finalComponents[componentIndex].value || '');
+                    if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
+                        console.log(`🔒 [VITRA-LOCK v28] multiPC: CASE "${currentCaseValue}" preservato`);
+                        continue;
+                    }
+                }
 
                 const gpoMatch = findGpoMapping(resolved.gpoSearchType, value);
                 const finalValue = gpoMatch

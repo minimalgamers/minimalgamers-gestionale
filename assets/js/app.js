@@ -3112,6 +3112,15 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         
         const gpoMappableTypes = ['CPU', 'PSU', 'ALIMENTATORE', 'CASE', 'GPU', 'SCHEDA MADRE', 'SSD', 'SSD ADDON', 'RAM', 'COOLER', 'DISSIPATORE'];
         if (gpoMappableTypes.includes(gpoSearchType)) {
+            // v28: se v27 ha già impostato il CASE su NOUA VITRA per le 4 config target,
+            // NON sovrascrivere col gpoMatch (che rimetterebbe l'EAN del MINIMAL CASE standard).
+            if (gpoSearchType === 'CASE' && componentIndex !== -1) {
+                const currentCaseValue = String(finalComponents[componentIndex].value || '');
+                if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
+                    console.log(`🔒 [VITRA-LOCK v28] CASE già impostato a "${currentCaseValue}" → skip gpoMatch`);
+                    continue;
+                }
+            }
             const gpoMatch = findGpoMapping(gpoSearchType, value);
             if (gpoMatch) {
                 variantValue = gpoMatch.supplier 
@@ -4534,6 +4543,15 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     const componentIndex = finalComponents.findIndex(c =>
                         c.type.toUpperCase() === baseComponentType.toUpperCase()
                     );
+
+                    // v28: se v27 ha messo NOUA VITRA sul CASE, non sovrascrivere col gpoMatch
+                    if (gpoSearchType === 'CASE' && componentIndex !== -1) {
+                        const currentCaseValue = String(finalComponents[componentIndex].value || '');
+                        if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
+                            console.log(`🔒 [VITRA-LOCK v28] processOrder: CASE "${currentCaseValue}" preservato`);
+                            continue;
+                        }
+                    }
 
                     const gpoMatch = findGpoMapping(gpoSearchType, value);
                     const finalValue = gpoMatch

@@ -501,6 +501,17 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
     if (config) {
         configName = config.configKey;
         let finalComponents = JSON.parse(JSON.stringify(config.components));
+        // v26: rimpiazzo MONITOR generico clonato dalla config con label smart
+        try {
+            const monitorIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'MONITOR');
+            if (monitorIdx !== -1 && typeof getMonitorDisplayValue === 'function') {
+                const smartValue = getMonitorDisplayValue(targetPcItem);
+                if (smartValue && smartValue !== 'Generico (AMAZON)') {
+                    console.log(`🖥️ [MONITOR v26 split] → "${smartValue}"`);
+                    finalComponents[monitorIdx].value = smartValue;
+                }
+            }
+        } catch (e) { console.warn('MONITOR v26 split fail:', e); }
         const variants = targetPcItem.custom_properties || {};
         const kitUnits = extractKitUnitsFromOrder(fullOrder);
         const monitorUnits = extractMonitorUnitsFromOrder(fullOrder);
@@ -701,7 +712,17 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
         if (config) {
             configName = config.configKey;
             let finalComponents = JSON.parse(JSON.stringify(config.components));
-            
+            // v26: rimpiazzo MONITOR generico clonato dalla config con label smart
+            try {
+                const monitorIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'MONITOR');
+                if (monitorIdx !== -1 && typeof getMonitorDisplayValue === 'function') {
+                    const smartValue = getMonitorDisplayValue(pcItem);
+                    if (smartValue && smartValue !== 'Generico (AMAZON)') {
+                        console.log(`🖥️ [MONITOR v26 multi] → "${smartValue}"`);
+                        finalComponents[monitorIdx].value = smartValue;
+                    }
+                }
+            } catch (e) { console.warn('MONITOR v26 multi fail:', e); }
             
             const variants = pcItem.custom_properties || {};
             

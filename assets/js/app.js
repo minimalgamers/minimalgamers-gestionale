@@ -4450,6 +4450,21 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                 
                 let finalComponents = JSON.parse(JSON.stringify(config.components));
                 
+                // v26: per i bundle [PC+MONITOR+KIT] il MONITOR è clonato dalla config DB 
+                // con valore generico "MONITOR 180Hz 1ms". Lo rimpiazzo con la label smart.
+                try {
+                    const monitorIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'MONITOR');
+                    if (monitorIdx !== -1 && typeof getMonitorDisplayValue === 'function') {
+                        const smartValue = getMonitorDisplayValue(pcItem);
+                        if (smartValue && smartValue !== 'Generico (AMAZON)') {
+                            console.log(`🖥️ [MONITOR v26] config "${config.configKey}" → MONITOR: "${finalComponents[monitorIdx].value}" → "${smartValue}"`);
+                            finalComponents[monitorIdx].value = smartValue;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('MONITOR v26 sostituzione fallita (non bloccante):', e);
+                }
+                
                 
                 const variants = pcItem.custom_properties || {};
                 const normalVariants = [];

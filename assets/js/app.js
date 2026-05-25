@@ -3184,10 +3184,31 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         });
         
         if (kitItem) {
-            // v16: se SKU sembra un UUID, usa il nome del prodotto
+            // v17: scelta del valore del KIT GAMING in cascata.
+            // Priorità: SKU pulito > variant_title > "KIT GAMING + colore" estratto > nome troncato.
+            // Ciò che vede l'operatore è breve e consistente; il nome completo resta nel tooltip.
             const rawSku = String(kitItem.sku || '').trim();
             const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSku);
-            const kitValue = (rawSku && !looksLikeUuid) ? rawSku : kitItem.name;
+            let kitValue;
+            if (rawSku && !looksLikeUuid) {
+                kitValue = rawSku;
+            } else {
+                // Cerco un colore (NERO/BIANCO/BLACK/WHITE) nel variant_title o nel nome
+                const variantTitle = String(kitItem.variant_title || '').trim();
+                const fullName = String(kitItem.name || '').toUpperCase();
+                const variantUpper = variantTitle.toUpperCase();
+                const sourceForColor = `${variantUpper} ${fullName}`;
+                let color = '';
+                if (/\bNERO\b|\bBLACK\b/.test(sourceForColor)) color = 'BLACK';
+                else if (/\bBIANCO\b|\bWHITE\b/.test(sourceForColor)) color = 'WHITE';
+                if (color) {
+                    kitValue = `KIT GAMING ${color}`;
+                } else if (variantTitle && variantTitle.toLowerCase() !== 'null') {
+                    kitValue = `KIT GAMING ${variantTitle}`;
+                } else {
+                    kitValue = kitItem.name || 'KIT GAMING';
+                }
+            }
             const kitIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'KIT GAMING');
             if (kitIndex !== -1) {
                 finalComponents[kitIndex] = {
@@ -3250,6 +3271,12 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
     const eanModifications = loadEANModifications(orderId);
     const supplierModifications = loadSupplierModifications(orderId);
     const deletedComponents = loadDeletedComponents(orderId);
+    
+    // v17 guard: in alcuni rami (ordini già in E1 con configName ma components vuoto)
+    // finalComponents può arrivare come oggetto vuoto. Lo normalizzo ad array.
+    if (!Array.isArray(finalComponents)) {
+        finalComponents = Array.isArray(finalComponents?.components) ? finalComponents.components : [];
+    }
     
     for (const component of finalComponents) {
         if (deletedComponents.includes(component.type)) continue;
@@ -4454,10 +4481,23 @@ async function processOrder(orderId, skipReload = false, worksheetNumber = 1) {
 
                 if (kitUnits.length > 0) {
                     const kitItem = kitUnits[0];
-                    // v16: se SKU sembra un UUID, usa il nome del prodotto
+                    // v17: stessa logica del kit smart (priorità SKU > color > variant > nome)
                     const rawSku = String(kitItem?.sku || '').trim();
                     const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSku);
-                    const kitValue = (rawSku && !looksLikeUuid) ? rawSku : (kitItem?.name || kitItem?.title || '');
+                    let kitValue;
+                    if (rawSku && !looksLikeUuid) {
+                        kitValue = rawSku;
+                    } else {
+                        const variantTitle = String(kitItem?.variant_title || '').trim();
+                        const fullName = String(kitItem?.name || kitItem?.title || '').toUpperCase();
+                        const sourceForColor = `${variantTitle.toUpperCase()} ${fullName}`;
+                        let color = '';
+                        if (/\bNERO\b|\bBLACK\b/.test(sourceForColor)) color = 'BLACK';
+                        else if (/\bBIANCO\b|\bWHITE\b/.test(sourceForColor)) color = 'WHITE';
+                        if (color) kitValue = `KIT GAMING ${color}`;
+                        else if (variantTitle && variantTitle.toLowerCase() !== 'null') kitValue = `KIT GAMING ${variantTitle}`;
+                        else kitValue = kitItem?.name || kitItem?.title || '';
+                    }
 
                     if (kitValue) {
                         const kitIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'KIT GAMING');

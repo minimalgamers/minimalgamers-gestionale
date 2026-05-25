@@ -119,7 +119,11 @@ function applyMonitorToComponents(finalComponents, monitorItem, quantity = 1) {
     if (!monitorItem || !Array.isArray(finalComponents)) return;
 
     const monitorIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'MONITOR');
-    const monitorValue = 'Generico (AMAZON)';
+    // v24: usa la funzione smart di app.js (caricato prima) per derivare label corretta
+    // (es. MONITOR 24'' 180HZ - FULL HD da product_id o pattern [PC+MONITOR+KIT])
+    const monitorValue = (typeof getMonitorDisplayValue === 'function')
+        ? getMonitorDisplayValue(monitorItem)
+        : 'Generico (AMAZON)';
 
     if (monitorIndex !== -1) {
         finalComponents[monitorIndex] = {

@@ -35,10 +35,17 @@ function getMonitorDisplayValue(monitorItem) {
     }
     
     // Mapping per product_id (modificabile centralmente)
+    // v22: aggiunti i bundle [PC+MONITOR+KIT] che includono il monitor MSI 24,5"
     const productId = String(monitorItem.product_id || '');
     const PRODUCT_ID_MAP = {
+        // Monitor standalone (acquistabili da soli)
         '10292350353751': "MONITOR 24'' 180HZ - FULL HD",  // MSI MONITOR GAMING 24,5"
         '10309270503767': "MONITOR 27'' 180HZ - 2K",        // AOC Q27G4XND 27" WQHD
+        // Bundle [PC+MONITOR+KIT] - tutti includono il monitor MSI 24,5" 180Hz Full HD
+        '10241024655703': "MONITOR 24'' 180HZ - FULL HD",  // bundle RX 9060XT
+        '10510842331479': "MONITOR 24'' 180HZ - FULL HD",  // bundle ARC A770
+        '10739861520727': "MONITOR 24'' 180HZ - FULL HD",  // bundle RTX 5070
+        '9979364901207':  "MONITOR 24'' 180HZ - FULL HD",  // bundle RTX 3050
     };
     if (PRODUCT_ID_MAP[productId]) {
         return PRODUCT_ID_MAP[productId];

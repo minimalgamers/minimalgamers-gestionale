@@ -4261,7 +4261,28 @@ function showNotification(message, type = 'info') {
 
 
 
+// v20: lock in-memory per prevenire race condition da doppio click sui pulsanti E1/E2/E3/E4.
+// Senza lock, 2 chiamate parallele a processOrder per lo stesso orderId potevano fare:
+//   - chiamata A: DELETE (0 righe), INSERT (10 righe)
+//   - chiamata B: DELETE (0 righe, in parallelo prima dell'INSERT di A), INSERT (10 righe)
+// Risultato: 20 componenti totali duplicati invece di 10.
+const _processOrderLocks = new Set();
+
 async function processOrder(orderId, skipReload = false, worksheetNumber = 1) {
+    const lockKey = String(orderId);
+    if (_processOrderLocks.has(lockKey)) {
+        console.warn(`🔒 Ordine ${orderId} è già in elaborazione, evito doppio processOrder`);
+        return;
+    }
+    _processOrderLocks.add(lockKey);
+    try {
+        return await _processOrderImpl(orderId, skipReload, worksheetNumber);
+    } finally {
+        _processOrderLocks.delete(lockKey);
+    }
+}
+
+async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 1) {
     const foglioDiLavoro = Math.min(4, Math.max(1, parseInt(worksheetNumber, 10) || 1));
     
     const processedOrderIds = await getProcessedOrderIdsFromDB();

@@ -512,6 +512,12 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 }
             }
         } catch (e) { console.warn('MONITOR v26 split fail:', e); }
+        // v27: NOUA VITRA override per STRIKE/VEGA/VORTEX/bundle RTX 3050
+        try {
+            if (typeof applyVitraCaseOverride === 'function') {
+                applyVitraCaseOverride(finalComponents, config.configKey, targetPcItem);
+            }
+        } catch (e) { console.warn('VITRA-OVERRIDE v27 split fail:', e); }
         const variants = targetPcItem.custom_properties || {};
         const kitUnits = extractKitUnitsFromOrder(fullOrder);
         const monitorUnits = extractMonitorUnitsFromOrder(fullOrder);
@@ -723,6 +729,12 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     }
                 }
             } catch (e) { console.warn('MONITOR v26 multi fail:', e); }
+            // v27: NOUA VITRA override per STRIKE/VEGA/VORTEX/bundle RTX 3050
+            try {
+                if (typeof applyVitraCaseOverride === 'function') {
+                    applyVitraCaseOverride(finalComponents, config.configKey, pcItem);
+                }
+            } catch (e) { console.warn('VITRA-OVERRIDE v27 multi fail:', e); }
             
             const variants = pcItem.custom_properties || {};
             

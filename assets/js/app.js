@@ -89,6 +89,41 @@ function getMonitorDisplayValue(monitorItem) {
     return 'Generico (AMAZON)';
 }
 
+// v27: per 4 config specifiche (STRIKE, VEGA, VORTEX, bundle RTX 3050 [PC+MONITOR+KIT]),
+// se il cliente sceglie il MINIMAL CASE (WHITE o BLACK), sostituisco il CASE con NOUA VITRA.
+// Le altre config NON vengono toccate.
+const VITRA_TARGET_CONFIGS = new Set([
+    'PC GAMING VORTEX',
+    'PC GAMING STRIKE',
+    'PC GAMING VEGA',
+    '[PC+MONITOR+KIT]', // config #25 = bundle RTX 3050
+]);
+
+function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
+    if (!Array.isArray(finalComponents) || !configKey) return;
+    if (!VITRA_TARGET_CONFIGS.has(configKey)) return;
+    
+    // Leggo la scelta CASE del cliente dalle Shopify custom_properties
+    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
+    const caseChoice = String(props.CASE || props.case || '').toUpperCase();
+    
+    // Override scatta SOLO se il cliente ha scelto MINIMAL CASE (qualsiasi colore)
+    if (!/MINIMAL\s*CASE/i.test(caseChoice)) return;
+    
+    let newCase = null;
+    if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'NOUA VITRA WHITE';
+    else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'NOUA VITRA BLACK';
+    if (!newCase) return;
+    
+    const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
+    if (caseIdx === -1) return;
+    
+    const oldValue = finalComponents[caseIdx].value;
+    console.log(`📦 [VITRA-OVERRIDE v27] config "${configKey}" + cliente sceglie "${caseChoice}" → CASE: "${oldValue}" → "${newCase}" (NOUA)`);
+    finalComponents[caseIdx].value = newCase;
+    finalComponents[caseIdx].supplier = 'NOUA';
+}
+
 function getWorksheetFromTab(tabName) {
     return PROCESSED_TAB_TO_WORKSHEET[tabName] || 1;
 }
@@ -4463,6 +4498,15 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     }
                 } catch (e) {
                     console.warn('MONITOR v26 sostituzione fallita (non bloccante):', e);
+                }
+                
+                // v27: per STRIKE/VEGA/VORTEX/bundle RTX 3050, se cliente sceglie MINIMAL CASE → NOUA VITRA
+                try {
+                    if (typeof applyVitraCaseOverride === 'function') {
+                        applyVitraCaseOverride(finalComponents, config.configKey, pcItem);
+                    }
+                } catch (e) {
+                    console.warn('VITRA-OVERRIDE v27 fallito (non bloccante):', e);
                 }
                 
                 

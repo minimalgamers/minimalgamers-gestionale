@@ -19,6 +19,61 @@ function isProcessedTab(tabName) {
     return Object.prototype.hasOwnProperty.call(PROCESSED_TAB_TO_WORKSHEET, tabName);
 }
 
+// v21: deriva una label leggibile per il MONITOR a partire dal line_item Shopify.
+// Priorità in cascata:
+//   1) SKU pulito (se non UUID e non vuoto)
+//   2) Mappa per product_id (gestita centralmente qui)
+//   3) Pattern testuali nel nome (dimensione, Hz, risoluzione)
+//   4) Fallback "Generico (AMAZON)"
+function getMonitorDisplayValue(monitorItem) {
+    if (!monitorItem) return 'Generico (AMAZON)';
+    
+    const rawSku = String(monitorItem.sku || '').trim();
+    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSku);
+    if (rawSku && !looksLikeUuid && rawSku.toLowerCase() !== 'null') {
+        return rawSku;
+    }
+    
+    // Mapping per product_id (modificabile centralmente)
+    const productId = String(monitorItem.product_id || '');
+    const PRODUCT_ID_MAP = {
+        '10292350353751': "MONITOR 24'' 180HZ - FULL HD",  // MSI MONITOR GAMING 24,5"
+        '10309270503767': "MONITOR 27'' 180HZ - 2K",        // AOC Q27G4XND 27" WQHD
+    };
+    if (PRODUCT_ID_MAP[productId]) {
+        return PRODUCT_ID_MAP[productId];
+    }
+    
+    // Pattern fallback dai nomi: estraggo dimensione + Hz + risoluzione
+    const name = String(monitorItem.name || monitorItem.title || '').toUpperCase();
+    if (name) {
+        // Dimensione: 24, 24,5, 25, 27, 32, ecc.
+        let size = '';
+        const sizeMatch = name.match(/(\d{2})[,.]?\d?\s*(?:"|''|POLLICI|INCH)/);
+        if (sizeMatch) size = sizeMatch[1];
+        
+        // Hz: 144Hz, 165Hz, 180Hz, 240Hz, ecc.
+        let hz = '';
+        const hzMatch = name.match(/(\d{2,3})\s*HZ/);
+        if (hzMatch) hz = hzMatch[1];
+        
+        // Risoluzione
+        let res = '';
+        if (/4K|UHD|3840\s*X\s*2160/.test(name)) res = '4K';
+        else if (/WQHD|QHD|\b2K\b|2560\s*X\s*1440/.test(name)) res = '2K';
+        else if (/FHD|FULL\s*HD|1920\s*X\s*1080/.test(name)) res = 'FULL HD';
+        
+        if (size && (hz || res)) {
+            let label = `MONITOR ${size}''`;
+            if (hz) label += ` ${hz}HZ`;
+            if (res) label += ` - ${res}`;
+            return label;
+        }
+    }
+    
+    return 'Generico (AMAZON)';
+}
+
 function getWorksheetFromTab(tabName) {
     return PROCESSED_TAB_TO_WORKSHEET[tabName] || 1;
 }
@@ -3248,7 +3303,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
 
         if (monitorItem) {
             const monitorIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'MONITOR');
-            const monitorValue = 'Generico (AMAZON)';
+            const monitorValue = getMonitorDisplayValue(monitorItem);
             if (monitorIndex !== -1) {
                 finalComponents[monitorIndex] = {
                     type: finalComponents[monitorIndex].type,
@@ -4540,7 +4595,8 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
 
                 if (monitorUnits.length > 0) {
                     const monitorIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'MONITOR');
-                    const monitorValue = 'Generico (AMAZON)';
+                    // v21: passo il primo monitorUnit per derivare label specifica (size/Hz/risoluzione)
+                    const monitorValue = getMonitorDisplayValue(monitorUnits[0]);
 
                     if (monitorIndex !== -1) {
                         finalComponents[monitorIndex] = {

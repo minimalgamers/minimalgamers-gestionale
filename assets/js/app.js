@@ -3184,7 +3184,10 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         });
         
         if (kitItem) {
-            const kitValue = String(kitItem.sku || '').trim() || kitItem.name;
+            // v16: se SKU sembra un UUID, usa il nome del prodotto
+            const rawSku = String(kitItem.sku || '').trim();
+            const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSku);
+            const kitValue = (rawSku && !looksLikeUuid) ? rawSku : kitItem.name;
             const kitIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'KIT GAMING');
             if (kitIndex !== -1) {
                 finalComponents[kitIndex] = {
@@ -4451,7 +4454,10 @@ async function processOrder(orderId, skipReload = false, worksheetNumber = 1) {
 
                 if (kitUnits.length > 0) {
                     const kitItem = kitUnits[0];
-                    const kitValue = String(kitItem?.sku || '').trim() || (kitItem?.name || kitItem?.title || '');
+                    // v16: se SKU sembra un UUID, usa il nome del prodotto
+                    const rawSku = String(kitItem?.sku || '').trim();
+                    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSku);
+                    const kitValue = (rawSku && !looksLikeUuid) ? rawSku : (kitItem?.name || kitItem?.title || '');
 
                     if (kitValue) {
                         const kitIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'KIT GAMING');

@@ -4537,29 +4537,47 @@ async function processOrder(orderId, skipReload = false, worksheetNumber = 1) {
                 }
                 
                 
-                // v18: propaga il colore del CASE al COOLER generico.
-                // Se il cliente sceglie un CASE BIANCO, il dissipatore generico ("DISSIPATORE 240MM NERO")
-                // viene automaticamente convertito in "DISSIPATORE 240MM BIANCO" (e viceversa per BLACK).
-                // Non tocca cooler espliciti (es. ASSASSIN X, MAG CORELIQUID...).
+                // v19: propaga il colore del CASE al COOLER generico.
+                // Cerco il colore nelle custom_properties Shopify GPO (es. "CASE": "MINIMAL CASE WHITE - 1x RGB"),
+                // perché caseComp.value contiene l'EAN numerico (es. "8053323507000") e la regex non scatta.
+                // Fallback: provo anche a leggere dal valore se contiene il colore.
                 try {
-                    const caseComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'CASE');
-                    if (caseComp && caseComp.value) {
-                        const caseValueUpper = String(caseComp.value).toUpperCase();
-                        let caseColor = '';
-                        if (/\bWHITE\b|\bBIANCO\b/.test(caseValueUpper)) caseColor = 'WHITE';
-                        else if (/\bBLACK\b|\bNERO\b/.test(caseValueUpper)) caseColor = 'BLACK';
-                        if (caseColor) {
-                            const coolerComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'COOLER');
-                            if (coolerComp && coolerComp.value) {
-                                const coolerVal = String(coolerComp.value).toUpperCase();
-                                // Tocco solo il dissipatore generico (NERO/BIANCO), non cooler espliciti
-                                const isGenericDissipatore = /DISSIPATORE\s+240\s*MM\s+(NERO|BIANCO|BLACK|WHITE)/i.test(coolerComp.value);
-                                if (isGenericDissipatore) {
-                                    const newValue = caseColor === 'WHITE' ? 'DISSIPATORE 240MM BIANCO' : 'DISSIPATORE 240MM NERO';
-                                    if (coolerComp.value !== newValue) {
-                                        console.log(`🎨 [COOLER-COLOR-MATCH] Case ${caseColor} → COOLER: "${coolerComp.value}" → "${newValue}"`);
-                                        coolerComp.value = newValue;
-                                    }
+                    let caseColor = '';
+                    // Strategia 1: custom_properties del PC item (Shopify GPO)
+                    const pcCustomProps = pcItem?.custom_properties || pcItem?.customProperties || {};
+                    const caseCustomValue = String(pcCustomProps.CASE || pcCustomProps.case || '').toUpperCase();
+                    if (/\bWHITE\b|\bBIANCO\b/.test(caseCustomValue)) caseColor = 'WHITE';
+                    else if (/\bBLACK\b|\bNERO\b/.test(caseCustomValue)) caseColor = 'BLACK';
+
+                    // Strategia 2 (fallback): cerco nel caseComp.value
+                    if (!caseColor) {
+                        const caseComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'CASE');
+                        if (caseComp && caseComp.value) {
+                            const caseValueUpper = String(caseComp.value).toUpperCase();
+                            if (/\bWHITE\b|\bBIANCO\b/.test(caseValueUpper)) caseColor = 'WHITE';
+                            else if (/\bBLACK\b|\bNERO\b/.test(caseValueUpper)) caseColor = 'BLACK';
+                        }
+                    }
+
+                    // Strategia 3 (fallback ultimo): line_item separato "CASE - XXX"
+                    if (!caseColor && Array.isArray(fullOrder?.line_items)) {
+                        const caseLineItem = fullOrder.line_items.find(it => /^CASE\s*-/i.test(it?.name || ''));
+                        if (caseLineItem) {
+                            const lineNameUpper = String(caseLineItem.name || '').toUpperCase();
+                            if (/\bWHITE\b|\bBIANCO\b/.test(lineNameUpper)) caseColor = 'WHITE';
+                            else if (/\bBLACK\b|\bNERO\b/.test(lineNameUpper)) caseColor = 'BLACK';
+                        }
+                    }
+
+                    if (caseColor) {
+                        const coolerComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'COOLER');
+                        if (coolerComp && coolerComp.value) {
+                            const isGenericDissipatore = /DISSIPATORE\s+240\s*MM\s+(NERO|BIANCO|BLACK|WHITE)/i.test(coolerComp.value);
+                            if (isGenericDissipatore) {
+                                const newValue = caseColor === 'WHITE' ? 'DISSIPATORE 240MM BIANCO' : 'DISSIPATORE 240MM NERO';
+                                if (coolerComp.value !== newValue) {
+                                    console.log(`🎨 [COOLER-COLOR-MATCH v19] Case ${caseColor} → COOLER: "${coolerComp.value}" → "${newValue}"`);
+                                    coolerComp.value = newValue;
                                 }
                             }
                         }

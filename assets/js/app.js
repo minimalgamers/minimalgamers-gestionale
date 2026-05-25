@@ -4537,6 +4537,37 @@ async function processOrder(orderId, skipReload = false, worksheetNumber = 1) {
                 }
                 
                 
+                // v18: propaga il colore del CASE al COOLER generico.
+                // Se il cliente sceglie un CASE BIANCO, il dissipatore generico ("DISSIPATORE 240MM NERO")
+                // viene automaticamente convertito in "DISSIPATORE 240MM BIANCO" (e viceversa per BLACK).
+                // Non tocca cooler espliciti (es. ASSASSIN X, MAG CORELIQUID...).
+                try {
+                    const caseComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'CASE');
+                    if (caseComp && caseComp.value) {
+                        const caseValueUpper = String(caseComp.value).toUpperCase();
+                        let caseColor = '';
+                        if (/\bWHITE\b|\bBIANCO\b/.test(caseValueUpper)) caseColor = 'WHITE';
+                        else if (/\bBLACK\b|\bNERO\b/.test(caseValueUpper)) caseColor = 'BLACK';
+                        if (caseColor) {
+                            const coolerComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'COOLER');
+                            if (coolerComp && coolerComp.value) {
+                                const coolerVal = String(coolerComp.value).toUpperCase();
+                                // Tocco solo il dissipatore generico (NERO/BIANCO), non cooler espliciti
+                                const isGenericDissipatore = /DISSIPATORE\s+240\s*MM\s+(NERO|BIANCO|BLACK|WHITE)/i.test(coolerComp.value);
+                                if (isGenericDissipatore) {
+                                    const newValue = caseColor === 'WHITE' ? 'DISSIPATORE 240MM BIANCO' : 'DISSIPATORE 240MM NERO';
+                                    if (coolerComp.value !== newValue) {
+                                        console.log(`🎨 [COOLER-COLOR-MATCH] Case ${caseColor} → COOLER: "${coolerComp.value}" → "${newValue}"`);
+                                        coolerComp.value = newValue;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Coercion colore cooler fallita (non bloccante):', e);
+                }
+
                 for (const comp of finalComponents) {
                     
                     const match = comp.value.match(/^(.+?)\s*\((.+?)\)$/);

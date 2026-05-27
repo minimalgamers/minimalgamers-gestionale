@@ -168,6 +168,46 @@ window.applyMoboPsuRules = function(finalComponents, pcItem, fullOrder) {
 };
 console.log('✅ applyMoboPsuRules v30 registrata');
 
+// v31: per certe config (TITAN, DOMINATOR V.1/V.2, TERMINATOR, INFERNUS, RAGNAROK,
+// ZEUS, STERMINATOR, BLACKNOVA, NEMESIS) il PSU deve essere "80+ GOLD 850W" (supplier ALTRO).
+// Indipendente da v30 (le due regole non si incrociano: queste config non usano B550 WIFI).
+window.CONFIG_PSU_TARGETS = new Set([
+    'PC GAMING TITAN',
+    'PC GAMING DOMINATOR V.2',
+    'PC GAMING TERMINATOR',
+    'PC GAMING DOMINATOR V.1',
+    'PC GAMING INFERNUS',
+    'PC GAMING RAGNAROK',
+    'PC GAMING ZEUS',
+    'PC GAMING STERMINATOR',
+    'PC GAMING BLACKNOVA',
+    'PC GAMING NEMESIS',
+]);
+
+window.applyConfigPsuOverride = function(finalComponents, configKey) {
+    if (!Array.isArray(finalComponents) || !configKey) return;
+    if (!window.CONFIG_PSU_TARGETS.has(configKey)) return;
+    
+    const psuIdx = finalComponents.findIndex(c => {
+        const t = String(c.type || '').toUpperCase();
+        return t === 'PSU' || t === 'ALIMENTATORE';
+    });
+    
+    const newValue = '80+ GOLD 850W';
+    const newSupplier = 'ALTRO';
+    
+    if (psuIdx === -1) {
+        console.log(`⚡ [CONFIG-PSU v31] config "${configKey}" → aggiungo PSU "${newValue}" (${newSupplier})`);
+        finalComponents.push({ type: 'PSU', value: newValue, supplier: newSupplier });
+    } else {
+        const oldValue = finalComponents[psuIdx].value;
+        console.log(`⚡ [CONFIG-PSU v31] config "${configKey}" → PSU: "${oldValue}" → "${newValue}" (${newSupplier})`);
+        finalComponents[psuIdx].value = newValue;
+        finalComponents[psuIdx].supplier = newSupplier;
+    }
+};
+console.log('✅ applyConfigPsuOverride v31 registrata');
+
 function getWorksheetFromTab(tabName) {
     return PROCESSED_TAB_TO_WORKSHEET[tabName] || 1;
 }
@@ -3165,12 +3205,12 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                     continue;
                 }
             }
-            // v29: se v29 ha impostato il PSU per regola MOBO (es. TACENS 850W per B550-A),
+            // v29/v31: se v30/v31 hanno impostato il PSU per regola (TACENS 850W o 80+ GOLD 850W),
             // NON sovrascrivere col gpoMatch.
             if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                 const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                if (/TACENS\s*850W/i.test(currentPsuValue)) {
-                    console.log(`🔒 [MOBO-PSU-LOCK v30] PSU già impostato a "${currentPsuValue}" → skip gpoMatch`);
+                if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                    console.log(`🔒 [PSU-LOCK v31] PSU già impostato a "${currentPsuValue}" → skip gpoMatch`);
                     continue;
                 }
             }
@@ -4580,6 +4620,15 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     console.warn('MOBO-PSU v30 fallito (non bloccante):', e);
                 }
                 
+                // v31: per 10 config target (TITAN/DOMINATOR/TERMINATOR/...) → PSU "80+ GOLD 850W"
+                try {
+                    if (typeof window.applyConfigPsuOverride === 'function') {
+                        window.applyConfigPsuOverride(finalComponents, config.configKey);
+                    }
+                } catch (e) {
+                    console.warn('CONFIG-PSU v31 fallito (non bloccante):', e);
+                }
+                
                 
                 const variants = pcItem.custom_properties || {};
                 const normalVariants = [];
@@ -4614,11 +4663,11 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                             continue;
                         }
                     }
-                    // v29: se v29 ha messo TACENS 850W sul PSU per regola MOBO, non sovrascrivere
+                    // v29/v31: se v30/v31 hanno messo TACENS 850W o 80+ GOLD 850W sul PSU, non sovrascrivere
                     if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                         const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                        if (/TACENS\s*850W/i.test(currentPsuValue)) {
-                            console.log(`🔒 [MOBO-PSU-LOCK v30] processOrder: PSU "${currentPsuValue}" preservato`);
+                        if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                            console.log(`🔒 [PSU-LOCK v31] processOrder: PSU "${currentPsuValue}" preservato`);
                             continue;
                         }
                     }

@@ -518,6 +518,12 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 applyVitraCaseOverride(finalComponents, config.configKey, targetPcItem);
             }
         } catch (e) { console.warn('VITRA-OVERRIDE v27 split fail:', e); }
+        // v29: PSU specifico se MOBO richiede doppio EPS ecc.
+        try {
+            if (typeof applyMoboPsuRules === 'function') {
+                applyMoboPsuRules(finalComponents, targetPcItem, fullOrder);
+            }
+        } catch (e) { console.warn('MOBO-PSU v29 split fail:', e); }
         const variants = targetPcItem.custom_properties || {};
         const kitUnits = extractKitUnitsFromOrder(fullOrder);
         const monitorUnits = extractMonitorUnitsFromOrder(fullOrder);
@@ -560,6 +566,14 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 const currentCaseValue = String(finalComponents[componentIndex].value || '');
                 if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
                     console.log(`🔒 [VITRA-LOCK v28] split: CASE "${currentCaseValue}" preservato`);
+                    continue;
+                }
+            }
+            // v29: preserva PSU TACENS 850W settato da regola MOBO
+            if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
+                const currentPsuValue = String(finalComponents[componentIndex].value || '');
+                if (/TACENS\s*850W/i.test(currentPsuValue)) {
+                    console.log(`🔒 [MOBO-PSU-LOCK v29] split: PSU "${currentPsuValue}" preservato`);
                     continue;
                 }
             }
@@ -744,6 +758,12 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     applyVitraCaseOverride(finalComponents, config.configKey, pcItem);
                 }
             } catch (e) { console.warn('VITRA-OVERRIDE v27 multi fail:', e); }
+            // v29: PSU specifico se MOBO richiede doppio EPS ecc.
+            try {
+                if (typeof applyMoboPsuRules === 'function') {
+                    applyMoboPsuRules(finalComponents, pcItem, fullOrder);
+                }
+            } catch (e) { console.warn('MOBO-PSU v29 multi fail:', e); }
             
             const variants = pcItem.custom_properties || {};
             
@@ -785,6 +805,14 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     const currentCaseValue = String(finalComponents[componentIndex].value || '');
                     if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
                         console.log(`🔒 [VITRA-LOCK v28] multiPC: CASE "${currentCaseValue}" preservato`);
+                        continue;
+                    }
+                }
+                // v29: preserva PSU TACENS 850W settato da regola MOBO
+                if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
+                    const currentPsuValue = String(finalComponents[componentIndex].value || '');
+                    if (/TACENS\s*850W/i.test(currentPsuValue)) {
+                        console.log(`🔒 [MOBO-PSU-LOCK v29] multiPC: PSU "${currentPsuValue}" preservato`);
                         continue;
                     }
                 }

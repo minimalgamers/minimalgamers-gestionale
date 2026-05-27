@@ -124,6 +124,67 @@ function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
     finalComponents[caseIdx].supplier = 'NOUA';
 }
 
+// v29: alcune MOBO richiedono un PSU specifico (es. doppio EPS = 850W).
+// Regole indipendenti dalla config: scattano per TUTTE le config se la MOBO match.
+// Dizionario espandibile: per aggiungere altre regole, basta un nuovo entry.
+const MOBO_PSU_RULES = [
+    {
+        // ASUS ROG STRIX B550 WIFI (B550-A Gaming nel display) richiede doppio EPS
+        moboPattern: /\bASUS\s*ROG\s*STRIX\s*B550\s*WIFI\b/i,
+        psuValue: 'TACENS 850W',
+        psuSupplier: 'AMAZON',
+        reason: 'doppio EPS richiesto da B550-A Gaming'
+    },
+];
+
+function applyMoboPsuRules(finalComponents, pcItem, fullOrder) {
+    if (!Array.isArray(finalComponents)) return;
+    
+    // Cerca la MOBO scelta dal cliente in 3 posti possibili:
+    // 1. custom_properties.['SCHEDA MADRE'] / .MOBO / .MOTHERBOARD
+    // 2. Line item separato "SCHEDA MADRE - ..." o "MOTHERBOARD - ..."
+    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
+    let moboValue = props['SCHEDA MADRE'] || props['MOBO'] || props['MOTHERBOARD'] || props.scheda_madre || '';
+    
+    if (!moboValue && fullOrder?.line_items) {
+        const moboItem = fullOrder.line_items.find(it => {
+            const n = String(it.name || '').toUpperCase();
+            return /^(MOTHERBOARD|SCHEDA\s*MADRE)\s*-/.test(n);
+        });
+        if (moboItem) {
+            moboValue = String(moboItem.name || '').replace(/^(MOTHERBOARD|SCHEDA\s*MADRE)\s*-\s*/i, '').trim();
+        }
+    }
+    
+    if (!moboValue) return;
+    
+    // Cerca regola che match
+    for (const rule of MOBO_PSU_RULES) {
+        if (!rule.moboPattern.test(String(moboValue))) continue;
+        
+        const psuIdx = finalComponents.findIndex(c => {
+            const t = String(c.type || '').toUpperCase();
+            return t === 'PSU' || t === 'ALIMENTATORE';
+        });
+        
+        if (psuIdx === -1) {
+            // Niente PSU in finalComponents, aggiungo
+            console.log(`⚡ [MOBO-PSU v29] MOBO "${moboValue}" (${rule.reason}) → aggiungo PSU "${rule.psuValue}" (${rule.psuSupplier})`);
+            finalComponents.push({
+                type: 'PSU',
+                value: rule.psuValue,
+                supplier: rule.psuSupplier
+            });
+        } else {
+            const oldValue = finalComponents[psuIdx].value;
+            console.log(`⚡ [MOBO-PSU v29] MOBO "${moboValue}" (${rule.reason}) → PSU: "${oldValue}" → "${rule.psuValue}" (${rule.psuSupplier})`);
+            finalComponents[psuIdx].value = rule.psuValue;
+            finalComponents[psuIdx].supplier = rule.psuSupplier;
+        }
+        return; // prima regola che match, esce
+    }
+}
+
 function getWorksheetFromTab(tabName) {
     return PROCESSED_TAB_TO_WORKSHEET[tabName] || 1;
 }
@@ -3121,6 +3182,15 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                     continue;
                 }
             }
+            // v29: se v29 ha impostato il PSU per regola MOBO (es. TACENS 850W per B550-A),
+            // NON sovrascrivere col gpoMatch.
+            if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
+                const currentPsuValue = String(finalComponents[componentIndex].value || '');
+                if (/TACENS\s*850W/i.test(currentPsuValue)) {
+                    console.log(`🔒 [MOBO-PSU-LOCK v29] PSU già impostato a "${currentPsuValue}" → skip gpoMatch`);
+                    continue;
+                }
+            }
             const gpoMatch = findGpoMapping(gpoSearchType, value);
             if (gpoMatch) {
                 variantValue = gpoMatch.supplier 
@@ -4518,6 +4588,15 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     console.warn('VITRA-OVERRIDE v27 fallito (non bloccante):', e);
                 }
                 
+                // v29: se MOBO richiede PSU specifico (es. ASUS B550 WIFI → 850W doppio EPS)
+                try {
+                    if (typeof applyMoboPsuRules === 'function') {
+                        applyMoboPsuRules(finalComponents, pcItem, fullOrder);
+                    }
+                } catch (e) {
+                    console.warn('MOBO-PSU v29 fallito (non bloccante):', e);
+                }
+                
                 
                 const variants = pcItem.custom_properties || {};
                 const normalVariants = [];
@@ -4549,6 +4628,14 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                         const currentCaseValue = String(finalComponents[componentIndex].value || '');
                         if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
                             console.log(`🔒 [VITRA-LOCK v28] processOrder: CASE "${currentCaseValue}" preservato`);
+                            continue;
+                        }
+                    }
+                    // v29: se v29 ha messo TACENS 850W sul PSU per regola MOBO, non sovrascrivere
+                    if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
+                        const currentPsuValue = String(finalComponents[componentIndex].value || '');
+                        if (/TACENS\s*850W/i.test(currentPsuValue)) {
+                            console.log(`🔒 [MOBO-PSU-LOCK v29] processOrder: PSU "${currentPsuValue}" preservato`);
                             continue;
                         }
                     }

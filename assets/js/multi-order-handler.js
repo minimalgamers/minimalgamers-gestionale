@@ -524,6 +524,12 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 window.applyMoboPsuRules(finalComponents, targetPcItem, fullOrder);
             }
         } catch (e) { console.warn('MOBO-PSU v30 split fail:', e); }
+        // v31: 10 config target → 80+ GOLD 850W
+        try {
+            if (typeof window.applyConfigPsuOverride === 'function') {
+                window.applyConfigPsuOverride(finalComponents, config.configKey, targetPcItem);
+            }
+        } catch (e) { console.warn('CONFIG-PSU v31 split fail:', e); }
         const variants = targetPcItem.custom_properties || {};
         const kitUnits = extractKitUnitsFromOrder(fullOrder);
         const monitorUnits = extractMonitorUnitsFromOrder(fullOrder);
@@ -561,19 +567,19 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 c.type.toUpperCase() === String(resolved.baseComponentType).toUpperCase()
             );
 
-            // v28: preserva CASE NOUA VITRA settato da v27
+            // v28/v32: preserva CASE NOUA VITRA o CASE ATX da regole
             if (resolved.gpoSearchType === 'CASE' && componentIndex !== -1) {
                 const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
-                    console.log(`🔒 [VITRA-LOCK v28] split: CASE "${currentCaseValue}" preservato`);
+                if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
+                    console.log(`🔒 [CASE-LOCK v32] split: CASE "${currentCaseValue}" preservato`);
                     continue;
                 }
             }
-            // v29: preserva PSU TACENS 850W settato da regola MOBO
+            // v29/v31: preserva PSU TACENS 850W o 80+ GOLD 850W settato da regola
             if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                 const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                if (/TACENS\s*850W/i.test(currentPsuValue)) {
-                    console.log(`🔒 [MOBO-PSU-LOCK v30] split: PSU "${currentPsuValue}" preservato`);
+                if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                    console.log(`🔒 [PSU-LOCK v31] split: PSU "${currentPsuValue}" preservato`);
                     continue;
                 }
             }
@@ -764,6 +770,12 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     window.applyMoboPsuRules(finalComponents, pcItem, fullOrder);
                 }
             } catch (e) { console.warn('MOBO-PSU v30 multi fail:', e); }
+            // v31: 10 config target → 80+ GOLD 850W
+            try {
+                if (typeof window.applyConfigPsuOverride === 'function') {
+                    window.applyConfigPsuOverride(finalComponents, config.configKey, pcItem);
+                }
+            } catch (e) { console.warn('CONFIG-PSU v31 multi fail:', e); }
             
             const variants = pcItem.custom_properties || {};
             
@@ -800,19 +812,19 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     c.type.toUpperCase() === String(resolved.baseComponentType).toUpperCase()
                 );
 
-                // v28: preserva CASE NOUA VITRA settato da v27
+                // v28/v32: preserva CASE NOUA VITRA o CASE ATX da regole
                 if (resolved.gpoSearchType === 'CASE' && componentIndex !== -1) {
                     const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                    if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
-                        console.log(`🔒 [VITRA-LOCK v28] multiPC: CASE "${currentCaseValue}" preservato`);
+                    if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
+                        console.log(`🔒 [CASE-LOCK v32] multiPC: CASE "${currentCaseValue}" preservato`);
                         continue;
                     }
                 }
-                // v29: preserva PSU TACENS 850W settato da regola MOBO
+                // v29/v31: preserva PSU TACENS 850W o 80+ GOLD 850W settato da regola
                 if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                     const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                    if (/TACENS\s*850W/i.test(currentPsuValue)) {
-                        console.log(`🔒 [MOBO-PSU-LOCK v30] multiPC: PSU "${currentPsuValue}" preservato`);
+                    if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                        console.log(`🔒 [PSU-LOCK v31] multiPC: PSU "${currentPsuValue}" preservato`);
                         continue;
                     }
                 }

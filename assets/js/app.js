@@ -124,14 +124,25 @@ function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
     finalComponents[caseIdx].supplier = 'NOUA';
 }
 
-// v29: regole MOBO → PSU. Dichiarato su window per garantire la registrazione.
+// v29/v32: regole MOBO → PSU. Dichiarato su window per garantire la registrazione.
 window.MOBO_PSU_RULES = [
+    // v29: ASUS B550 WIFI già esistente
     {
         moboPattern: /\bASUS\s*ROG\s*STRIX\s*B550\s*WIFI\b/i,
         psuValue: 'TACENS 850W',
         psuSupplier: 'AMAZON',
         reason: 'doppio EPS richiesto da B550-A Gaming'
     },
+    // v32: nuove MOBO ad alto wattaggio che richiedono TACENS 850W
+    { moboPattern: /\bASUS\s*ROG\s*STRIX\s*B850\s*WIFI\s*7?\b/i,        psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'ASUS B850 WIFI 7' },
+    { moboPattern: /\bGIGABYTE\s*X870\s*WIFI\s*7?\b/i,                    psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'GIGABYTE X870 WIFI 7' },
+    { moboPattern: /\bASUS\s*ROG\s*STRIX\s*B760\s*WIFI\b/i,               psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'ASUS B760 WIFI' },
+    { moboPattern: /\bMSI\s*MAG\s*B850\s*TOMAHAWK\s*MAX\s*WIFI\s*7?\b/i,  psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'MSI B850 TOMAHAWK MAX WIFI 7' },
+    { moboPattern: /\bMSI\s*MAG\s*B850\s*TOMAHAWK\s*WIFI\s*7?\b/i,        psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'MSI B850 TOMAHAWK WIFI 7' },
+    { moboPattern: /\bMSI\s*MAG\s*B760\s*TOMAHAWK\s*WIFI\s*7?\b/i,        psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'MSI B760 TOMAHAWK WIFI 7' },
+    { moboPattern: /\bASUS\s*ROG\s*STRIX\s*Z790\s*WIFI\s*7?\b/i,          psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'ASUS Z790 WIFI 7' },
+    { moboPattern: /\bMSI\s*B850\s*GAMING\s*PLUS\s*WIFI\b/i,              psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'MSI B850 GAMING PLUS WIFI' },
+    { moboPattern: /\bMSI\s*Z790\s*GAMING\s*PLUS\s*WIFI\b/i,              psuValue: 'TACENS 850W', psuSupplier: 'AMAZON', reason: 'MSI Z790 GAMING PLUS WIFI' },
 ];
 
 window.applyMoboPsuRules = function(finalComponents, pcItem, fullOrder) {
@@ -150,23 +161,40 @@ window.applyMoboPsuRules = function(finalComponents, pcItem, fullOrder) {
     if (!moboValue) return;
     for (const rule of window.MOBO_PSU_RULES) {
         if (!rule.moboPattern.test(String(moboValue))) continue;
+        // 1) Setta PSU
         const psuIdx = finalComponents.findIndex(c => {
             const t = String(c.type || '').toUpperCase();
             return t === 'PSU' || t === 'ALIMENTATORE';
         });
         if (psuIdx === -1) {
-            console.log(`⚡ [MOBO-PSU v30] MOBO "${moboValue}" (${rule.reason}) → aggiungo PSU "${rule.psuValue}"`);
+            console.log(`⚡ [MOBO-PSU v32] MOBO "${moboValue}" (${rule.reason}) → aggiungo PSU "${rule.psuValue}"`);
             finalComponents.push({ type: 'PSU', value: rule.psuValue, supplier: rule.psuSupplier });
         } else {
             const oldValue = finalComponents[psuIdx].value;
-            console.log(`⚡ [MOBO-PSU v30] MOBO "${moboValue}" (${rule.reason}) → PSU: "${oldValue}" → "${rule.psuValue}"`);
+            console.log(`⚡ [MOBO-PSU v32] MOBO "${moboValue}" (${rule.reason}) → PSU: "${oldValue}" → "${rule.psuValue}"`);
             finalComponents[psuIdx].value = rule.psuValue;
             finalComponents[psuIdx].supplier = rule.psuSupplier;
+        }
+        // 2) v32: se cliente sceglie MINIMAL CASE → forza CASE ATX (perché il VITRA è troppo piccolo per ATX)
+        const caseChoice = String(props.CASE || props.case || '').toUpperCase();
+        if (/MINIMAL\s*CASE/i.test(caseChoice)) {
+            let newCase = null;
+            if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'CASE ATX WHITE';
+            else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'CASE ATX BLACK';
+            if (newCase) {
+                const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
+                if (caseIdx !== -1) {
+                    const oldCase = finalComponents[caseIdx].value;
+                    console.log(`📦 [MOBO-CASE v32] MOBO "${moboValue}" + cliente sceglie "${caseChoice}" → CASE: "${oldCase}" → "${newCase}" (ALTRO)`);
+                    finalComponents[caseIdx].value = newCase;
+                    finalComponents[caseIdx].supplier = 'ALTRO';
+                }
+            }
         }
         return;
     }
 };
-console.log('✅ applyMoboPsuRules v30 registrata');
+console.log('✅ applyMoboPsuRules v32 registrata');
 
 // v31: per certe config (TITAN, DOMINATOR V.1/V.2, TERMINATOR, INFERNUS, RAGNAROK,
 // ZEUS, STERMINATOR, BLACKNOVA, NEMESIS) il PSU deve essere "80+ GOLD 850W" (supplier ALTRO).
@@ -184,10 +212,11 @@ window.CONFIG_PSU_TARGETS = new Set([
     'PC GAMING NEMESIS',
 ]);
 
-window.applyConfigPsuOverride = function(finalComponents, configKey) {
+window.applyConfigPsuOverride = function(finalComponents, configKey, pcItem) {
     if (!Array.isArray(finalComponents) || !configKey) return;
     if (!window.CONFIG_PSU_TARGETS.has(configKey)) return;
     
+    // 1) Setta PSU = 80+ GOLD 850W
     const psuIdx = finalComponents.findIndex(c => {
         const t = String(c.type || '').toUpperCase();
         return t === 'PSU' || t === 'ALIMENTATORE';
@@ -197,16 +226,36 @@ window.applyConfigPsuOverride = function(finalComponents, configKey) {
     const newSupplier = 'ALTRO';
     
     if (psuIdx === -1) {
-        console.log(`⚡ [CONFIG-PSU v31] config "${configKey}" → aggiungo PSU "${newValue}" (${newSupplier})`);
+        console.log(`⚡ [CONFIG-PSU v32] config "${configKey}" → aggiungo PSU "${newValue}" (${newSupplier})`);
         finalComponents.push({ type: 'PSU', value: newValue, supplier: newSupplier });
     } else {
         const oldValue = finalComponents[psuIdx].value;
-        console.log(`⚡ [CONFIG-PSU v31] config "${configKey}" → PSU: "${oldValue}" → "${newValue}" (${newSupplier})`);
+        console.log(`⚡ [CONFIG-PSU v32] config "${configKey}" → PSU: "${oldValue}" → "${newValue}" (${newSupplier})`);
         finalComponents[psuIdx].value = newValue;
         finalComponents[psuIdx].supplier = newSupplier;
     }
+    
+    // 2) v32: per le 10 GOLD, se cliente sceglie MINIMAL CASE → CASE ATX (premium build)
+    if (pcItem) {
+        const props = pcItem.custom_properties || pcItem.customProperties || {};
+        const caseChoice = String(props.CASE || props.case || '').toUpperCase();
+        if (/MINIMAL\s*CASE/i.test(caseChoice)) {
+            let newCase = null;
+            if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'CASE ATX WHITE';
+            else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'CASE ATX BLACK';
+            if (newCase) {
+                const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
+                if (caseIdx !== -1) {
+                    const oldCase = finalComponents[caseIdx].value;
+                    console.log(`📦 [CONFIG-CASE v32] config GOLD "${configKey}" + cliente sceglie "${caseChoice}" → CASE: "${oldCase}" → "${newCase}" (ALTRO)`);
+                    finalComponents[caseIdx].value = newCase;
+                    finalComponents[caseIdx].supplier = 'ALTRO';
+                }
+            }
+        }
+    }
 };
-console.log('✅ applyConfigPsuOverride v31 registrata');
+console.log('✅ applyConfigPsuOverride v32 registrata');
 
 function getWorksheetFromTab(tabName) {
     return PROCESSED_TAB_TO_WORKSHEET[tabName] || 1;
@@ -3196,12 +3245,12 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         
         const gpoMappableTypes = ['CPU', 'PSU', 'ALIMENTATORE', 'CASE', 'GPU', 'SCHEDA MADRE', 'SSD', 'SSD ADDON', 'RAM', 'COOLER', 'DISSIPATORE'];
         if (gpoMappableTypes.includes(gpoSearchType)) {
-            // v28: se v27 ha già impostato il CASE su NOUA VITRA per le 4 config target,
+            // v28/v32: se è già stato impostato il CASE da regole (NOUA VITRA o CASE ATX),
             // NON sovrascrivere col gpoMatch (che rimetterebbe l'EAN del MINIMAL CASE standard).
             if (gpoSearchType === 'CASE' && componentIndex !== -1) {
                 const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
-                    console.log(`🔒 [VITRA-LOCK v28] CASE già impostato a "${currentCaseValue}" → skip gpoMatch`);
+                if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
+                    console.log(`🔒 [CASE-LOCK v32] CASE già impostato a "${currentCaseValue}" → skip gpoMatch`);
                     continue;
                 }
             }
@@ -4623,7 +4672,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                 // v31: per 10 config target (TITAN/DOMINATOR/TERMINATOR/...) → PSU "80+ GOLD 850W"
                 try {
                     if (typeof window.applyConfigPsuOverride === 'function') {
-                        window.applyConfigPsuOverride(finalComponents, config.configKey);
+                        window.applyConfigPsuOverride(finalComponents, config.configKey, pcItem);
                     }
                 } catch (e) {
                     console.warn('CONFIG-PSU v31 fallito (non bloccante):', e);
@@ -4655,11 +4704,11 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                         c.type.toUpperCase() === baseComponentType.toUpperCase()
                     );
 
-                    // v28: se v27 ha messo NOUA VITRA sul CASE, non sovrascrivere col gpoMatch
+                    // v28/v32: se è già stato messo NOUA VITRA o CASE ATX da regole, non sovrascrivere
                     if (gpoSearchType === 'CASE' && componentIndex !== -1) {
                         const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                        if (/NOUA\s*VITRA/i.test(currentCaseValue)) {
-                            console.log(`🔒 [VITRA-LOCK v28] processOrder: CASE "${currentCaseValue}" preservato`);
+                        if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
+                            console.log(`🔒 [CASE-LOCK v32] processOrder: CASE "${currentCaseValue}" preservato`);
                             continue;
                         }
                     }

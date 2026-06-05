@@ -1,38 +1,20 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 async function exportProcessedOrdersToExcel() {
     if (!processedOrdersMap || processedOrdersMap.size === 0) {
         showNotification('Nessun ordine elaborato da esportare', 'warning');
         return;
     }
 
-    
     if (typeof XLSX === 'undefined') {
         showNotification('Errore: libreria Excel non caricata', 'error');
         return;
     }
 
-    
     const exportExcelBtn = document.getElementById('export-excel-btn');
     const exportExcelBtnLabelEl = exportExcelBtn ? exportExcelBtn.querySelector('span') : null;
     const previousExcelBtnHtml = exportExcelBtn ? exportExcelBtn.innerHTML : '';
     const previousExcelBtnDisabled = exportExcelBtn ? exportExcelBtn.disabled : false;
     if (exportExcelBtn) exportExcelBtn.disabled = true;
-    
+
     const setExcelBtnProgress = (pct, done, total) => {
         if (!exportExcelBtn || !exportExcelBtnLabelEl) return;
         exportExcelBtnLabelEl.textContent = `${pct}%`;
@@ -40,7 +22,6 @@ async function exportProcessedOrdersToExcel() {
     };
 
     try {
-        
         const activeFilter = document.querySelector('.filter-button.active');
         const filterOperator = activeFilter ? activeFilter.dataset.operator : null;
 
@@ -49,18 +30,25 @@ async function exportProcessedOrdersToExcel() {
             return Math.min(4, Math.max(1, parseInt(cachedOrder.foglioDiLavoro ?? order.foglioDiLavoro ?? 1, 10) || 1));
         };
 
+        // ============================================================
+        // NUOVO FORMATO: 2 colonne -> NUMERO ORDINE | CONFIGURAZIONE PC GAMING
+        // Ogni ordine = un blocco. A sinistra il numero ordine in alto.
+        // A destra: nome config (riga 1) + lista numerata componenti (nome leggibile).
+        // ============================================================
         const createWorksheetPayload = async (ordersForWorksheet, componentOrder, onOrderExported) => {
             const excelData = [];
-            const orderNumberRowIndexes = [];
+            const orderHeaderRowIndexes = []; // righe (1-based) dove c'e' il numero ordine
+            const configNameRowIndexes = [];  // righe (1-based) dove c'e' il nome del PC
+            const merges = [];                 // celle unite (colonna numero ordine)
             let ordersExported = 0;
 
-            excelData.push(['Ordine', 'EAN', 'Descrizione', 'Titolo']);
-            excelData.push(['', '', '', '']);
+            // Intestazione
+            excelData.push(['NUMERO ORDINE', 'CONFIGURAZIONE PC GAMING']);
 
             for (const [orderName, order] of ordersForWorksheet) {
+                // riga vuota di separazione fra un ordine e l'altro
                 if (ordersExported > 0) {
-                    excelData.push(['', '', '', '']);
-                    excelData.push(['', '', '', '']);
+                    excelData.push(['', '']);
                 }
 
                 const savedOrder = processedOrdersCache[order.id];
@@ -126,6 +114,9 @@ async function exportProcessedOrdersToExcel() {
                     domComponents[compTypeKey] = { ean, name, supplier };
                 });
 
+                // Costruisco la lista delle descrizioni leggibili (in ordine componenti)
+                const componentLines = [];
+
                 for (let index = 0; index < componentOrder.length; index++) {
                     const compType = componentOrder[index];
                     const comp = componentsByType[compType];
@@ -149,7 +140,6 @@ async function exportProcessedOrdersToExcel() {
                             const dbData = await getComponentDataFromDB(ean, fornitore);
                             if (dbData) {
                                 if (dbData.nome) descrizione = dbData.nome;
-                                if (!fornitore && dbData.fornitore) fornitore = dbData.fornitore;
                                 if (!descrizione) descrizione = domComp.name || '';
                                 if (!descrizione) descrizione = comp?.name || '';
                             } else {
@@ -168,32 +158,20 @@ async function exportProcessedOrdersToExcel() {
                             const dbData = await getComponentDataFromDB(ean, fornitore);
                             if (dbData) {
                                 descrizione = dbData.nome || comp.name || '';
-                                if (!fornitore && dbData.fornitore) fornitore = dbData.fornitore;
                             } else {
                                 descrizione = comp.name || '';
                             }
                         }
                     }
 
-                    const ordineCell = index === 0 ? orderName : '';
-
-                    let titoloCell = '';
-                    if (index === 0) {
-                        const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);
-                        titoloCell = configBadge ? configBadge.textContent.trim() : (savedOrder?.configName || '');
+                    // Se non c'e' descrizione leggibile, ripiego sull'EAN per non perdere la riga
+                    const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+                    if (testo) {
+                        componentLines.push(testo);
                     }
-
-                    const nextRowIndex = excelData.length + 1;
-                    excelData.push([
-                        ordineCell,
-                        ean || (descrizione ? descrizione : ''),
-                        descrizione,
-                        titoloCell
-                    ]);
-
-                    if (ordineCell) orderNumberRowIndexes.push(nextRowIndex);
                 }
 
+                // Custom items (extra: HDD aggiuntivo, monitor, kit, ecc.)
                 const customItems = await loadCustomItemsFromDB(order.id);
 
                 const escapedOrderId = CSS.escape(String(order.id));
@@ -216,141 +194,61 @@ async function exportProcessedOrdersToExcel() {
                 for (const domItem of domCustomItems) {
                     const exists = customItems.some(item =>
                         String(item?.name || '') === String(domItem?.name || '') &&
-                        String(item?.value || '') === String(domItem?.value || '') &&
-                        String(item?.ean || '') === String(domItem?.ean || '')
+                        String(item?.value || '') === String(domItem?.value || '')
                     );
                     if (!exists) allCustomItems.push(domItem);
                 }
 
-                const ssdAddonDom = domComponents['SSD ADDON'];
-                let ssdAddonEan = String(ssdAddonDom?.ean || '').trim();
-                let ssdAddonDesc = '';
-                let ssdAddonSupplier = ssdAddonDom?.supplier || extractSupplierFromText(String(ssdAddonDom?.ean || '')) || '';
-
-                if (!ssdAddonEan) {
-                    const ssdAddon = allCustomItems.find(item => {
-                        const nameLower = String(item?.name || '').toLowerCase();
-                        const valueLower = String(item?.value || '').toLowerCase();
-
-                        const explicitAddon =
-                            nameLower.includes('ssd addon') ||
-                            nameLower.includes('ssd add-on') ||
-                            nameLower.includes('ssd aggiuntivo') ||
-                            valueLower.includes('ssd addon') ||
-                            valueLower.includes('ssd add-on') ||
-                            valueLower.includes('ssd aggiuntivo');
-                        if (explicitAddon) return true;
-
-                        const comboAddon = (nameLower.includes('addon') || nameLower.includes('aggiunt')) &&
-                                           (nameLower.includes('ssd') || valueLower.includes('ssd'));
-                        const comboAddon2 = (valueLower.includes('addon') || valueLower.includes('aggiunt')) &&
-                                            (valueLower.includes('ssd') || nameLower.includes('ssd'));
-
-                        return comboAddon || comboAddon2;
-                    });
-
-                    ssdAddonEan = String(ssdAddon?.ean || '').trim();
-                    if (ssdAddon?.value) ssdAddonDesc = ssdAddon.value;
-                    else if (ssdAddon?.name) ssdAddonDesc = ssdAddon.name;
-                    if (ssdAddon?.supplier) ssdAddonSupplier = ssdAddon.supplier;
-                } else {
-                    ssdAddonDesc = ssdAddonDom.name || '';
-                }
-
-                if (ssdAddonEan) {
-                    const dbData = await getComponentDataFromDB(ssdAddonEan, ssdAddonSupplier);
-                    if (dbData) {
-                        ssdAddonDesc = dbData.nome || ssdAddonDesc;
-                        if (!ssdAddonSupplier && dbData.fornitore) ssdAddonSupplier = dbData.fornitore;
-                    }
-                }
-
-                if (!ssdAddonEan && !ssdAddonDesc) {
-                    ssdAddonSupplier = '';
-                }
-
-                excelData.push(['', ssdAddonEan || '', ssdAddonDesc, '']);
-
-                const monitorDom = domComponents['MONITOR'];
-                let monitorEan = String(monitorDom?.ean || '').trim();
-                let monitorDesc = '';
-                let monitorSupplier = monitorDom?.supplier || extractSupplierFromText(String(monitorDom?.ean || '')) || '';
-
-                if (!monitorEan || monitorEan === 'Generico') {
-                    const monitor = allCustomItems.find(item => {
-                        const nameLower = String(item?.name || '').toLowerCase();
-                        const valueLower = String(item?.value || '').toLowerCase();
-                        return nameLower.includes('monitor') || valueLower.includes('monitor');
-                    });
-
-                    if (monitor) {
-                        monitorEan = String(monitor.ean || '').trim();
-                        monitorDesc = monitor.value || monitor.name || '';
-                        if (monitor?.supplier) monitorSupplier = monitor.supplier;
-                    }
-                } else {
-                    monitorDesc = monitorDom.name || '';
-                }
-
-                if (monitorEan && monitorEan !== 'Generico') {
-                    const dbData = await getComponentDataFromDB(monitorEan, monitorSupplier);
-                    if (dbData) {
-                        monitorDesc = dbData.nome || monitorDesc;
-                        if (!monitorSupplier && dbData.fornitore) monitorSupplier = dbData.fornitore;
-                    }
-                }
-
-                if ((!monitorEan || monitorEan === 'Generico') && !monitorDesc) {
-                    monitorSupplier = '';
-                }
-
-                const monitorEanCell = monitorEan === 'Generico' ? '' : (monitorEan || '');
-                excelData.push(['', monitorEanCell || (monitorDesc ? monitorDesc : ''), monitorDesc, '']);
-
-                const otherCustomItems = allCustomItems.filter(item => {
-                    const nameLower = String(item?.name || '').toLowerCase();
-                    const valueLower = String(item?.value || '').toLowerCase();
-
-                    if (!nameLower && !valueLower && !String(item?.ean || '')) return false;
-
-                    return !nameLower.includes('ssd') && !valueLower.includes('ssd') &&
-                           !nameLower.includes('monitor') && !valueLower.includes('monitor');
-                });
-
-                for (let i = 0; i < 5; i++) {
-                    const item = otherCustomItems[i];
+                for (const item of allCustomItems) {
                     let itemEan = String(item?.ean || '').trim();
-                    let itemDesc = '';
-                    let itemSupplier = item?.supplier || '';
-
-                    if (!itemSupplier) itemSupplier = extractSupplierFromText(String(item?.ean || '')) || '';
-
-                    if (item) {
-                        itemDesc = item.value || item.name || '';
-                    }
+                    let itemDesc = String(item?.value || item?.name || '').trim();
+                    let itemSupplier = String(item?.supplier || '').trim();
 
                     if (itemEan) {
                         const dbData = await getComponentDataFromDB(itemEan, itemSupplier);
-                        if (dbData) {
-                            itemDesc = dbData.nome || itemDesc;
-                            if (!itemSupplier && dbData.fornitore) itemSupplier = dbData.fornitore;
+                        if (dbData && dbData.nome) {
+                            itemDesc = dbData.nome;
                         }
                     }
 
-                    excelData.push(['', itemEan || (itemDesc ? itemDesc : ''), itemDesc, '']);
+                    const testoExtra = itemDesc || itemEan;
+                    if (testoExtra) componentLines.push(testoExtra);
+                }
+
+                // Nome configurazione (dal badge in pagina, o dal salvato)
+                const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);
+                const configName = (configBadge ? configBadge.textContent.trim() : (savedOrder?.configName || '')) || 'PC GAMING';
+
+                // ---- Scrivo il blocco di questo ordine ----
+                // Riga 1 del blocco: numero ordine (sx) + nome config (dx)
+                const blockStartRow0 = excelData.length; // 0-based indice prima riga del blocco
+                excelData.push([orderName, configName]);
+                orderHeaderRowIndexes.push(blockStartRow0 + 1); // 1-based
+                configNameRowIndexes.push(blockStartRow0 + 1);  // 1-based (nome config grassetto)
+
+                // Righe successive: componenti numerati, solo colonna destra
+                componentLines.forEach((line, i) => {
+                    excelData.push(['', `${i + 1}. ${line}`]);
+                });
+
+                // Unisco la cella del numero ordine su tutta l'altezza del blocco
+                const blockEndRow0 = excelData.length - 1;
+                if (blockEndRow0 > blockStartRow0) {
+                    merges.push({
+                        s: { r: blockStartRow0, c: 0 },
+                        e: { r: blockEndRow0, c: 0 }
+                    });
                 }
 
                 ordersExported++;
                 onOrderExported();
             }
 
-            return { excelData, orderNumberRowIndexes, ordersExported };
+            return { excelData, orderHeaderRowIndexes, configNameRowIndexes, merges, ordersExported };
         };
 
-        
         const activeWorksheetNumber = getActiveWorksheetTab();
 
-        
         const ordersToExport = [];
         for (const [orderName, order] of processedOrdersMap.entries()) {
             if (getWorksheetNumberForOrder(order) !== activeWorksheetNumber) continue;
@@ -360,7 +258,7 @@ async function exportProcessedOrdersToExcel() {
             }
             ordersToExport.push([orderName, order]);
         }
-        
+
         const totalOrdersToExport = ordersToExport.length;
         const updateExportProgress = (done) => {
             const pct = totalOrdersToExport > 0 ? Math.round((done / totalOrdersToExport) * 100) : 0;
@@ -368,18 +266,35 @@ async function exportProcessedOrdersToExcel() {
         };
         updateExportProgress(0);
 
-        
         const componentOrder = ['CPU', 'MOBO', 'SSD', 'RAM', 'GPU', 'PSU', 'COOLER', 'CASE'];
 
         let ordersExported = 0;
         let ordersDoneForProgress = 0;
 
         const wb = XLSX.utils.book_new();
-        const lightYellowFill = { fill: { patternType: 'solid', fgColor: { rgb: 'FFF9C4' } } };
+
+        // Stili (NB: la versione community di SheetJS potrebbe non renderizzare i colori,
+        // ma il grassetto e l'allineamento vengono comunque scritti nel file).
+        const headerStyle = {
+            font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+            fill: { patternType: 'solid', fgColor: { rgb: '404040' } },
+            alignment: { vertical: 'center', horizontal: 'left' }
+        };
+        const orderNumberStyle = {
+            font: { bold: true, sz: 12 },
+            alignment: { vertical: 'top', horizontal: 'left' }
+        };
+        const configNameStyle = {
+            font: { bold: true, sz: 11 },
+            alignment: { vertical: 'top', horizontal: 'left' }
+        };
+        const componentStyle = {
+            alignment: { vertical: 'top', horizontal: 'left', wrapText: true }
+        };
 
         {
             const worksheetNumber = activeWorksheetNumber;
-            const { excelData, orderNumberRowIndexes, ordersExported: worksheetExportedCount } = await createWorksheetPayload(
+            const { excelData, orderHeaderRowIndexes, configNameRowIndexes, merges, ordersExported: worksheetExportedCount } = await createWorksheetPayload(
                 ordersToExport,
                 componentOrder,
                 () => {
@@ -389,20 +304,38 @@ async function exportProcessedOrdersToExcel() {
             );
 
             const ws = XLSX.utils.aoa_to_sheet(excelData);
-            const applyFill = (rowIndex0, colIndex0) => {
+
+            const setStyle = (rowIndex0, colIndex0, style) => {
                 const addr = XLSX.utils.encode_cell({ r: rowIndex0, c: colIndex0 });
                 if (!ws[addr]) return;
-                ws[addr].s = { ...(ws[addr].s || {}), ...lightYellowFill };
+                ws[addr].s = { ...(ws[addr].s || {}), ...style };
             };
 
-            for (let c = 0; c < 4; c++) applyFill(0, c);
-            for (const r1 of orderNumberRowIndexes) applyFill(r1 - 1, 0);
+            // Intestazione (riga 0)
+            setStyle(0, 0, headerStyle);
+            setStyle(0, 1, headerStyle);
+
+            // Numero ordine in grassetto
+            for (const r1 of orderHeaderRowIndexes) setStyle(r1 - 1, 0, orderNumberStyle);
+            // Nome config in grassetto
+            for (const r1 of configNameRowIndexes) setStyle(r1 - 1, 1, configNameStyle);
+
+            // Stile leggero su tutte le celle della colonna destra (wrap testo)
+            for (let r = 1; r < excelData.length; r++) {
+                const addr = XLSX.utils.encode_cell({ r, c: 1 });
+                if (ws[addr] && !configNameRowIndexes.includes(r + 1)) {
+                    ws[addr].s = { ...(ws[addr].s || {}), ...componentStyle };
+                }
+            }
+
+            // Celle unite per la colonna numero ordine
+            if (merges.length) {
+                ws['!merges'] = merges;
+            }
 
             ws['!cols'] = [
-                { wch: 18 },
-                { wch: 18 },
-                { wch: 60 },
-                { wch: 40 }
+                { wch: 18 },  // NUMERO ORDINE
+                { wch: 65 }   // CONFIGURAZIONE PC GAMING
             ];
 
             XLSX.utils.book_append_sheet(wb, ws, `Tavolo ${worksheetNumber}`);
@@ -419,29 +352,25 @@ async function exportProcessedOrdersToExcel() {
             return;
         }
 
-        
         const now = new Date();
         const dateStr = `${now.getDate()}-${now.getMonth() + 1}-${now.getFullYear()}`;
         const timeStr = `${now.getHours()}-${now.getMinutes()}`;
         const fileName = `Ordini_E${activeWorksheetNumber}_${dateStr}_${timeStr}.xlsx`;
 
-        
         XLSX.writeFile(wb, fileName);
 
-        
         if (exportExcelBtn) {
             exportExcelBtn.innerHTML = previousExcelBtnHtml;
             exportExcelBtn.disabled = previousExcelBtnDisabled;
             exportExcelBtn.title = 'Esporta ordini in Excel';
         }
-        
+
         showNotification(`✅ Export Excel completato: ${ordersExported} ordini`, 'success');
 
     } catch (error) {
         console.error('❌ Errore durante export Excel:', error);
         showNotification('Errore durante export Excel: ' + error.message, 'error');
-        
-        
+
         if (exportExcelBtn) {
             exportExcelBtn.innerHTML = previousExcelBtnHtml;
             exportExcelBtn.disabled = previousExcelBtnDisabled;
@@ -467,12 +396,11 @@ async function getComponentDataFromDB(ean, supplier = '') {
     if (componentDataLookupCache.has(cacheKey)) {
         return componentDataLookupCache.get(cacheKey);
     }
-    
+
     try {
-        
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
-        
+
         let lookupUrl = `api_gateway/db_bridge/components_service/endpoint/api-components.php?ean=${encodeURIComponent(rawEan)}`;
         if (normalizedSupplier) {
             lookupUrl += `&supplier=${encodeURIComponent(normalizedSupplier)}`;
@@ -482,7 +410,7 @@ async function getComponentDataFromDB(ean, supplier = '') {
             signal: controller.signal
         });
         clearTimeout(timeoutId);
-        
+
         if (response.ok) {
             const data = await response.json();
             if (data.success && data.component) {
@@ -497,15 +425,14 @@ async function getComponentDataFromDB(ean, supplier = '') {
             }
         }
 
-        
         const controller2 = new AbortController();
         const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
-        
+
         const invResponse = await fetch(`api_gateway/db_bridge/inventory_service/endpoint/api-inventory.php?ean=${encodeURIComponent(rawEan)}`, {
             signal: controller2.signal
         });
         clearTimeout(timeoutId2);
-        
+
         if (invResponse.ok) {
             const invData = await invResponse.json();
             if (invData.success && invData.item) {
@@ -520,7 +447,7 @@ async function getComponentDataFromDB(ean, supplier = '') {
             }
         }
     } catch (error) {
-        
+
     }
     componentDataLookupCache.set(cacheKey, null);
     return null;
@@ -533,7 +460,6 @@ function initializeExportExcelButton() {
     const exportExcelBtn = document.getElementById('export-excel-btn');
     if (!exportExcelBtn) return;
 
-    
     exportExcelBtn.disabled = true;
     exportExcelBtn.title = 'Caricamento dati in corso...';
 
@@ -546,4 +472,4 @@ function initializeExportExcelButton() {
     });
 }
 
-console.log('✅ excel-export.js caricato');
+console.log('✅ excel-export.js caricato (v28 - formato 2 colonne)');

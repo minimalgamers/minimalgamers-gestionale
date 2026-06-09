@@ -1,5 +1,5 @@
 // ============================================================
-// search-fix.js  (v3)
+// search-fix.js  (v4)
 // FIX ricerca componenti nel popup "Cerca Componente".
 // Avvolge window.fetch (DOPO api-adapter.js) e corregge gli URL
 // di ricerca al volo. Lavora SOLO su stringhe, come l'adapter,
@@ -56,5 +56,5 @@
         return _prevFetch(url, options);
     };
 
-    console.log('✅ search-fix.js attivo (v3 - no fornitore + custom items senza filtro categoria)');
+    console.log('✅ search-fix.js attivo (v4 - no fornitore + custom items senza filtro categoria)');
 })();

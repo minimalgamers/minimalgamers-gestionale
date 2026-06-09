@@ -282,8 +282,19 @@
         if (!motherboardComponents.length) return false;
 
         return motherboardComponents.some((component) => {
+            // 1) campo wifi esplicito dal database
             const wifiValue = component?.wifi;
-            return wifiValue === 1 || wifiValue === '1' || wifiValue === true || wifiValue === 'true';
+            if (wifiValue === 1 || wifiValue === '1' || wifiValue === true || wifiValue === 'true') {
+                return true;
+            }
+            // 2) fallback: se "WIFI" / "WI-FI" compare nel nome o nell'ean del componente,
+            //    la scheda madre ha gia' il wifi (es. "ASUS ROG STRIX B550 WIFI",
+            //    "X870 EAGLE WIFI7", "MSI MAG B850 TOMAHAWK WIFI")
+            const testo = `${component?.name || ''} ${component?.value || ''} ${component?.productName || ''} ${component?.ean || ''}`.toUpperCase();
+            if (/WI\s*-?\s*FI/.test(testo)) {
+                return true;
+            }
+            return false;
         });
     }
 
@@ -597,4 +608,6 @@
         getApplicableRulesForOrder,
         buildMessageForChannel
     };
+
+    console.log('✅ message-template-engine.js caricato (v2 - fix MOBO WIFI da nome)');
 })();

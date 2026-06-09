@@ -287,13 +287,17 @@
             if (wifiValue === 1 || wifiValue === '1' || wifiValue === true || wifiValue === 'true') {
                 return true;
             }
-            // 2) fallback: se "WIFI" / "WI-FI" compare nel nome o nell'ean del componente,
-            //    la scheda madre ha gia' il wifi (es. "ASUS ROG STRIX B550 WIFI",
-            //    "X870 EAGLE WIFI7", "MSI MAG B850 TOMAHAWK WIFI")
+            // 2) fallback sul nome/ean: queste schede hanno SEMPRE il wifi e non
+            //    devono ricevere la proposta di upgrade scheda madre:
+            //    - qualsiasi nome con "WIFI" / "WI-FI" (es. B550 WIFI, B850 TOMAHAWK WIFI)
+            //    - tutte le ASUS ROG
+            //    - tutte le TOMAHAWK
+            //    - tutte le X870
             const testo = `${component?.name || ''} ${component?.value || ''} ${component?.productName || ''} ${component?.ean || ''}`.toUpperCase();
-            if (/WI\s*-?\s*FI/.test(testo)) {
-                return true;
-            }
+            if (/WI\s*-?\s*FI/.test(testo)) return true;
+            if (/\bROG\b/.test(testo)) return true;
+            if (/TOMAHAWK/.test(testo)) return true;
+            if (/X870/.test(testo)) return true;
             return false;
         });
     }
@@ -609,5 +613,5 @@
         buildMessageForChannel
     };
 
-    console.log('✅ message-template-engine.js caricato (v2 - fix MOBO WIFI da nome)');
+    console.log('✅ message-template-engine.js caricato (v3 - fix MOBO WIFI: nome/ROG/TOMAHAWK/X870)');
 })();

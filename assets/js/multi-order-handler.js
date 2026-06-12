@@ -578,7 +578,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
             // v29/v31: preserva PSU TACENS 850W o 80+ GOLD 850W settato da regola
             if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                 const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                if (/TACENS\s*[78]50W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
                     console.log(`🔒 [PSU-LOCK v31] split: PSU "${currentPsuValue}" preservato`);
                     continue;
                 }
@@ -823,7 +823,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                 // v29/v31: preserva PSU TACENS 850W o 80+ GOLD 850W settato da regola
                 if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                     const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                    if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                    if (/TACENS\s*[78]50W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
                         console.log(`🔒 [PSU-LOCK v31] multiPC: PSU "${currentPsuValue}" preservato`);
                         continue;
                     }

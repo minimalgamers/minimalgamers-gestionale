@@ -89,39 +89,98 @@ function getMonitorDisplayValue(monitorItem) {
     return 'Generico (AMAZON)';
 }
 
-// v27: per 4 config specifiche (STRIKE, VEGA, VORTEX, bundle RTX 3050 [PC+MONITOR+KIT]),
-// se il cliente sceglie il MINIMAL CASE (WHITE o BLACK), sostituisco il CASE con NOUA VITRA.
-// Le altre config NON vengono toccate.
-const VITRA_TARGET_CONFIGS = new Set([
-    'PC GAMING VORTEX',
-    'PC GAMING STRIKE',
-    'PC GAMING VEGA',
-    '[PC+MONITOR+KIT]', // config #25 = bundle RTX 3050
+// v33: REGOLE CASE COMPLETE (sostituisce la v27 limitata a 4 config).
+// Tutte le regole scattano SOLO se il cliente sceglie il MINIMAL CASE sul sito;
+// se sceglie un case diverso, il case scelto dal cliente viene SEMPRE rispettato.
+// 1) REX/HELLFIRE + mobo grossa (X870 / B850 TOMAHAWK / B850 ROG STRIX) → CASE ATX.
+//    Con mobo piccola (B650 / ASROCK B850) → regola generale (NOUA VITRA).
+// 2) SINNER → CASE ATX sempre.
+// 3) TUTTE le altre config → NOUA VITRA (il Noua Vision Mini ZH100/ZK100
+//    è rimpiazzato dal VITRA in generale).
+// NB: le regole successive (applyMoboPsuRules / applyConfigPsuOverride GOLD) continuano a
+// trasformare MINIMAL CASE → CASE ATX dove previsto, sovrascrivendo il VITRA. Ordine ok.
+const CASE_ATX_BIGMOBO_CONFIGS = new Set([
+    'PC GAMING REX',
+    'PC GAMING HELLFIRE',
 ]);
 
 function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
     if (!Array.isArray(finalComponents) || !configKey) return;
-    if (!VITRA_TARGET_CONFIGS.has(configKey)) return;
-    
-    // Leggo la scelta CASE del cliente dalle Shopify custom_properties
+
     const props = pcItem?.custom_properties || pcItem?.customProperties || {};
     const caseChoice = String(props.CASE || props.case || '').toUpperCase();
-    
-    // Override scatta SOLO se il cliente ha scelto MINIMAL CASE (qualsiasi colore)
+
+    // ── v33: REX / HELLFIRE — regola PSU in base alla MOBO (indipendente dal case scelto) ──
+    // B650 / B840 / ASROCK B850 → TACENS 750W; X870 / B850 TOMAHAWK / ROG STRIX B850 → TACENS 850W.
+    let isBigMobo = false;
+    if (CASE_ATX_BIGMOBO_CONFIGS.has(configKey)) {
+        // mobo: prima la variante scelta dal cliente, poi la mobo base della config
+        let mobo = props['SCHEDA MADRE'] || props['MOBO'] || props['MOTHERBOARD'] || props.scheda_madre || '';
+        if (!mobo) {
+            const m = finalComponents.find(c => /^(MOBO|SCHEDA[\s_]*MADRE|MOTHERBOARD)$/i.test(String(c.type || '')));
+            if (m) mobo = m.value;
+        }
+        mobo = String(mobo || '').toUpperCase();
+
+        isBigMobo = /X870/.test(mobo) ||
+            (/B850/.test(mobo) && (/TOMAHAWK/.test(mobo) || /ROG\s*STRIX|STRIX|\bROG\b/.test(mobo)));
+        const isSmallMobo = !isBigMobo && (/B650/.test(mobo) || /B840/.test(mobo) || (/ASROCK/.test(mobo) && /B850/.test(mobo)));
+
+        const newPsu = isBigMobo ? 'TACENS 850W' : (isSmallMobo ? 'TACENS 750W' : null);
+        if (newPsu) {
+            const psuIdx = finalComponents.findIndex(c => {
+                const t = String(c.type || '').toUpperCase();
+                return t === 'PSU' || t === 'ALIMENTATORE';
+            });
+            if (psuIdx === -1) {
+                console.log(`⚡ [REX-HELLFIRE-PSU v33] config "${configKey}" mobo "${mobo}" → aggiungo PSU "${newPsu}" (AMAZON)`);
+                finalComponents.push({ type: 'PSU', value: newPsu, supplier: 'AMAZON' });
+            } else {
+                const oldPsu = finalComponents[psuIdx].value;
+                console.log(`⚡ [REX-HELLFIRE-PSU v33] config "${configKey}" mobo "${mobo}" → PSU: "${oldPsu}" → "${newPsu}" (AMAZON)`);
+                finalComponents[psuIdx].value = newPsu;
+                finalComponents[psuIdx].supplier = 'AMAZON';
+            }
+        }
+    }
+
+    // ── Regole CASE: scattano SOLO se il cliente ha scelto il MINIMAL CASE. ──
+    // Qualsiasi altro case scelto dal cliente viene rispettato.
     if (!/MINIMAL\s*CASE/i.test(caseChoice)) return;
-    
-    let newCase = null;
-    if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'NOUA VITRA WHITE';
-    else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'NOUA VITRA BLACK';
-    if (!newCase) return;
-    
-    const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
-    if (caseIdx === -1) return;
-    
-    const oldValue = finalComponents[caseIdx].value;
-    console.log(`📦 [VITRA-OVERRIDE v27] config "${configKey}" + cliente sceglie "${caseChoice}" → CASE: "${oldValue}" → "${newCase}" (NOUA)`);
-    finalComponents[caseIdx].value = newCase;
-    finalComponents[caseIdx].supplier = 'NOUA';
+
+    let color = null;
+    if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) color = 'WHITE';
+    else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) color = 'BLACK';
+    if (!color) return;
+
+    // helper: setta il CASE nei finalComponents
+    const setCase = (newValue, newSupplier, tag) => {
+        const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
+        if (caseIdx === -1) return false;
+        const oldValue = finalComponents[caseIdx].value;
+        console.log(`📦 [CASE-RULES v33 ${tag}] config "${configKey}" + cliente sceglie "${caseChoice}" → CASE: "${oldValue}" → "${newValue}" (${newSupplier})`);
+        finalComponents[caseIdx].value = newValue;
+        finalComponents[caseIdx].supplier = newSupplier;
+        return true;
+    };
+
+    // ── 1) REX / HELLFIRE: con mobo grossa → CASE ATX (isBigMobo calcolato sopra) ──
+    if (CASE_ATX_BIGMOBO_CONFIGS.has(configKey)) {
+        if (isBigMobo) {
+            setCase(`CASE ATX ${color}`, 'ALTRO', 'BIGMOBO');
+            return;
+        }
+        // mobo piccola (B650 / ASROCK B850 / ecc.) → prosegue con la regola generale → VITRA
+    }
+
+    // ── 2) SINNER: MINIMAL CASE → CASE ATX ──
+    if (configKey === 'PC GAMING SINNER') {
+        setCase(`CASE ATX ${color}`, 'ALTRO', 'SINNER');
+        return;
+    }
+
+    // ── 3) regola generale: MINIMAL CASE → NOUA VITRA (rimpiazza il Vision Mini) ──
+    setCase(`NOUA VITRA ${color}`, 'NOUA', 'GENERALE');
 }
 
 // v29/v32: regole MOBO → PSU. Dichiarato su window per garantire la registrazione.
@@ -2881,8 +2940,9 @@ function splitRAMandSSD(value) {
 async function searchCaseEANByName(caseName) {
     
     const caseNameMapping = {
-        'MINIMAL CASE WHITE': 'Noua Vision Mini ZH100 White',
-        'MINIMAL CASE BLACK': 'Noua Vision Mini ZK100 Black'
+        // v33: il Noua Vision Mini ZH100/ZK100 è rimpiazzato in generale dal NOUA VITRA
+        'MINIMAL CASE WHITE': 'NOUA VITRA WHITE',
+        'MINIMAL CASE BLACK': 'NOUA VITRA BLACK'
     };
     
     const normalizeCaseName = (value) => String(value || '')
@@ -3258,7 +3318,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
             // NON sovrascrivere col gpoMatch.
             if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                 const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                if (/TACENS\s*[78]50W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
                     console.log(`🔒 [PSU-LOCK v31] PSU già impostato a "${currentPsuValue}" → skip gpoMatch`);
                     continue;
                 }
@@ -4715,7 +4775,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     // v29/v31: se v30/v31 hanno messo TACENS 850W o 80+ GOLD 850W sul PSU, non sovrascrivere
                     if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                         const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                        if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                        if (/TACENS\s*[78]50W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
                             console.log(`🔒 [PSU-LOCK v31] processOrder: PSU "${currentPsuValue}" preservato`);
                             continue;
                         }

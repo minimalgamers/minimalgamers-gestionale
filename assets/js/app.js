@@ -110,10 +110,17 @@ function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
     const props = pcItem?.custom_properties || pcItem?.customProperties || {};
     const caseChoice = String(props.CASE || props.case || '').toUpperCase();
 
-    // ── v33: REX / HELLFIRE — regola PSU in base alla MOBO (indipendente dal case scelto) ──
-    // B650 / B840 / ASROCK B850 → TACENS 750W; X870 / B850 TOMAHAWK / ROG STRIX B850 → TACENS 850W.
+    // ── v33: regole PSU per SINNER / REX / HELLFIRE (indipendenti dal case scelto) ──
+    // GPU varianti (nomi reali da Shopify): "RX 9060XT 16GB GDDR6" (default),
+    // "RTX 5070Ti 16GB GDDR7", "RX 9070 XT 16GB GDDR6".
+    // SINNER:
+    //   - GPU diversa dalla 9060XT (5070Ti / 9070XT) → 80+ GOLD 850W (vince su tutto)
+    //   - GPU = 9060XT + mobo grossa (X870 / B850 TOMAHAWK / ROG STRIX B850) → TACENS 850W
+    //   - GPU = 9060XT + mobo piccola (B650 / B840 / ASROCK B850)           → TACENS 750W (default)
+    // REX / HELLFIRE: solo in base alla mobo → 750W (piccole) / 850W (grosse).
     let isBigMobo = false;
-    if (CASE_ATX_BIGMOBO_CONFIGS.has(configKey)) {
+    const isSinner = (configKey === 'PC GAMING SINNER');
+    if (isSinner || CASE_ATX_BIGMOBO_CONFIGS.has(configKey)) {
         // mobo: prima la variante scelta dal cliente, poi la mobo base della config
         let mobo = props['SCHEDA MADRE'] || props['MOBO'] || props['MOTHERBOARD'] || props.scheda_madre || '';
         if (!mobo) {
@@ -126,20 +133,44 @@ function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
             (/B850/.test(mobo) && (/TOMAHAWK/.test(mobo) || /ROG\s*STRIX|STRIX|\bROG\b/.test(mobo)));
         const isSmallMobo = !isBigMobo && (/B650/.test(mobo) || /B840/.test(mobo) || (/ASROCK/.test(mobo) && /B850/.test(mobo)));
 
-        const newPsu = isBigMobo ? 'TACENS 850W' : (isSmallMobo ? 'TACENS 750W' : null);
+        // GPU scelta dal cliente (variante GPO)
+        let gpu = props['GPU'] || props['SCHEDA VIDEO'] || props['GRAFICA'] || '';
+        if (!gpu) {
+            const g = finalComponents.find(c => /^(GPU|SCHEDA[\s_]*VIDEO)$/i.test(String(c.type || '')));
+            if (g) gpu = g.value;
+        }
+        gpu = String(gpu || '').toUpperCase();
+        // 9060XT è la GPU di default; qualsiasi altra (5070Ti / 9070XT / ecc.) è un upgrade GPO
+        const isDefaultGpu = /9060\s*XT/.test(gpu);
+
+        let newPsu = null;
+        if (isSinner) {
+            if (!isDefaultGpu && gpu) {
+                newPsu = '80+ GOLD 850W';          // upgrade GPU → GOLD, vince su tutto
+            } else if (isBigMobo) {
+                newPsu = 'TACENS 850W';            // 9060XT + mobo grossa
+            } else {
+                newPsu = 'TACENS 750W';            // 9060XT + mobo piccola (default)
+            }
+        } else {
+            // REX / HELLFIRE: solo mobo
+            newPsu = isBigMobo ? 'TACENS 850W' : (isSmallMobo ? 'TACENS 750W' : null);
+        }
+
         if (newPsu) {
+            const supplier = newPsu.indexOf('GOLD') !== -1 ? 'ALTRO' : 'AMAZON';
             const psuIdx = finalComponents.findIndex(c => {
                 const t = String(c.type || '').toUpperCase();
                 return t === 'PSU' || t === 'ALIMENTATORE';
             });
             if (psuIdx === -1) {
-                console.log(`⚡ [REX-HELLFIRE-PSU v33] config "${configKey}" mobo "${mobo}" → aggiungo PSU "${newPsu}" (AMAZON)`);
-                finalComponents.push({ type: 'PSU', value: newPsu, supplier: 'AMAZON' });
+                console.log(`⚡ [PSU-RULES v33] config "${configKey}" gpu "${gpu}" mobo "${mobo}" → aggiungo PSU "${newPsu}" (${supplier})`);
+                finalComponents.push({ type: 'PSU', value: newPsu, supplier });
             } else {
                 const oldPsu = finalComponents[psuIdx].value;
-                console.log(`⚡ [REX-HELLFIRE-PSU v33] config "${configKey}" mobo "${mobo}" → PSU: "${oldPsu}" → "${newPsu}" (AMAZON)`);
+                console.log(`⚡ [PSU-RULES v33] config "${configKey}" gpu "${gpu}" mobo "${mobo}" → PSU: "${oldPsu}" → "${newPsu}" (${supplier})`);
                 finalComponents[psuIdx].value = newPsu;
-                finalComponents[psuIdx].supplier = 'AMAZON';
+                finalComponents[psuIdx].supplier = supplier;
             }
         }
     }

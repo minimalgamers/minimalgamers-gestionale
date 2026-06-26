@@ -78,6 +78,15 @@ async function collectOrdersForExport() {
         });
 
         const componentLines = [];
+        const seenLines = new Set();
+        const pushLine = (t) => {
+            const v = String(t || '').trim();
+            if (!v) return;
+            const k = v.toUpperCase();
+            if (seenLines.has(k)) return;
+            seenLines.add(k);
+            componentLines.push(v);
+        };
 
         for (let index = 0; index < componentOrder.length; index++) {
             const compType = componentOrder[index];
@@ -113,7 +122,51 @@ async function collectOrdersForExport() {
             }
 
             const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
-            if (testo) componentLines.push(testo);
+            if (testo) pushLine(testo);
+        }
+
+        // Tipi EXTRA presenti nell'ordine ma non tra gli 8 base
+        // (es. MONITOR, KIT GAMING, SSD ADDON, ARCHIVIAZIONE AGGIUNTIVA...).
+        // Senza questo blocco il PDF/Excel li saltava.
+        const baseTypesSet = new Set(componentOrder.map(t => String(t).toUpperCase()));
+        const extraTypesSet = new Set();
+        for (const t of Object.keys(componentsByType)) {
+            const k = String(t || '').trim().toUpperCase();
+            if (k && !baseTypesSet.has(k)) extraTypesSet.add(k);
+        }
+        for (const t of Object.keys(domComponents)) {
+            const k = String(t || '').trim().toUpperCase();
+            if (k && !baseTypesSet.has(k)) extraTypesSet.add(k);
+        }
+
+        for (const compTypeKey of extraTypesSet) {
+            const domComp = domComponents[compTypeKey];
+            const comp = componentsByType[compTypeKey] || componentsByType[Object.keys(componentsByType).find(k => String(k).toUpperCase() === compTypeKey)];
+
+            let ean = '';
+            let descrizione = '';
+            let fornitore = '';
+
+            if (domComp && (domComp.ean || domComp.name)) {
+                ean = String(domComp.ean || '').trim();
+                descrizione = domComp.name || '';
+                fornitore = domComp.supplier || extractSupplierFromText(String(ean)) || '';
+                if (ean && String(ean).toUpperCase() !== 'INTEGRATA') {
+                    const dbData = await getComponentDataFromDB(ean, fornitore);
+                    if (dbData && dbData.nome) descrizione = dbData.nome;
+                }
+            } else if (comp && (comp.ean || comp.name)) {
+                ean = String(comp.ean || '').trim();
+                fornitore = comp.supplier || extractSupplierFromText(String(ean)) || '';
+                descrizione = comp.name || '';
+                if (ean) {
+                    const dbData = await getComponentDataFromDB(ean, fornitore);
+                    if (dbData && dbData.nome) descrizione = dbData.nome;
+                }
+            }
+
+            const testoExtraType = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+            if (testoExtraType) pushLine(testoExtraType);
         }
 
         // Custom items (HDD aggiuntivo, monitor, kit, ecc.)
@@ -146,7 +199,7 @@ async function collectOrdersForExport() {
                 if (dbData && dbData.nome) itemDesc = dbData.nome;
             }
             const testoExtra = itemDesc || itemEan;
-            if (testoExtra) componentLines.push(testoExtra);
+            if (testoExtra) pushLine(testoExtra);
         }
 
         const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);
@@ -411,6 +464,48 @@ async function exportProcessedOrdersToExcel() {
                     }
                     const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
                     if (testo) componentLines.push(testo);
+                }
+
+                // Tipi EXTRA (MONITOR, KIT GAMING, SSD ADDON, ...) non tra gli 8 base
+                {
+                    const baseSet = new Set(componentOrder.map(t => String(t).toUpperCase()));
+                    const seenExcel = new Set(componentLines.map(l => String(l).trim().toUpperCase()));
+                    const extraSet = new Set();
+                    for (const t of Object.keys(componentsByType)) {
+                        const k = String(t || '').trim().toUpperCase();
+                        if (k && !baseSet.has(k)) extraSet.add(k);
+                    }
+                    for (const t of Object.keys(domComponents)) {
+                        const k = String(t || '').trim().toUpperCase();
+                        if (k && !baseSet.has(k)) extraSet.add(k);
+                    }
+                    for (const compTypeKey of extraSet) {
+                        const domComp = domComponents[compTypeKey];
+                        const comp = componentsByType[compTypeKey] || componentsByType[Object.keys(componentsByType).find(k => String(k).toUpperCase() === compTypeKey)];
+                        let ean = '', descrizione = '', fornitore = '';
+                        if (domComp && (domComp.ean || domComp.name)) {
+                            ean = String(domComp.ean || '').trim();
+                            descrizione = domComp.name || '';
+                            fornitore = domComp.supplier || extractSupplierFromText(String(ean)) || '';
+                            if (ean && String(ean).toUpperCase() !== 'INTEGRATA') {
+                                const dbData = await getComponentDataFromDB(ean, fornitore);
+                                if (dbData && dbData.nome) descrizione = dbData.nome;
+                            }
+                        } else if (comp && (comp.ean || comp.name)) {
+                            ean = String(comp.ean || '').trim();
+                            fornitore = comp.supplier || extractSupplierFromText(String(ean)) || '';
+                            descrizione = comp.name || '';
+                            if (ean) {
+                                const dbData = await getComponentDataFromDB(ean, fornitore);
+                                if (dbData && dbData.nome) descrizione = dbData.nome;
+                            }
+                        }
+                        const testoX = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+                        if (testoX && !seenExcel.has(testoX.toUpperCase())) {
+                            seenExcel.add(testoX.toUpperCase());
+                            componentLines.push(testoX);
+                        }
+                    }
                 }
 
                 const customItems = await loadCustomItemsFromDB(order.id);

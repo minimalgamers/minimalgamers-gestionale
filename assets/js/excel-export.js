@@ -666,7 +666,8 @@ async function getComponentDataFromDB(ean, supplier = '') {
     if (!ean || ean === 'MANUALE' || ean === 'GENERICO' || ean === '') return null;
 
     const rawEan = String(ean).trim();
-    if (!rawEan || rawEan === 'INTEGRATA' || rawEan === 'GENERICO' || !isValidEAN(rawEan)) return null;
+    if (!rawEan || rawEan === 'INTEGRATA' || rawEan === 'GENERICO') return null;
+    const eanIsNumeric = isValidEAN(rawEan); // true solo per codici numerici
     const supplierHint = String(supplier || '').trim();
     const normalizedSupplier = (supplierHint && supplierHint !== 'SENZA FORNITORE' && supplierHint !== 'FORNITORE') ? supplierHint : '';
     const cacheKey = `${rawEan}::${normalizedSupplier}`;
@@ -675,6 +676,7 @@ async function getComponentDataFromDB(ean, supplier = '') {
         return componentDataLookupCache.get(cacheKey);
     }
 
+    if (eanIsNumeric) {
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
@@ -709,6 +711,28 @@ async function getComponentDataFromDB(ean, supplier = '') {
         }
     } catch (error) {
     }
+    }
+
+    // Fallback: risolvo il nome da gpo_mapping (copre EAN alfanumerici come GEHY-037,
+    // GELI-975 ecc. che isValidEAN scarta e che gli endpoint sopra non trovano).
+    try {
+        const SB_URL = (window.SUPABASE_URL) || 'https://nulkachuhjdzohkzwvly.supabase.co';
+        const SB_KEY = (window.SUPABASE_KEY) || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
+        const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+        const q = `${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(rawEan)}&select=component_name,supplier&limit=1`;
+        const r = await fetch(q, { headers: H });
+        if (r.ok) {
+            const rows = await r.json();
+            const row = Array.isArray(rows) ? rows.find(x => x && x.component_name) : null;
+            if (row && row.component_name) {
+                const resolved = { nome: row.component_name, prezzo: '', quantita: '', fornitore: row.supplier || '' };
+                componentDataLookupCache.set(cacheKey, resolved);
+                return resolved;
+            }
+        }
+    } catch (e) {
+    }
+
     componentDataLookupCache.set(cacheKey, null);
     return null;
 }
@@ -739,4 +763,4 @@ function initializeExportExcelButton() {
     }
 }
 
-console.log('✅ excel-export.js caricato (v30 - PDF compatto + tipi extra)');
+console.log('✅ excel-export.js caricato (v31 - PDF compatto + tipi extra + nomi HYTE/GELI)');

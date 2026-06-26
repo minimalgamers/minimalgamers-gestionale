@@ -254,9 +254,9 @@ async function exportProcessedOrdersToPDF() {
         const colConfigW = pageWidth - marginX * 2 - colOrderW; // resto
 
         // stima altezza riga (autotable usa ~ font 10 -> ~6-7mm con padding)
-        const headerRowH = 9;   // intestazione tabella
-        const titleRowH = 8;    // riga nome config
-        const lineRowH = 6.2;   // riga componente
+        const headerRowH = 6;   // intestazione tabella
+        const titleRowH = 5.5;    // riga nome config
+        const lineRowH = 4.2;   // riga componente
 
         let cursorY = marginTop;
 
@@ -279,11 +279,11 @@ async function exportProcessedOrdersToPDF() {
             // Costruisco le righe del corpo: prima il nome config, poi i componenti numerati
             const body = [];
             body.push([
-                { content: ord.orderName, rowSpan: ord.lines.length + 1, styles: { fontStyle: 'bold', fontSize: 11, valign: 'top', halign: 'left' } },
-                { content: ord.configName, styles: { fontStyle: 'bold', fontSize: 10 } }
+                { content: ord.orderName, rowSpan: ord.lines.length + 1, styles: { fontStyle: 'bold', fontSize: 9, valign: 'top', halign: 'left' } },
+                { content: ord.configName, styles: { fontStyle: 'bold', fontSize: 8.5 } }
             ]);
             ord.lines.forEach((line, i) => {
-                body.push([{ content: `${i + 1}. ${line}`, styles: { fontSize: 9.5 } }]);
+                body.push([{ content: `${i + 1}. ${line}`, styles: { fontSize: 7.5 } }]);
             });
 
             doc.autoTable({
@@ -298,7 +298,7 @@ async function exportProcessedOrdersToPDF() {
                 styles: {
                     lineColor: [60, 60, 60],
                     lineWidth: 0.25,
-                    cellPadding: 1.6,
+                    cellPadding: 0.8,
                     textColor: [20, 20, 20],
                     overflow: 'linebreak'
                 },
@@ -306,7 +306,7 @@ async function exportProcessedOrdersToPDF() {
                     fillColor: [64, 64, 64],
                     textColor: [255, 255, 255],
                     fontStyle: 'bold',
-                    fontSize: 10,
+                    fontSize: 8,
                     lineColor: [60, 60, 60],
                     lineWidth: 0.25
                 },
@@ -739,4 +739,4 @@ function initializeExportExcelButton() {
     }
 }
 
-console.log('✅ excel-export.js caricato (v29 - Excel 2 colonne + PDF stampa)');
+console.log('✅ excel-export.js caricato (v30 - PDF compatto + tipi extra)');

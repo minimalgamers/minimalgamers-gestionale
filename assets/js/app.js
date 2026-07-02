@@ -19,6 +19,63 @@ function isProcessedTab(tabName) {
     return Object.prototype.hasOwnProperty.call(PROCESSED_TAB_TO_WORKSHEET, tabName);
 }
 
+/* =========================================================================
+   PSU DEEPCOOL v34 — sostituzione centralizzata alimentatori
+   -------------------------------------------------------------------------
+   Regola concordata:
+     - ogni TACENS (750W/850W, qualsiasi)      -> DEEPCOOL PF-600X 80+ BRONZE
+     - ogni 80+ GOLD 850W                       -> DEEPCOOL PN850-D V2 80+ GOLD
+     - INFERNUS CUSTOM / ALI 1000W 80+ GOLD     -> DEEPCOOL PQ1000-G 1000W 80+ GOLD
+   Fornitore di tutti e tre: ABACO.
+   Le build MSI (nascoste) hanno PSU [MSI] con EAN numerici: NON vengono toccate.
+   ========================================================================= */
+const PSU_DEEPCOOL = {
+    BRONZE: { value: 'DEEPCOOL PF-600X 80+ BRONZE',      supplier: 'ABACO' },
+    GOLD:   { value: 'DEEPCOOL PN850-D V2 80+ GOLD',     supplier: 'ABACO' },
+    PQ1000: { value: 'DEEPCOOL PQ1000-G 1000W 80+ GOLD', supplier: 'ABACO' }
+};
+
+// Restituisce il PSU Deepcool giusto per un dato valore PSU vecchio + config,
+// oppure null se il PSU non va convertito (es. build MSI, o valore già Deepcool).
+function mapPsuToDeepcool(psuValue, configKey) {
+    const v = String(psuValue || '').toUpperCase();
+    const cfg = String(configKey || '').toUpperCase();
+
+    // già convertito
+    if (v.includes('DEEPCOOL')) return null;
+
+    // eccezione per nome config: INFERNUS CUSTOM (RTX 5080) -> PQ1000-G
+    if (/INFERNUS\s*CUSTOM/.test(cfg)) return PSU_DEEPCOOL.PQ1000;
+    // eccezione per valore: "ALI 1000W 80+ GOLD" (stesso PC) -> PQ1000-G
+    if (/ALI\s*1000W/.test(v) || /1000W/.test(v)) return PSU_DEEPCOOL.PQ1000;
+
+    // 80+ GOLD 850W -> PN850-D V2 GOLD
+    if (/80\+?\s*GOLD\s*850W/.test(v)) return PSU_DEEPCOOL.GOLD;
+    // TACENS (qualsiasi wattaggio) -> PF-600X BRONZE
+    if (/TACENS/.test(v)) return PSU_DEEPCOOL.BRONZE;
+
+    // build MSI o altri PSU con EAN numerico/sconosciuto: non toccare
+    return null;
+}
+
+// Applica la conversione al PSU dentro finalComponents (in-place).
+window.applyDeepcoolPsuMapping = function(finalComponents, configKey) {
+    if (!Array.isArray(finalComponents)) return;
+    const idx = finalComponents.findIndex(c => {
+        const t = String(c.type || '').toUpperCase();
+        return t === 'PSU' || t === 'ALIMENTATORE';
+    });
+    if (idx === -1) return;
+    const oldValue = finalComponents[idx].value;
+    const mapped = mapPsuToDeepcool(oldValue, configKey);
+    if (!mapped) return;
+    console.log(`⚡ [PSU-DEEPCOOL v34] "${oldValue}" → "${mapped.value}" [${mapped.supplier}]`);
+    finalComponents[idx].value = mapped.value;
+    finalComponents[idx].supplier = mapped.supplier;
+};
+console.log('✅ PSU Deepcool v34 registrato');
+
+
 // v21: deriva una label leggibile per il MONITOR a partire dal line_item Shopify.
 // Priorità in cascata:
 //   1) SKU pulito (se non UUID e non vuoto)
@@ -731,7 +788,8 @@ function getSupplierAbbreviation(supplier) {
         'INTEGRATA': 'IG',
         'MSI': 'MS',
         'CASEKING': 'CK',
-        'NAVY BLUE': 'NB'
+        'NAVY BLUE': 'NB',
+        'ABACO': 'ABA'
     };
     return abbr[sup] || sup.substring(0, 2);
 }
@@ -3109,6 +3167,7 @@ async function loadManualOrderComponents(orderId) {
         else if (supplier === 'MSI') supplierColor = '#d35400';
         else if (supplier === 'CASEKING') supplierColor = '#16a085';
         else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+        else if (supplier === 'ABACO') supplierColor = '#00b894';
         
         
         html += `
@@ -3258,7 +3317,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
             // NON sovrascrivere col gpoMatch.
             if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                 const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                if (/TACENS|80\+?\s*GOLD\s*850W|DEEPCOOL/i.test(currentPsuValue)) {
                     console.log(`🔒 [PSU-LOCK v31] PSU già impostato a "${currentPsuValue}" → skip gpoMatch`);
                     continue;
                 }
@@ -3914,6 +3973,7 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
                         else if (supplier === 'MSI') supplierColor = '#d35400';
                         else if (supplier === 'CASEKING') supplierColor = '#16a085';
                         else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+                        else if (supplier === 'ABACO') supplierColor = '#00b894';
                         
                         supplierSpan.textContent = getSupplierAbbreviation(supplier);
                         supplierSpan.style.background = `${supplierColor}33`;
@@ -3932,26 +3992,9 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
                         display.textContent = nomeProdotto;
                         display.title = `EAN: ${displayEan}`;
                     } else {
-                        // Fallback gpo_mapping (codici alfanumerici tipo GEHY-037 / GELI-975)
-                        let risolto = false;
-                        try {
-                            const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
-                            const SB_KEY = window.SUPABASE_KEY || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
-                            const mapRes = await fetch(`${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(lookupEan)}&select=component_name,supplier&limit=1`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
-                            if (mapRes.ok) {
-                                const rows = await mapRes.json();
-                                const row = Array.isArray(rows) ? rows.find(x => x && x.component_name) : null;
-                                if (row && row.component_name) {
-                                    display.textContent = row.component_name;
-                                    display.title = `EAN: ${displayEan}`;
-                                    risolto = true;
-                                }
-                            }
-                        } catch (e2) {}
-                        if (!risolto) {
-                            display.textContent = displayEan;
-                            display.title = `EAN: ${displayEan}\n(Prodotto non trovato)`;
-                        }
+                        
+                        display.textContent = displayEan;
+                        display.title = `EAN: ${displayEan}\n(Prodotto non trovato)`;
                     }
                 } catch (e) {
                     display.textContent = displayEan;
@@ -4732,7 +4775,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     // v29/v31: se v30/v31 hanno messo TACENS 850W o 80+ GOLD 850W sul PSU, non sovrascrivere
                     if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
                         const currentPsuValue = String(finalComponents[componentIndex].value || '');
-                        if (/TACENS\s*850W|80\+?\s*GOLD\s*850W/i.test(currentPsuValue)) {
+                        if (/TACENS|80\+?\s*GOLD\s*850W|DEEPCOOL/i.test(currentPsuValue)) {
                             console.log(`🔒 [PSU-LOCK v31] processOrder: PSU "${currentPsuValue}" preservato`);
                             continue;
                         }
@@ -4788,6 +4831,17 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
 
                     applyMappedValue('RAM', ramValue);
                     applyMappedValue('SSD', ssdValue);
+                }
+
+                // v34: conversione finale PSU -> modelli Deepcool (ABACO).
+                // Gira DOPO tutte le regole e la risoluzione varianti, così il
+                // valore vecchio (TACENS / 80+ GOLD 850W) è già stato deciso.
+                try {
+                    if (typeof window.applyDeepcoolPsuMapping === 'function') {
+                        window.applyDeepcoolPsuMapping(finalComponents, config.configKey);
+                    }
+                } catch (e) {
+                    console.warn('PSU-DEEPCOOL v34 fallito (non bloccante):', e);
                 }
 
                 const kitUnits = [];
@@ -5322,6 +5376,7 @@ async function checkAndApplyEAN(input, ean, componentType) {
                     else if (supplier === 'MSI') supplierColor = '#d35400';
                     else if (supplier === 'CASEKING') supplierColor = '#16a085';
                     else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+                    else if (supplier === 'ABACO') supplierColor = '#00b894';
                     
                     supplierSpan.textContent = getSupplierAbbreviation(supplier);
                     supplierSpan.style.background = `${supplierColor}33`;
@@ -5469,6 +5524,7 @@ async function loadProductNameForInput(input, showSupplierPopup = false) {
                     else if (supplier === 'INTEGRATA') supplierColor = '#7f8c8d';
                     else if (supplier === 'CASEKING') supplierColor = '#16a085';
                     else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+                    else if (supplier === 'ABACO') supplierColor = '#00b894';
                     
                     supplierSpan.textContent = getSupplierAbbreviation(supplier);
                     supplierSpan.style.background = `${supplierColor}33`;
@@ -5508,6 +5564,7 @@ async function loadProductNameForInput(input, showSupplierPopup = false) {
                                     else if (supplier === 'MSI') supplierColor = '#d35400';
                                     else if (supplier === 'CASEKING') supplierColor = '#16a085';
                                     else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+                                    else if (supplier === 'ABACO') supplierColor = '#00b894';
                                     
                                     supplierSpan.textContent = getSupplierAbbreviation(supplier);
                                     supplierSpan.style.background = `${supplierColor}33`;
@@ -5610,6 +5667,7 @@ function applyManualSupplier(supplier) {
         else if (supplier === 'INTEGRATA') supplierColor = '#7f8c8d';
         else if (supplier === 'CASEKING') supplierColor = '#16a085';
         else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+        else if (supplier === 'ABACO') supplierColor = '#00b894';
         
         supplierSpan.textContent = getSupplierAbbreviation(supplier);
         supplierSpan.style.background = `${supplierColor}33`;
@@ -7541,6 +7599,7 @@ document.getElementById('component-search-results')?.addEventListener('click', a
                                 else if (supplier === 'MSI') supplierColor = '#d35400';
                                 else if (supplier === 'CASEKING') supplierColor = '#16a085';
                                 else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+                                else if (supplier === 'ABACO') supplierColor = '#00b894';
                                 
                                 supplierBadge.textContent = getSupplierAbbreviation(supplier);
                                 supplierBadge.style.background = `${supplierColor}33`;
@@ -8372,6 +8431,7 @@ async function renderStandardConfigsCards() {
             else if (supplier === 'INTEGRATA') supplierColor = '#7f8c8d';
             else if (supplier === 'CASEKING') supplierColor = '#16a085';
             else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+            else if (supplier === 'ABACO') supplierColor = '#00b894';
             
             
             const canRemove = config.components.length > 1;
@@ -9600,6 +9660,7 @@ function applyConfigSupplier(supplier) {
         else if (supplier === 'INTEGRATA') supplierColor = '#7f8c8d';
         else if (supplier === 'CASEKING') supplierColor = '#16a085';
         else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+        else if (supplier === 'ABACO') supplierColor = '#00b894';
         
         badge.textContent = supplier;
         badge.dataset.supplier = supplier;
@@ -10045,6 +10106,7 @@ async function applyConfigSuggestion(ean, supplier, configKey, componentType, co
             else if (supplier === 'INTEGRATA') supplierColor = '#7f8c8d';
             else if (supplier === 'CASEKING') supplierColor = '#16a085';
             else if (supplier === 'NAVY BLUE') supplierColor = '#1a56db';
+            else if (supplier === 'ABACO') supplierColor = '#00b894';
             
             badge.textContent = supplier;
             badge.dataset.supplier = supplier;

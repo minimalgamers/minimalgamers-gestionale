@@ -210,6 +210,95 @@ window.applySinnerGpuPsuRule = function(finalComponents, configKey) {
 };
 console.log('✅ SINNER-GPU PSU v35 registrato');
 
+/* =========================================================================
+   NORMALIZZAZIONE NOME VISUALIZZATO v35  (generici + colore + MOBO)
+   -------------------------------------------------------------------------
+   Funzione UNICA usata ovunque si mostri il nome di un componente (card,
+   PDF/Excel, riepiloghi). Rende generici i nomi (senza brand) per le
+   categorie concordate e aggiunge l'etichetta colore uniformata al case.
+
+   Categorie generiche: GPU, SSD, MOBO (solo basiche), RAM (già fatta a monte).
+   NON toccate: CPU, PSU, CASE, COOLER, SSD ADDON, MONITOR, KIT, custom.
+   ========================================================================= */
+(function () {
+    // GPU: "PNY GeForce RTX 5070 12GB Gaming Triple Fan" -> "RTX 5070 12GB"
+    function genericGpu(name) {
+        const s = String(name || '');
+        // preservo un eventuale colore già nel nome originale
+        const colorInName = (s.match(/\b(WHITE|BLACK|BIANCO|NERO|BIANCA|NERA)\b/i) || [])[0];
+        const colorSuffix = colorInName ? ' ' + colorInName.toUpperCase()
+            .replace('BIANCA', 'WHITE').replace('BIANCO', 'WHITE')
+            .replace('NERA', 'BLACK').replace('NERO', 'BLACK') : '';
+        if (/INTEGRATA|VEGA|780M|RADEON\s+GRAPHICS/i.test(s) && !/RX|RTX/i.test(s)) {
+            return s; // integrata: lascio com'è
+        }
+        let m = s.match(/RTX\s*(\d{3,4})\s*(TI)?/i);
+        if (m) {
+            const gb = (s.match(/(\d{1,2})\s*GB/i) || [])[1];
+            const ti = m[2] ? ' Ti' : '';
+            return `RTX ${m[1]}${ti}${gb ? ' ' + gb + 'GB' : ''}${colorSuffix}`.trim();
+        }
+        m = s.match(/RX\s*(\d{3,4})\s*(XT)?/i);
+        if (m) {
+            const gb = (s.match(/(\d{1,2})\s*GB/i) || [])[1];
+            const xt = m[2] ? ' XT' : '';
+            return `RX ${m[1]}${xt}${gb ? ' ' + gb + 'GB' : ''}${colorSuffix}`.trim();
+        }
+        m = s.match(/ARC\s*(A?\d{3,4})/i);
+        if (m) {
+            const gb = (s.match(/(\d{1,2})\s*GB/i) || [])[1];
+            return `ARC ${m[1]}${gb ? ' ' + gb + 'GB' : ''}${colorSuffix}`.trim();
+        }
+        return s; // non riconosciuta: lascio com'è
+    }
+
+    // SSD: "Crucial SSD E100 1TB PCie 4.0 NVMe M.2" -> "SSD 1TB NVMe"
+    function genericSsd(name) {
+        const s = String(name || '');
+        const size = (s.match(/(\d+\s*(?:TB|GB))/i) || [])[1];
+        if (!size) return s;
+        const nvme = /NVME|M\.?2|PCIE/i.test(s) ? ' NVMe' : '';
+        return `SSD ${size.replace(/\s+/g, '')}${nvme}`;
+    }
+
+    // MOBO: solo le 3 basiche diventano generiche; ROG pulita; resto invariato
+    function genericMobo(name) {
+        const s = String(name || '');
+        const u = s.toUpperCase();
+        if (/B650\s*GAMING\s*X/.test(u) || /ASROCK\s*B650M-H/.test(u)) return 'B650';
+        if (/B550\s*GAMING/.test(u) || /ASROCK\s*B550M-HDV/.test(u)) return 'B550';
+        if (/B760\s*GAMING\s*X/.test(u) || /ASROCK\s*B760M-HDV/.test(u)) return 'B760';
+        if (/ASUS\s*ROG\s*STRIX\s*B850/.test(u)) return 'ASUS ROG STRIX B850';
+        return s;
+    }
+
+    function addColor(name, color) {
+        if (!color) return name;
+        const s = String(name || '');
+        if (/\bWHITE\b|\bBLACK\b|\bBIANCO\b|\bNERO\b|\bBIANCA\b|\bNERA\b/i.test(s)) return s;
+        return `${s} ${color}`;
+    }
+
+    // Funzione pubblica: normalizza il nome in base al tipo.
+    // type: 'GPU' | 'SSD' | 'MOBO' | ... ; caseColor: 'WHITE'|'BLACK'|''
+    window.normalizeDisplayName = function (type, name, caseColor) {
+        const t = String(type || '').toUpperCase();
+        let out = String(name || '');
+        if (!out) return out;
+        if (t === 'GPU') {
+            out = genericGpu(out);
+            out = addColor(out, caseColor);
+        } else if (t === 'SSD') {
+            out = genericSsd(out);
+        } else if (t === 'MOBO') {
+            out = genericMobo(out);
+            out = addColor(out, caseColor);
+        }
+        return out;
+    };
+})();
+console.log('✅ normalizeDisplayName v35 registrata');
+
 
 // v21: deriva una label leggibile per il MONITOR a partire dal line_item Shopify.
 // Priorità in cascata:
@@ -4142,6 +4231,32 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
             display.title = `EAN: ${displayEan}`;
         }
     }
+
+    // v35: passaggio finale — rende generici GPU/SSD/MOBO e aggiunge il colore
+    // del case, riusando i nomi già risolti. Non tocca la logica di risoluzione.
+    try {
+        if (typeof window.normalizeDisplayName === 'function') {
+            // colore del case per ciascun ordine (dai display CASE)
+            const caseColorByOrder = {};
+            processedContainer.querySelectorAll('.component-name-display').forEach(d => {
+                if (String(d.dataset.componentType || '').toUpperCase() === 'CASE') {
+                    const oid = d.dataset.orderId;
+                    const txt = String(d.textContent || '').toUpperCase();
+                    if (/WHITE|BIANCO|BIANCA/.test(txt)) caseColorByOrder[oid] = 'WHITE';
+                    else if (/BLACK|NERO|NERA/.test(txt)) caseColorByOrder[oid] = 'BLACK';
+                }
+            });
+            processedContainer.querySelectorAll('.component-name-display').forEach(d => {
+                const type = String(d.dataset.componentType || '').toUpperCase();
+                if (type !== 'GPU' && type !== 'SSD' && type !== 'MOBO') return;
+                const cur = d.textContent || '';
+                if (!cur || cur === 'Caricamento...') return;
+                const color = caseColorByOrder[d.dataset.orderId] || '';
+                const nn = window.normalizeDisplayName(type, cur, color);
+                if (nn && nn !== cur) d.textContent = nn;
+            });
+        }
+    } catch (e) { console.warn('normalizeDisplayName card fail:', e); }
 
     updateSupplierSummaryButtonVisibility();
 }

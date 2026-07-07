@@ -88,6 +88,28 @@ async function collectOrdersForExport() {
             componentLines.push(v);
         };
 
+        // v35: colore del case per applicare l'etichetta a GPU/MOBO nel PDF
+        let pdfCaseColor = '';
+        {
+            const caseComp = domComponents['CASE'] || componentsByType['CASE'];
+            const caseTxt = `${caseComp?.name || ''} ${caseComp?.ean || ''}`.toUpperCase();
+            if (/WHITE|BIANCO|BIANCA/.test(caseTxt)) pdfCaseColor = 'WHITE';
+            else if (/BLACK|NERO|NERA/.test(caseTxt)) pdfCaseColor = 'BLACK';
+            if (!pdfCaseColor && caseComp?.ean) {
+                try {
+                    const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
+                    const SB_KEY = window.SUPABASE_KEY || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
+                    const r = await fetch(`${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(caseComp.ean)}&select=component_name,variant_value&limit=1`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+                    if (r.ok) {
+                        const rows = await r.json();
+                        const nm = `${rows[0]?.component_name || ''} ${rows[0]?.variant_value || ''}`.toUpperCase();
+                        if (/WHITE|BIANCO|BIANCA|SNOW/.test(nm)) pdfCaseColor = 'WHITE';
+                        else if (/BLACK|NERO|NERA|PITCH/.test(nm)) pdfCaseColor = 'BLACK';
+                    }
+                } catch (e) {}
+            }
+        }
+
         for (let index = 0; index < componentOrder.length; index++) {
             const compType = componentOrder[index];
             const comp = componentsByType[compType];
@@ -119,6 +141,12 @@ async function collectOrdersForExport() {
                     const dbData = await getComponentDataFromDB(ean, fornitore);
                     descrizione = (dbData && dbData.nome) ? dbData.nome : (comp.name || '');
                 }
+            }
+
+            // v35: normalizzazione generici + colore anche nel PDF/Excel
+            if (descrizione && typeof window.normalizeDisplayName === 'function' &&
+                (compType === 'GPU' || compType === 'SSD' || compType === 'MOBO')) {
+                descrizione = window.normalizeDisplayName(compType, descrizione, pdfCaseColor);
             }
 
             const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
@@ -433,6 +461,28 @@ async function exportProcessedOrdersToExcel() {
 
                 const componentLines = [];
 
+                // v35: colore case per etichetta GPU/MOBO nell'Excel
+                let xlsCaseColor = '';
+                {
+                    const caseComp = domComponents['CASE'] || componentsByType['CASE'];
+                    const caseTxt = `${caseComp?.name || ''} ${caseComp?.ean || ''}`.toUpperCase();
+                    if (/WHITE|BIANCO|BIANCA/.test(caseTxt)) xlsCaseColor = 'WHITE';
+                    else if (/BLACK|NERO|NERA/.test(caseTxt)) xlsCaseColor = 'BLACK';
+                    if (!xlsCaseColor && caseComp?.ean) {
+                        try {
+                            const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
+                            const SB_KEY = window.SUPABASE_KEY || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
+                            const r = await fetch(`${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(caseComp.ean)}&select=component_name,variant_value&limit=1`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+                            if (r.ok) {
+                                const rows = await r.json();
+                                const nm = `${rows[0]?.component_name || ''} ${rows[0]?.variant_value || ''}`.toUpperCase();
+                                if (/WHITE|BIANCO|BIANCA|SNOW/.test(nm)) xlsCaseColor = 'WHITE';
+                                else if (/BLACK|NERO|NERA|PITCH/.test(nm)) xlsCaseColor = 'BLACK';
+                            }
+                        } catch (e) {}
+                    }
+                }
+
                 for (let index = 0; index < componentOrder.length; index++) {
                     const compType = componentOrder[index];
                     const comp = componentsByType[compType];
@@ -463,10 +513,15 @@ async function exportProcessedOrdersToExcel() {
                         }
                     }
                     const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
-                    if (testo) componentLines.push(testo);
+                    if (testo) {
+                        let testoNorm = testo;
+                        if (descrizione && typeof window.normalizeDisplayName === 'function' &&
+                            (compType === 'GPU' || compType === 'SSD' || compType === 'MOBO')) {
+                            testoNorm = window.normalizeDisplayName(compType, descrizione, xlsCaseColor);
+                        }
+                        componentLines.push(testoNorm);
+                    }
                 }
-
-                // Tipi EXTRA (MONITOR, KIT GAMING, SSD ADDON, ...) non tra gli 8 base
                 {
                     const baseSet = new Set(componentOrder.map(t => String(t).toUpperCase()));
                     const seenExcel = new Set(componentLines.map(l => String(l).trim().toUpperCase()));

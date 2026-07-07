@@ -4237,15 +4237,31 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
     try {
         if (typeof window.normalizeDisplayName === 'function') {
             const displays = document.querySelectorAll(`.component-name-display[data-order-id="${orderId}"]`);
-            // colore del case di questo ordine
+            // colore del case di questo ordine: 1) dal testo, 2) dall'EAN via gpo_mapping
             let caseColor = '';
+            let caseEan = '';
             displays.forEach(d => {
                 if (String(d.dataset.componentType || '').toUpperCase() === 'CASE') {
                     const txt = String(d.textContent || '').toUpperCase();
                     if (/WHITE|BIANCO|BIANCA/.test(txt)) caseColor = 'WHITE';
                     else if (/BLACK|NERO|NERA/.test(txt)) caseColor = 'BLACK';
+                    caseEan = d.dataset.ean || d.dataset.originalValue || '';
                 }
             });
+            // fallback: colore dall'EAN del case (es. GEHY-037 -> "Pitch Black")
+            if (!caseColor && caseEan) {
+                try {
+                    const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
+                    const SB_KEY = window.SUPABASE_KEY || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
+                    const r = await fetch(`${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(caseEan)}&select=component_name,variant_value&limit=1`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+                    if (r.ok) {
+                        const rows = await r.json();
+                        const nm = `${rows[0]?.component_name || ''} ${rows[0]?.variant_value || ''}`.toUpperCase();
+                        if (/WHITE|BIANCO|BIANCA|SNOW/.test(nm)) caseColor = 'WHITE';
+                        else if (/BLACK|NERO|NERA|PITCH/.test(nm)) caseColor = 'BLACK';
+                    }
+                } catch (e2) {}
+            }
             displays.forEach(d => {
                 const type = String(d.dataset.componentType || '').toUpperCase();
                 if (type !== 'GPU' && type !== 'SSD' && type !== 'MOBO') return;

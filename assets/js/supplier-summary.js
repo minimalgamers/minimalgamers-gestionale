@@ -277,7 +277,9 @@ async function generateSupplierSummary(context = null) {
                 supplierData['MAGAZZINO'] = {};
             }
             
-            const key = `${componentType}|${ean}`;
+            const groupKeyType = String(componentType || '').toUpperCase();
+            const useNameKey = (groupKeyType === 'GPU' || groupKeyType === 'SSD' || groupKeyType === 'MOBO' || groupKeyType === 'RAM') && name && name !== 'Caricamento...';
+            const key = useNameKey ? `${componentType}|${String(name).trim().toUpperCase()}` : `${componentType}|${ean}`;
             if (!supplierData['MAGAZZINO'][key]) {
                 supplierData['MAGAZZINO'][key] = {
                     count: 0,
@@ -298,7 +300,9 @@ async function generateSupplierSummary(context = null) {
                 supplierData[supplier] = {};
             }
             
-            const key = `${componentType}|${ean}`;
+            const groupKeyType2 = String(componentType || '').toUpperCase();
+            const useNameKey2 = (groupKeyType2 === 'GPU' || groupKeyType2 === 'SSD' || groupKeyType2 === 'MOBO' || groupKeyType2 === 'RAM') && name && name !== 'Caricamento...';
+            const key = useNameKey2 ? `${componentType}|${String(name).trim().toUpperCase()}` : `${componentType}|${ean}`;
             if (!supplierData[supplier][key]) {
                 supplierData[supplier][key] = {
                     count: 0,

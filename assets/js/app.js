@@ -4236,23 +4236,22 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
     // del case, riusando i nomi già risolti. Non tocca la logica di risoluzione.
     try {
         if (typeof window.normalizeDisplayName === 'function') {
-            // colore del case per ciascun ordine (dai display CASE)
-            const caseColorByOrder = {};
-            processedContainer.querySelectorAll('.component-name-display').forEach(d => {
+            const displays = document.querySelectorAll(`.component-name-display[data-order-id="${orderId}"]`);
+            // colore del case di questo ordine
+            let caseColor = '';
+            displays.forEach(d => {
                 if (String(d.dataset.componentType || '').toUpperCase() === 'CASE') {
-                    const oid = d.dataset.orderId;
                     const txt = String(d.textContent || '').toUpperCase();
-                    if (/WHITE|BIANCO|BIANCA/.test(txt)) caseColorByOrder[oid] = 'WHITE';
-                    else if (/BLACK|NERO|NERA/.test(txt)) caseColorByOrder[oid] = 'BLACK';
+                    if (/WHITE|BIANCO|BIANCA/.test(txt)) caseColor = 'WHITE';
+                    else if (/BLACK|NERO|NERA/.test(txt)) caseColor = 'BLACK';
                 }
             });
-            processedContainer.querySelectorAll('.component-name-display').forEach(d => {
+            displays.forEach(d => {
                 const type = String(d.dataset.componentType || '').toUpperCase();
                 if (type !== 'GPU' && type !== 'SSD' && type !== 'MOBO') return;
                 const cur = d.textContent || '';
                 if (!cur || cur === 'Caricamento...') return;
-                const color = caseColorByOrder[d.dataset.orderId] || '';
-                const nn = window.normalizeDisplayName(type, cur, color);
+                const nn = window.normalizeDisplayName(type, cur, caseColor);
                 if (nn && nn !== cur) d.textContent = nn;
             });
         }

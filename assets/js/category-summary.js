@@ -84,6 +84,11 @@
             const caseColor = caseColorMap[oid] || '';
             // normalizzo (generico) + applico il colore del case
             if (norm) name = norm(type, name, caseColor);
+            // KIT GAMING: uniformo il nome canonico (es. "KIT GAMING MINIMAL GAMERS 4IN1" -> "KIT GAMING")
+            if (type === 'KIT GAMING') {
+                const col = colorFromText(name);
+                name = 'KIT GAMING' + (col ? ' ' + col : '');
+            }
             // KIT GAMING: normalizeDisplayName non lo tocca, aggiungo io il colore
             if (type === 'KIT GAMING' && caseColor && !/\b(WHITE|BLACK|BIANCO|NERO)\b/i.test(name)) {
                 name = `${name} ${caseColor}`;

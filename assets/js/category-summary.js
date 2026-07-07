@@ -28,27 +28,84 @@
     // Ri-aggrega i dati per tipologia a partire da window.currentSupplierData
     // Struttura di partenza: { supplier: { key: {componentType, ean, name, count, orders, supplier} } }
     // Struttura risultato:   { TYPE: { key: {componentType, ean, name, count, orders, supplier} } }
+    // colore case da testo (e nomi HYTE tipo "Pitch Black")
+    function colorFromText(s) {
+        const u = String(s || '').toUpperCase();
+        if (/\b(WHITE|BIANCO|BIANCA|SNOW)\b/.test(u)) return 'WHITE';
+        if (/\b(BLACK|NERO|NERA|PITCH)\b/.test(u)) return 'BLACK';
+        return '';
+    }
+
+    // case con EAN alfanumerico che a volte non si risolvono a schermo
+    const CASE_EAN_COLOR = {
+        'GEHY-037': 'BLACK', // Hyte Y70 Pitch Black
+        'GEHY-034': 'WHITE', // Hyte Y70 Snow White
+        'GELI-975': 'BLACK', // Lian Li Vector V100 Black
+        'GELI-976': 'WHITE'  // Lian Li Vector V100 White
+    };
+
+    // Mappa orderId -> colore del case, letta direttamente dai display CASE nel DOM.
+    // Indipendente dal timing di normalizzazione delle card.
+    function buildCaseColorMap() {
+        const map = {};
+        document.querySelectorAll('.component-name-display').forEach(d => {
+            if (String(d.dataset.componentType || '').toUpperCase() !== 'CASE') return;
+            const oid = d.dataset.orderId;
+            if (!oid) return;
+            const ean = d.dataset.ean || d.dataset.originalValue || '';
+            const col = colorFromText(d.textContent) || colorFromText(ean) || CASE_EAN_COLOR[String(ean).toUpperCase()] || '';
+            if (col) map[oid] = col;
+        });
+        return map;
+    }
+
     function buildCategoryData(supplierData) {
         const byType = {};
+        const norm = (typeof window.normalizeDisplayName === 'function') ? window.normalizeDisplayName : null;
+        const caseColorMap = buildCaseColorMap();
+
+        // 1) GPU/MOBO: li leggo direttamente dal DOM, con il colore del case del
+        //    rispettivo ordine (robusto: non dipende dai nomi già normalizzati).
+        const genericFromDom = { GPU: true, MOBO: true };
+        const domHandled = { GPU: 0, MOBO: 0 };
+        document.querySelectorAll('.component-name-display').forEach(d => {
+            const type = String(d.dataset.componentType || '').toUpperCase();
+            if (!genericFromDom[type]) return;
+            let name = String(d.textContent || '').trim();
+            if (!name || name === 'Caricamento...') return;
+            const ean = d.dataset.ean || d.dataset.originalValue || '';
+            const oid = d.dataset.orderId || '';
+            const caseColor = caseColorMap[oid] || '';
+            // normalizzo (generico) + applico il colore del case
+            if (norm) name = norm(type, name, caseColor);
+            const key = `${type}|${String(name).trim().toUpperCase()}`;
+            if (!byType[type]) byType[type] = {};
+            if (!byType[type][key]) {
+                byType[type][key] = { componentType: type, ean, name, supplier: '', count: 0, orders: [] };
+            }
+            byType[type][key].count += 1;
+            const ordNum = oid; // qui non ho il numero #, uso orderId
+            domHandled[type]++;
+        });
+
+        // 2) tutti gli altri tipi (e GPU/MOBO se il DOM non ne ha) da supplierData
         for (const supplier of Object.keys(supplierData || {})) {
             const items = supplierData[supplier] || {};
             for (const item of Object.values(items)) {
                 const type = String(item.componentType || 'ALTRO').toUpperCase();
-                // chiave di fusione: stesso ean + stesso nome + stesso fornitore = stessa riga
+                // se GPU/MOBO già gestiti dal DOM, salto
+                if (genericFromDom[type] && domHandled[type] > 0) continue;
                 const ean = item.ean || '';
-                const name = item.name || '';
-                const sup = item.supplier || supplier || '';
-                const key = `${ean}|${name}|${sup}`;
+                let name = item.name || '';
+                const isGeneric = (type === 'GPU' || type === 'SSD' || type === 'MOBO' || type === 'RAM');
+                if (norm && isGeneric) {
+                    const looksRaw = /GEFORCE|RADEON|CRUCIAL|ASROCK|GIGABYTE|PALIT|PNY|INNO3D|POWERCOLOR|MSI |ASUS /i.test(name);
+                    if (looksRaw) name = norm(type, name, '');
+                }
+                const key = isGeneric ? `${type}|${String(name).trim().toUpperCase()}` : `${ean}|${name}`;
                 if (!byType[type]) byType[type] = {};
                 if (!byType[type][key]) {
-                    byType[type][key] = {
-                        componentType: type,
-                        ean: ean,
-                        name: name,
-                        supplier: sup,
-                        count: 0,
-                        orders: []
-                    };
+                    byType[type][key] = { componentType: type, ean, name, supplier: '', count: 0, orders: [] };
                 }
                 byType[type][key].count += (item.count || 0);
                 for (const o of (item.orders || [])) {
@@ -109,23 +166,70 @@
                 return String(a.name || a.ean).localeCompare(String(b.name || b.ean));
             });
 
+            // Raggruppo per NOME BASE (senza colore) così mostro le varianti
+            // WHITE/BLACK come sotto-righe di uno stesso prodotto.
+            const stripColor = (n) => String(n || '').replace(/\s*\b(WHITE|BLACK|BIANCO|NERO|BIANCA|NERA)\b\s*/ig, ' ').replace(/\s+/g, ' ').trim();
+            const colorOf = (n) => {
+                const u = String(n || '').toUpperCase();
+                if (/\b(WHITE|BIANCO|BIANCA)\b/.test(u)) return 'WHITE';
+                if (/\b(BLACK|NERO|NERA)\b/.test(u)) return 'BLACK';
+                return '';
+            };
+            const bases = {};
             for (const item of sortedItems) {
-                const ordersArray = item.orders || [];
-                const ordersText = ordersArray.length ? `Usato in: ${ordersArray.map(o => '#' + o).join(', ')}` : '';
-                const displayName = item.name || 'Nome non disponibile';
-                const supLabel = item.supplier ? `<span style="opacity:0.7; font-size:0.8em; margin-left:6px;">[${item.supplier}]</span>` : '';
+                const base = stripColor(item.name || item.ean || '-');
+                if (!bases[base]) bases[base] = { base, total: 0, ean: item.ean, variants: {}, orders: [] };
+                bases[base].total += item.count;
+                const col = colorOf(item.name);
+                const ck = col || 'NEUTRO';
+                if (!bases[base].variants[ck]) bases[base].variants[ck] = { color: col, count: 0, orders: [] };
+                bases[base].variants[ck].count += item.count;
+                for (const o of (item.orders || [])) {
+                    if (!bases[base].variants[ck].orders.includes(o)) bases[base].variants[ck].orders.push(o);
+                    if (!bases[base].orders.includes(o)) bases[base].orders.push(o);
+                }
+            }
+            const basesArr = Object.values(bases).sort((a, b) => b.total - a.total);
+
+            for (const b of basesArr) {
+                const variantKeys = Object.keys(b.variants);
+                const hasColors = variantKeys.some(k => k === 'WHITE' || k === 'BLACK');
+                const copyName = b.base;
+                // dettaglio colori per la copia (es. "WHITE x10 | BLACK x12")
+                const colorDetail = ['WHITE','BLACK','NEUTRO']
+                    .filter(k => b.variants[k])
+                    .map(k => `${k === 'NEUTRO' ? 'N/A' : k} x${b.variants[k].count}`)
+                    .join(' | ');
 
                 html += `
-                <div class="supplier-item" data-quantity="${item.count}" data-ean="${item.ean}" data-name="${displayName}" data-orders="${ordersArray.join(',')}">
+                <div class="supplier-item" data-quantity="${b.total}" data-ean="${b.ean || ''}" data-name="${b.base}" data-colors="${colorDetail}" data-orders="${b.orders.join(',')}">
                     <div class="supplier-item-header">
-                        <span class="supplier-item-quantity" style="background: ${color}; box-shadow: 0 2px 8px ${color}40;">x${item.count}</span>
-                        <div class="supplier-item-type" style="color: ${color}; text-shadow: 0 1px 4px ${color}40;">${item.ean || '-'}</div>
-                        <div class="supplier-item-ean" title="${ordersText}" style="cursor: ${ordersArray.length ? 'help' : 'default'}; position: relative;">
-                            ${ordersArray.length ? `<span class="orders-badge" style="margin-left:6px; background: rgba(52,152,219,0.3); color:#3498db; font-size:0.7em; padding:2px 5px; border-radius:4px; font-weight:600;">${ordersArray.map(o => '#' + o).join(' ')}</span>` : ''}
-                        </div>
-                    </div>
-                    <div class="supplier-item-name" style="color: rgba(255,255,255,0.95); font-size:0.9em; font-weight:500; line-height:1.4; width:100%; margin-top:4px;">${displayName}${supLabel}</div>
-                </div>`;
+                        <span class="supplier-item-quantity" style="background: ${color}; box-shadow: 0 2px 8px ${color}40;">x${b.total}</span>
+                        <div class="supplier-item-name" style="color: rgba(255,255,255,0.97); font-size:0.98em; font-weight:600; flex:1; margin-left:8px;">${b.base}</div>
+                    </div>`;
+
+                if (hasColors) {
+                    // sotto-righe per colore
+                    const order = ['WHITE', 'BLACK', 'NEUTRO'];
+                    const sortedVars = variantKeys.sort((x, y) => order.indexOf(x) - order.indexOf(y));
+                    html += `<div style="margin-top:6px; padding-left:6px; display:flex; flex-direction:column; gap:4px;">`;
+                    for (const vk of sortedVars) {
+                        const v = b.variants[vk];
+                        const isW = v.color === 'WHITE';
+                        const isB = v.color === 'BLACK';
+                        const dot = isW ? '#f5f5f5' : isB ? '#222' : '#888';
+                        const label = isW ? 'WHITE' : isB ? 'BLACK' : 'Senza colore';
+                        const border = isW ? 'border:1px solid #bbb;' : '';
+                        html += `
+                        <div style="display:flex; align-items:center; gap:8px; font-size:0.85em;">
+                            <span style="width:14px; height:14px; border-radius:50%; background:${dot}; ${border} display:inline-block; flex-shrink:0;"></span>
+                            <span style="color:rgba(255,255,255,0.85); min-width:90px;">${label}</span>
+                            <span style="font-weight:700; color:${color};">x${v.count}</span>
+                        </div>`;
+                    }
+                    html += `</div>`;
+                }
+                html += `</div>`;
             }
 
             html += `
@@ -145,7 +249,7 @@
                 const items = card.querySelectorAll('.supplier-item');
                 let txt = '';
                 items.forEach(it => {
-                    txt += `x${it.dataset.quantity} | ${it.dataset.ean} - ${it.dataset.name}\n`;
+                    txt += `x${it.dataset.quantity} | ${it.dataset.name}${it.dataset.colors ? ' (' + it.dataset.colors + ')' : ''}\n`;
                 });
                 navigator.clipboard.writeText(txt.trim())
                     .then(() => window.showNotification && window.showNotification('✅ Dati copiati in clipboard'))
@@ -154,40 +258,14 @@
         });
     }
 
-    // Inserisce il toggle "Per fornitore / Per categoria" sopra la griglia
+    // Toggle rimosso: ora la vista è SEMPRE per categoria (il fornitore non serve).
     function ensureToggle() {
-        if (document.getElementById('summary-view-toggle')) return;
-        const grid = document.getElementById('suppliers-grid');
-        if (!grid) return;
-
-        const wrap = document.createElement('div');
-        wrap.id = 'summary-view-toggle';
-        wrap.style.cssText = 'display:flex; gap:8px; justify-content:center; margin:0 0 16px 0;';
-
-        const mkBtn = (label, mode) => {
-            const b = document.createElement('button');
-            b.textContent = label;
-            b.dataset.mode = mode;
-            b.style.cssText = 'padding:8px 18px; border-radius:8px; border:1px solid rgba(255,255,255,0.3); background:rgba(255,255,255,0.12); color:white; cursor:pointer; font-weight:600; font-size:0.9em; transition:all 0.2s ease;';
-            b.addEventListener('click', () => setView(mode));
-            return b;
-        };
-
-        wrap.appendChild(mkBtn('Per fornitore', 'supplier'));
-        wrap.appendChild(mkBtn('Per categoria', 'category'));
-        grid.parentNode.insertBefore(wrap, grid);
-        highlight('supplier');
+        // non crea più bottoni; se ne esiste uno vecchio nel DOM, lo rimuovo
+        const old = document.getElementById('summary-view-toggle');
+        if (old) old.remove();
     }
 
-    function highlight(mode) {
-        const wrap = document.getElementById('summary-view-toggle');
-        if (!wrap) return;
-        wrap.querySelectorAll('button').forEach(b => {
-            const active = b.dataset.mode === mode;
-            b.style.background = active ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.12)';
-            b.style.boxShadow = active ? '0 2px 10px rgba(255,255,255,0.25)' : 'none';
-        });
-    }
+    function highlight(mode) { /* no-op: toggle rimosso */ }
 
     // snapshot dell'HTML "per fornitore" cosi' posso ripristinarlo senza ricalcolare
     function snapshotSupplierHTML() {
@@ -241,14 +319,11 @@
         const obs = new MutationObserver(() => {
             if (window.__catRendering) return; // ignoro le mie stesse modifiche
             ensureToggle();
-            if (window.__summaryView === 'category' && window.currentSupplierData) {
+            // vista SEMPRE per categoria
+            if (window.currentSupplierData) {
                 window.__catRendering = true;
                 renderByCategory(window.currentSupplierData);
-                highlight('category');
                 setTimeout(() => { window.__catRendering = false; }, 50);
-            } else {
-                snapshotSupplierHTML();
-                highlight('supplier');
             }
         });
         obs.observe(grid, { childList: true });
@@ -256,8 +331,14 @@
 
     function boot() {
         ensureToggle();
-        snapshotSupplierHTML();
+        window.__summaryView = 'category';
         watchGrid();
+        // primo render se i dati ci sono già
+        if (window.currentSupplierData) {
+            window.__catRendering = true;
+            renderByCategory(window.currentSupplierData);
+            setTimeout(() => { window.__catRendering = false; }, 50);
+        }
     }
 
     if (document.readyState === 'loading') {

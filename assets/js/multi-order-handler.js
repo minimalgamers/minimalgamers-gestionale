@@ -639,10 +639,20 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
 
         // v34: conversione PSU -> Deepcool (ABACO) anche negli ordini sdoppiati
         try {
+            if (typeof window.applySinnerGpuPsuRule === 'function') {
+                window.applySinnerGpuPsuRule(finalComponents, config.configKey);
+            }
+        } catch (e) { console.warn('SINNER-GPU v35 split fail:', e); }
+        try {
             if (typeof window.applyDeepcoolPsuMapping === 'function') {
                 window.applyDeepcoolPsuMapping(finalComponents, config.configKey);
             }
         } catch (e) { console.warn('PSU-DEEPCOOL v34 split fail:', e); }
+        try {
+            if (typeof window.applyComponentNormalization === 'function') {
+                window.applyComponentNormalization(finalComponents, config.configKey, targetPcItem, fullOrder);
+            }
+        } catch (e) { console.warn('NORM v35 split fail:', e); }
 
         if (kitUnits.length > 0) {
             applyKitGamingToComponents(finalComponents, kitUnits[0], kitUnits.length);
@@ -891,10 +901,20 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
 
             // v34: conversione PSU -> Deepcool (ABACO) per ogni PC sdoppiato
             try {
+                if (typeof window.applySinnerGpuPsuRule === 'function') {
+                    window.applySinnerGpuPsuRule(finalComponents, config.configKey);
+                }
+            } catch (e) { console.warn('SINNER-GPU v35 split-multi fail:', e); }
+            try {
                 if (typeof window.applyDeepcoolPsuMapping === 'function') {
                     window.applyDeepcoolPsuMapping(finalComponents, config.configKey);
                 }
             } catch (e) { console.warn('PSU-DEEPCOOL v34 split-multi fail:', e); }
+            try {
+                if (typeof window.applyComponentNormalization === 'function') {
+                    window.applyComponentNormalization(finalComponents, config.configKey, pcItem, fullOrder);
+                }
+            } catch (e) { console.warn('NORM v35 split-multi fail:', e); }
 
             const kitForCurrentPc = kitUnits[pcIndex] || null;
             if (kitForCurrentPc) {

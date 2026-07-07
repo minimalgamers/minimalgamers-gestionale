@@ -75,6 +75,141 @@ window.applyDeepcoolPsuMapping = function(finalComponents, configKey) {
 };
 console.log('✅ PSU Deepcool v34 registrato');
 
+/* =========================================================================
+   NORMALIZZAZIONE COMPONENTI v35
+   -------------------------------------------------------------------------
+   1) RAM  -> dual channel + frequenza uniformata (DDR5 sempre 6000MHz)
+   2) MOBO -> le 3 basiche multi-brand diventano B650/B550/B760;
+              ASUS ROG STRIX B850-G Gaming -> ASUS ROG STRIX B850;
+              + etichetta colore uniformata al case
+   3) GPU  -> etichetta colore uniformata al case
+   Build il cui nome contiene CUSTOM: non vengono toccate.
+   ========================================================================= */
+
+// Colore case: 'WHITE' / 'BLACK' / ''
+function detectCaseColorFromContext(finalComponents, pcItem, fullOrder) {
+    const scan = (s) => {
+        const u = String(s || '').toUpperCase();
+        if (/\bWHITE\b|\bBIANCO\b/.test(u)) return 'WHITE';
+        if (/\bBLACK\b|\bNERO\b/.test(u)) return 'BLACK';
+        return '';
+    };
+    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
+    let c = scan(props.CASE || props.case || '');
+    if (c) return c;
+    const caseComp = (finalComponents || []).find(x => String(x.type || '').toUpperCase() === 'CASE');
+    if (caseComp) { c = scan(caseComp.value); if (c) return c; }
+    if (Array.isArray(fullOrder?.line_items)) {
+        const li = fullOrder.line_items.find(it => /^CASE\s*-/i.test(it?.name || ''));
+        if (li) { c = scan(li.name); if (c) return c; }
+    }
+    return '';
+}
+
+// RAM: 16GB/32GB -> dual channel, DDR5 sempre 6000MHz, DDR4 3600MHz
+function normalizeRamName(value) {
+    const v = String(value || '');
+    const isize = v.match(/\b(16|32|64|128)\s*GB\b/i);
+    if (!isize) return value;
+    const size = isize[1];
+    const isDDR5 = /DDR5/i.test(v);
+    const isDDR4 = /DDR4/i.test(v);
+    if (!isDDR4 && !isDDR5) return value;
+    const kit = size === '16' ? '(2x8)' : size === '32' ? '(2x16)' : size === '64' ? '(2x32)' : '(2x64)';
+    if (isDDR5) return `${size}GB ${kit} DDR5 6000MHz`;
+    return `${size}GB ${kit} DDR4 3600MHz`;
+}
+
+// MOBO: basiche generiche + pulizia ROG + specifiche invariate
+function normalizeMoboName(value) {
+    const v = String(value || '');
+    const u = v.toUpperCase();
+    if (/B650\s*GAMING\s*X/.test(u) || /ASROCK\s*B650M-H/.test(u)) return 'B650';
+    if (/B550\s*GAMING/.test(u) || /ASROCK\s*B550M-HDV/.test(u)) return 'B550';
+    if (/B760\s*GAMING\s*X/.test(u) || /ASROCK\s*B760M-HDV/.test(u)) return 'B760';
+    if (/ASUS\s*ROG\s*STRIX\s*B850/.test(u)) return 'ASUS ROG STRIX B850';
+    return value;
+}
+
+// Etichetta colore al nome (se non già presente)
+function appendColorLabel(value, color) {
+    if (!color) return value;
+    const v = String(value || '');
+    if (/\bWHITE\b|\bBLACK\b|\bBIANCO\b|\bNERO\b/i.test(v)) return v;
+    return `${v} ${color}`;
+}
+
+window.applyComponentNormalization = function(finalComponents, configKey, pcItem, fullOrder) {
+    if (!Array.isArray(finalComponents)) return;
+    if (/CUSTOM/i.test(String(configKey || ''))) {
+        console.log(`⏭️ [NORM v35] "${configKey}" è CUSTOM → nessuna normalizzazione`);
+        return;
+    }
+    // FASE 1: qui i componenti hanno il valore RAM già leggibile, ma MOBO/GPU
+    // sono ancora EAN grezzi (il nome si risolve dopo, in visualizzazione).
+    // Quindi qui normalizzo SOLO la RAM. MOBO generiche + colore GPU/MOBO
+    // vengono applicati in fase di risoluzione nome (vedi normalizeDisplayName).
+    for (const comp of finalComponents) {
+        const type = String(comp.type || '').toUpperCase();
+        if (type === 'RAM') {
+            const nn = normalizeRamName(comp.value);
+            if (nn !== comp.value) { console.log(`🧬 [RAM v35] "${comp.value}" → "${nn}"`); comp.value = nn; }
+        }
+    }
+};
+console.log('✅ Normalizzazione componenti v35 registrata');
+
+/* =========================================================================
+   SINNER + GPU ALTA -> PSU GOLD  (v35)
+   -------------------------------------------------------------------------
+   Il SINNER di default monta 9060XT -> PSU TACENS (poi PF-600X BRONZE).
+   Se il cliente fa upgrade a una GPU alta (5070/5070Ti/5080/5090/9070XT),
+   il PSU deve diventare "80+ GOLD 850W" (poi PN850-D V2 GOLD).
+   Riconosce la GPU alta sia dal testo sia dall'EAN (le GPU arrivano spesso
+   come codice, es. 9070XT = 90-GA5DZZ, che il testo non conterrebbe).
+   Gira PRIMA di applyDeepcoolPsuMapping.
+   ========================================================================= */
+window.SINNER_HIGH_GPU_EANS = new Set([
+    '90-GA5DZZ-00UANF',      // RX 9070XT ASRock Steel Legend
+    'VCG507012TFXPB1',       // RTX 5070 PNY
+    'N50803-16D7X-17603930', // RTX 5080 Inno3D
+    'NE7507T019T2-GB2031U',  // RTX 5070Ti Palit
+    'GV-N507TWF3OC-16GD',    // RTX 5070Ti Gigabyte
+]);
+
+function isHighGpu(gpuValue) {
+    const v = String(gpuValue || '').toUpperCase();
+    // testuale
+    if (/5070|5080|5090|9070\s*XT/.test(v)) return true;
+    // per EAN (pulisco eventuale "(FORNITORE)")
+    const eanOnly = v.replace(/\s*\(.*?\)\s*$/, '').trim();
+    for (const e of window.SINNER_HIGH_GPU_EANS) {
+        if (eanOnly === String(e).toUpperCase()) return true;
+    }
+    return false;
+}
+
+window.applySinnerGpuPsuRule = function(finalComponents, configKey) {
+    if (!Array.isArray(finalComponents)) return;
+    if (!/SINNER/i.test(String(configKey || ''))) return;
+    const gpu = finalComponents.find(c => String(c.type || '').toUpperCase() === 'GPU');
+    if (!gpu) return;
+    if (!isHighGpu(gpu.value)) return; // 9060XT o altro basso -> resta come da config (BRONZE)
+    const psuIdx = finalComponents.findIndex(c => {
+        const t = String(c.type || '').toUpperCase();
+        return t === 'PSU' || t === 'ALIMENTATORE';
+    });
+    const newValue = '80+ GOLD 850W';
+    if (psuIdx === -1) {
+        finalComponents.push({ type: 'PSU', value: newValue, supplier: 'ALTRO' });
+    } else {
+        console.log(`⚡ [SINNER-GPU v35] GPU alta rilevata → PSU: "${finalComponents[psuIdx].value}" → "${newValue}"`);
+        finalComponents[psuIdx].value = newValue;
+        finalComponents[psuIdx].supplier = 'ALTRO';
+    }
+};
+console.log('✅ SINNER-GPU PSU v35 registrato');
+
 
 // v21: deriva una label leggibile per il MONITOR a partire dal line_item Shopify.
 // Priorità in cascata:
@@ -4837,11 +4972,25 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                 // Gira DOPO tutte le regole e la risoluzione varianti, così il
                 // valore vecchio (TACENS / 80+ GOLD 850W) è già stato deciso.
                 try {
+                    if (typeof window.applySinnerGpuPsuRule === 'function') {
+                        window.applySinnerGpuPsuRule(finalComponents, config.configKey);
+                    }
+                } catch (e) {
+                    console.warn('SINNER-GPU-PSU v35 fallito (non bloccante):', e);
+                }
+                try {
                     if (typeof window.applyDeepcoolPsuMapping === 'function') {
                         window.applyDeepcoolPsuMapping(finalComponents, config.configKey);
                     }
                 } catch (e) {
                     console.warn('PSU-DEEPCOOL v34 fallito (non bloccante):', e);
+                }
+                try {
+                    if (typeof window.applyComponentNormalization === 'function') {
+                        window.applyComponentNormalization(finalComponents, config.configKey, pcItem, fullOrder);
+                    }
+                } catch (e) {
+                    console.warn('NORM v35 fallito (non bloccante):', e);
                 }
 
                 const kitUnits = [];

@@ -265,10 +265,18 @@ console.log('✅ SINNER-GPU PSU v35 registrato');
     function genericMobo(name) {
         const s = String(name || '');
         const u = s.toUpperCase();
-        if (/B650\s*GAMING\s*X/.test(u) || /ASROCK\s*B650M-H/.test(u)) return 'B650';
-        if (/B550\s*GAMING/.test(u) || /ASROCK\s*B550M-HDV/.test(u)) return 'B550';
-        if (/B760\s*GAMING\s*X/.test(u) || /ASROCK\s*B760M-HDV/.test(u)) return 'B760';
-        if (/ASUS\s*ROG\s*STRIX\s*B850/.test(u)) return 'ASUS ROG STRIX B850';
+        // basiche B650: ASRock B650M-H, Gigabyte GA-B650M, MSI B650M, "B650 GAMING X"
+        if (/B650\s*GAMING\s*X/.test(u) || /ASROCK\s*B650M-H/.test(u) || /GA-B650M/.test(u) ||
+            /GIGABYTE\s+.*B650M/.test(u) || /MSI\s+.*B650M/.test(u) || /\bB650M\b/.test(u) && !/TOMAHAWK|ROG|STRIX|TUF|AORUS/.test(u)) return 'B650';
+        // basiche B550
+        if (/B550\s*GAMING/.test(u) || /ASROCK\s*B550M-HDV/.test(u) || /GA-B550M/.test(u) ||
+            (/\bB550M\b/.test(u) && !/TOMAHAWK|ROG|STRIX|TUF|AORUS/.test(u))) return 'B550';
+        // basiche B760
+        if (/B760\s*GAMING\s*X/.test(u) || /ASROCK\s*B760M-HDV/.test(u) || /GA-B760M/.test(u) ||
+            (/\bB760M\b/.test(u) && !/TOMAHAWK|ROG|STRIX|TUF|AORUS/.test(u))) return 'B760';
+        // ASUS ROG STRIX B550/B650/B850 con qualsiasi suffisso (-A Gaming, -G Gaming, ecc.)
+        let m = u.match(/ASUS\s*ROG\s*STRIX\s*(B\d{3})/);
+        if (m) return `ASUS ROG STRIX ${m[1]}`;
         return s;
     }
 

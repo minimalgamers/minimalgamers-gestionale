@@ -43,6 +43,12 @@
         'GELI-975': 'BLACK', // Lian Li Vector V100 Black
         'GELI-976': 'WHITE'  // Lian Li Vector V100 White
     };
+    const CASE_EAN_NAME = {
+        'GEHY-037': 'HYTE Y70 Touch Infinite - Pitch Black',
+        'GEHY-034': 'HYTE Y70 Touch Infinite - Snow White',
+        'GELI-975': 'Lian Li Vector V100 Black',
+        'GELI-976': 'Lian Li Vector V100 White'
+    };
 
     // Mappa orderId -> colore del case, letta direttamente dai display CASE nel DOM.
     // Indipendente dal timing di normalizzazione delle card.
@@ -64,10 +70,10 @@
         const norm = (typeof window.normalizeDisplayName === 'function') ? window.normalizeDisplayName : null;
         const caseColorMap = buildCaseColorMap();
 
-        // 1) GPU/MOBO: li leggo direttamente dal DOM, con il colore del case del
-        //    rispettivo ordine (robusto: non dipende dai nomi già normalizzati).
-        const genericFromDom = { GPU: true, MOBO: true };
-        const domHandled = { GPU: 0, MOBO: 0 };
+        // 1) GPU/MOBO/KIT: li leggo direttamente dal DOM, con il colore del case
+        //    del rispettivo ordine.
+        const genericFromDom = { GPU: true, MOBO: true, 'KIT GAMING': true };
+        const domHandled = { GPU: 0, MOBO: 0, 'KIT GAMING': 0 };
         document.querySelectorAll('.component-name-display').forEach(d => {
             const type = String(d.dataset.componentType || '').toUpperCase();
             if (!genericFromDom[type]) return;
@@ -78,6 +84,10 @@
             const caseColor = caseColorMap[oid] || '';
             // normalizzo (generico) + applico il colore del case
             if (norm) name = norm(type, name, caseColor);
+            // KIT GAMING: normalizeDisplayName non lo tocca, aggiungo io il colore
+            if (type === 'KIT GAMING' && caseColor && !/\b(WHITE|BLACK|BIANCO|NERO)\b/i.test(name)) {
+                name = `${name} ${caseColor}`;
+            }
             const key = `${type}|${String(name).trim().toUpperCase()}`;
             if (!byType[type]) byType[type] = {};
             if (!byType[type][key]) {
@@ -97,6 +107,11 @@
                 if (genericFromDom[type] && domHandled[type] > 0) continue;
                 const ean = item.ean || '';
                 let name = item.name || '';
+                // CASE con EAN alfanumerico non risolto (GEHY-037 ecc.) -> nome leggibile
+                if (type === 'CASE') {
+                    const nm = CASE_EAN_NAME[String(name).toUpperCase()] || CASE_EAN_NAME[String(ean).toUpperCase()];
+                    if (nm) name = nm;
+                }
                 const isGeneric = (type === 'GPU' || type === 'SSD' || type === 'MOBO' || type === 'RAM');
                 if (norm && isGeneric) {
                     const looksRaw = /GEFORCE|RADEON|CRUCIAL|ASROCK|GIGABYTE|PALIT|PNY|INNO3D|POWERCOLOR|MSI |ASUS /i.test(name);

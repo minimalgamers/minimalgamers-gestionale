@@ -4216,9 +4216,25 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
                         display.textContent = nomeProdotto;
                         display.title = `EAN: ${displayEan}`;
                     } else {
-                        
-                        display.textContent = displayEan;
-                        display.title = `EAN: ${displayEan}\n(Prodotto non trovato)`;
+                        let risolto = false;
+                        try {
+                            const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
+                            const SB_KEY = window.SUPABASE_KEY || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
+                            const mapRes = await fetch(`${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(lookupEan)}&select=component_name&limit=1`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+                            if (mapRes.ok) {
+                                const rows = await mapRes.json();
+                                const row = Array.isArray(rows) ? rows.find(x => x && x.component_name) : null;
+                                if (row && row.component_name) {
+                                    display.textContent = row.component_name;
+                                    display.title = `EAN: ${displayEan}`;
+                                    risolto = true;
+                                }
+                            }
+                        } catch (e2) {}
+                        if (!risolto) {
+                            display.textContent = displayEan;
+                            display.title = `EAN: ${displayEan}`;
+                        }
                     }
                 } catch (e) {
                     display.textContent = displayEan;

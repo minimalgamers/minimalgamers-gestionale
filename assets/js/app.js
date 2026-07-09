@@ -90,15 +90,22 @@ console.log('✅ PSU Deepcool v34 registrato');
 function detectCaseColorFromContext(finalComponents, pcItem, fullOrder) {
     const scan = (s) => {
         const u = String(s || '').toUpperCase();
-        if (/\bWHITE\b|\bBIANCO\b/.test(u)) return 'WHITE';
-        if (/\bBLACK\b|\bNERO\b/.test(u)) return 'BLACK';
+        if (/\bWHITE\b|\bBIANCO\b|\bBIANCA\b|SNOW/.test(u)) return 'WHITE';
+        if (/\bBLACK\b|\bNERO\b|\bNERA\b|PITCH/.test(u)) return 'BLACK';
         return '';
     };
+    // case con EAN alfanumerico noti (HYTE/GELI)
+    const CASE_EAN_COLOR = { 'GEHY-037':'BLACK','GEHY-034':'WHITE','GELI-975':'BLACK','GELI-976':'WHITE' };
     const props = pcItem?.custom_properties || pcItem?.customProperties || {};
     let c = scan(props.CASE || props.case || '');
     if (c) return c;
     const caseComp = (finalComponents || []).find(x => String(x.type || '').toUpperCase() === 'CASE');
-    if (caseComp) { c = scan(caseComp.value); if (c) return c; }
+    if (caseComp) {
+        c = scan(caseComp.value);
+        if (c) return c;
+        const byEan = CASE_EAN_COLOR[String(caseComp.value || '').toUpperCase().trim()];
+        if (byEan) return byEan;
+    }
     if (Array.isArray(fullOrder?.line_items)) {
         const li = fullOrder.line_items.find(it => /^CASE\s*-/i.test(it?.name || ''));
         if (li) { c = scan(li.name); if (c) return c; }
@@ -154,6 +161,20 @@ window.applyComponentNormalization = function(finalComponents, configKey, pcItem
         if (type === 'RAM') {
             const nn = normalizeRamName(comp.value);
             if (nn !== comp.value) { console.log(`🧬 [RAM v35] "${comp.value}" → "${nn}"`); comp.value = nn; }
+        }
+    }
+
+    // KIT GAMING: allineo SEMPRE il colore al case (anche nei bundle).
+    // Il valore del KIT è già leggibile qui, quindi lo salvo già giusto.
+    const caseColor = detectCaseColorFromContext(finalComponents, pcItem, fullOrder);
+    if (caseColor) {
+        const kit = finalComponents.find(c => String(c.type || '').toUpperCase() === 'KIT GAMING');
+        if (kit) {
+            const newVal = `KIT GAMING ${caseColor}`;
+            if (String(kit.value || '').toUpperCase() !== newVal.toUpperCase()) {
+                console.log(`🎨 [KIT v35] "${kit.value}" → "${newVal}" (colore dal case)`);
+                kit.value = newVal;
+            }
         }
     }
 };
@@ -3118,14 +3139,20 @@ function splitRAMandSSD(value) {
     
     
     const hasRAM = upperValue.includes('DDR') || upperValue.match(/\d+GB\s*(DDR|RAM)/i);
-    const hasSSD = upperValue.includes('SSD') || upperValue.includes('M.2') || upperValue.includes('NVME') || upperValue.includes('TB') || upperValue.includes('SATA');
+    const hasSSD = upperValue.includes('SSD') || upperValue.includes('M.2') || upperValue.includes('M2') || upperValue.includes('NVME') || upperValue.includes('TB') || upperValue.includes('SATA');
     
     if (!hasRAM || !hasSSD) {
         return { ram: null, ssd: null, original: value };
     }
     
-    
-    const parts = value.split(/\s*\+\s*/);
+    // separatore: sia "+" che "-" (le varianti usano entrambi, es.
+    // "16GB DDR5 + 500GB M2" e "32GB RAM DDR4 - 1000GB M.2")
+    let parts = value.split(/\s*\+\s*/);
+    if (parts.length !== 2) {
+        // provo col trattino (solo il primo, per non spezzare "M.2")
+        const m = value.match(/^(.*?(?:DDR\d|RAM).*?)\s*[-‐‑‒–—―]\s*(.*(?:TB|GB|M\.?2|SSD|NVME).*)$/i);
+        if (m) parts = [m[1], m[2]];
+    }
     
     if (parts.length !== 2) {
         return { ram: null, ssd: null, original: value };
@@ -3143,13 +3170,15 @@ function splitRAMandSSD(value) {
             if (!ramPart.includes('(')) {
                 ramPart = `${ramPart} (AMAZON)`;
             }
-        } else if (upperPart.includes('TB') || upperPart.includes('M.2') || upperPart.includes('SSD') || upperPart.includes('NVME')) {
+        } else if (upperPart.includes('TB') || upperPart.includes('M.2') || upperPart.includes('M2') || upperPart.includes('SSD') || upperPart.includes('NVME')) {
             ssdPart = part.trim();
             
             
-            if (upperPart.includes('1TB') || upperPart.includes('1 TB')) {
+            if (upperPart.includes('2TB') || upperPart.includes('2 TB') || upperPart.includes('2000GB') || upperPart.includes('2000 GB')) {
+                ssdPart = 'SSD 2TB NVMe'; // variante non ancora a catalogo: nome diretto senza ean
+            } else if (upperPart.includes('1TB') || upperPart.includes('1 TB') || upperPart.includes('1000GB') || upperPart.includes('1000 GB')) {
                 ssdPart = '3076 (TIER ONE)';
-            } else if (upperPart.includes('500GB') || upperPart.includes('500 GB')) {
+            } else if (upperPart.includes('500GB') || upperPart.includes('500 GB') || upperPart.includes('480GB') || upperPart.includes('480 GB')) {
                 ssdPart = '6082 (TIER ONE)';
             } else {
                 

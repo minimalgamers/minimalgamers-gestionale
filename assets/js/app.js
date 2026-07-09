@@ -1113,6 +1113,40 @@ function isOrderProcessed(orderId, processedOrderIds) {
 async function saveProcessedOrderToDB(shopifyOrderId, orderData) {
     try {
         const foglioDiLavoro = Math.min(4, Math.max(1, parseInt(orderData.foglioDiLavoro, 10) || 1));
+
+        // v36: riallineo SEMPRE il colore del KIT GAMING al case, come ultimo
+        // step prima di salvare. Copre tutti i percorsi (config normali, bundle,
+        // manuali) indipendentemente dall'ordine in cui i componenti sono stati
+        // aggiunti. Il case qui è già risolto (CASE ATX/NOUA VITRA + colore).
+        try {
+            const comps = orderData.components || [];
+            const caseComp = comps.find(c => String(c.component_type || c.type || '').toUpperCase() === 'CASE');
+            const CASE_EAN_COLOR = { 'GEHY-037':'BLACK','GEHY-034':'WHITE','GELI-975':'BLACK','GELI-976':'WHITE' };
+            const readColor = (s) => {
+                const u = String(s || '').toUpperCase();
+                if (/\bWHITE\b|\bBIANC|SNOW/.test(u)) return 'WHITE';
+                if (/\bBLACK\b|\bNER|PITCH/.test(u)) return 'BLACK';
+                return '';
+            };
+            if (caseComp) {
+                const cv = caseComp.ean || caseComp.value || caseComp.product_name || '';
+                const caseColor = readColor(cv) || CASE_EAN_COLOR[String(cv).toUpperCase().trim()] || '';
+                if (caseColor) {
+                    const kit = comps.find(c => String(c.component_type || c.type || '').toUpperCase() === 'KIT GAMING');
+                    if (kit) {
+                        const newVal = `KIT GAMING ${caseColor}`;
+                        const cur = kit.ean || kit.value || kit.product_name || '';
+                        if (String(cur).toUpperCase() !== newVal.toUpperCase()) {
+                            console.log(`🎨 [KIT-SAVE v36] "${cur}" → "${newVal}" (colore dal case)`);
+                            if ('ean' in kit) kit.ean = newVal;
+                            if ('value' in kit) kit.value = newVal;
+                            if ('product_name' in kit) kit.product_name = newVal;
+                        }
+                    }
+                }
+            }
+        } catch (eKit) { console.warn('KIT-SAVE v36 non bloccante:', eKit); }
+
         const response = await fetch(PROCESSED_ORDERS_API_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

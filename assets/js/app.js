@@ -399,39 +399,67 @@ function getMonitorDisplayValue(monitorItem) {
     return 'Generico (AMAZON)';
 }
 
-// v27: per 4 config specifiche (STRIKE, VEGA, VORTEX, bundle RTX 3050 [PC+MONITOR+KIT]),
-// se il cliente sceglie il MINIMAL CASE (WHITE o BLACK), sostituisco il CASE con NOUA VITRA.
-// Le altre config NON vengono toccate.
-const VITRA_TARGET_CONFIGS = new Set([
-    'PC GAMING VORTEX',
-    'PC GAMING STRIKE',
-    'PC GAMING VEGA',
-    '[PC+MONITOR+KIT]', // config #25 = bundle RTX 3050
+// ============================================================================
+// REGOLE CASE v36 — logica unica e completa
+// ----------------------------------------------------------------------------
+// Scatta SOLO se il cliente sceglie MINIMAL CASE. Colore dalla scelta.
+//   - Config TOP                -> CASE ATX (sempre)
+//   - Config ECONOMICHE         -> NOUA VITRA se mobo basica, CASE ATX se maggiorata
+//   - Bundle [PC+MONITOR+KIT]   -> come economiche (tranne quello RTX 5070 = TOP)
+//   - Config non classificate (MSI, CUSTOM) -> NON toccate
+// ============================================================================
+const CASE_TOP_CONFIGS = new Set([
+    'PC GAMING BLACKNOVA', 'PC GAMING DOMINATOR V.1', 'PC GAMING DOMINATOR V.2',
+    'PC GAMING INFERNUS', 'PC GAMING NEMESIS', 'PC GAMING PERFY', 'PC GAMING PREDATOR',
+    'PC GAMING RAGNAROK', 'PC GAMING SINNER', 'PC GAMING STERMINATOR',
+    'PC GAMING TERMINATOR', 'PC GAMING TITAN', 'PC GAMING VANGUARD', 'PC GAMING ZEUS',
+    '[PC+MONITOR+KIT] PC GAMING RTX 5070',
 ]);
+const CASE_ECONOMY_CONFIGS = new Set([
+    'PC GAMING CRIMSON', 'PC GAMING HECTORE', 'PC GAMING HELLFIRE', 'PC GAMING HELLSTORM',
+    'PC GAMING MADAME', 'PC GAMING REX', 'PC GAMING STREAM', 'PC GAMING STRIKE',
+    'PC GAMING VEGA', 'PC GAMING VORTEX',
+    '[PC+MONITOR+KIT]', '[PC+MONITOR+KIT] PC GAMING', '[PC+MONITOR+KIT] PC GAMING ARC A770',
+]);
+
+// mobo "maggiorata" (fa scattare CASE ATX sulle economiche)
+function isUpgradedMobo(moboChoice) {
+    const u = String(moboChoice || '').toUpperCase();
+    return /B850\s*TOMAHAWK/.test(u) || /ROG\s*STRIX\s*B850/.test(u) || /X870/.test(u) ||
+           /TOMAHAWK/.test(u) || /Z790/.test(u);
+}
 
 function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
     if (!Array.isArray(finalComponents) || !configKey) return;
-    if (!VITRA_TARGET_CONFIGS.has(configKey)) return;
-    
-    // Leggo la scelta CASE del cliente dalle Shopify custom_properties
+    if (/CUSTOM/i.test(configKey)) return; // CUSTOM: mai toccare
+
+    const isTop = CASE_TOP_CONFIGS.has(configKey);
+    const isEco = CASE_ECONOMY_CONFIGS.has(configKey);
+    if (!isTop && !isEco) return; // config non classificata (es. MSI) -> non tocco
+
     const props = pcItem?.custom_properties || pcItem?.customProperties || {};
     const caseChoice = String(props.CASE || props.case || '').toUpperCase();
-    
-    // Override scatta SOLO se il cliente ha scelto MINIMAL CASE (qualsiasi colore)
-    if (!/MINIMAL\s*CASE/i.test(caseChoice)) return;
-    
-    let newCase = null;
-    if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'NOUA VITRA WHITE';
-    else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'NOUA VITRA BLACK';
-    if (!newCase) return;
-    
+    if (!/MINIMAL\s*CASE/i.test(caseChoice)) return; // solo se sceglie MINIMAL CASE
+
+    let color = '';
+    if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) color = 'WHITE';
+    else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) color = 'BLACK';
+    if (!color) return;
+
+    let target;
+    if (isTop) {
+        target = `CASE ATX ${color}`;
+    } else {
+        const moboChoice = props['SCHEDA MADRE'] || props.MOBO || props.mobo || '';
+        target = isUpgradedMobo(moboChoice) ? `CASE ATX ${color}` : `NOUA VITRA ${color}`;
+    }
+
     const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
     if (caseIdx === -1) return;
-    
     const oldValue = finalComponents[caseIdx].value;
-    console.log(`📦 [VITRA-OVERRIDE v27] config "${configKey}" + cliente sceglie "${caseChoice}" → CASE: "${oldValue}" → "${newCase}" (NOUA)`);
-    finalComponents[caseIdx].value = newCase;
-    finalComponents[caseIdx].supplier = 'NOUA';
+    console.log(`📦 [CASE v36] "${configKey}" (${isTop ? 'TOP' : 'ECO'}) + "${caseChoice}" → "${oldValue}" → "${target}"`);
+    finalComponents[caseIdx].value = target;
+    finalComponents[caseIdx].supplier = target.startsWith('NOUA') ? 'NOUA' : 'ALTRO';
 }
 
 // v29/v32: regole MOBO → PSU. Dichiarato su window per garantire la registrazione.
@@ -485,22 +513,9 @@ window.applyMoboPsuRules = function(finalComponents, pcItem, fullOrder) {
             finalComponents[psuIdx].value = rule.psuValue;
             finalComponents[psuIdx].supplier = rule.psuSupplier;
         }
-        // 2) v32: se cliente sceglie MINIMAL CASE → forza CASE ATX (perché il VITRA è troppo piccolo per ATX)
-        const caseChoice = String(props.CASE || props.case || '').toUpperCase();
-        if (/MINIMAL\s*CASE/i.test(caseChoice)) {
-            let newCase = null;
-            if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'CASE ATX WHITE';
-            else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'CASE ATX BLACK';
-            if (newCase) {
-                const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
-                if (caseIdx !== -1) {
-                    const oldCase = finalComponents[caseIdx].value;
-                    console.log(`📦 [MOBO-CASE v32] MOBO "${moboValue}" + cliente sceglie "${caseChoice}" → CASE: "${oldCase}" → "${newCase}" (ALTRO)`);
-                    finalComponents[caseIdx].value = newCase;
-                    finalComponents[caseIdx].supplier = 'ALTRO';
-                }
-            }
-        }
+        // 2) CASE: ora gestito centralmente da applyVitraCaseOverride (CASE v36).
+        // Blocco disattivato per evitare doppie scritture in conflitto.
+        // (la logica mobo-maggiorata->ATX è dentro la funzione CASE v36)
         return;
     }
 };
@@ -548,21 +563,8 @@ window.applyConfigPsuOverride = function(finalComponents, configKey, pcItem) {
     // 2) v32: per le 10 GOLD, se cliente sceglie MINIMAL CASE → CASE ATX (premium build)
     if (pcItem) {
         const props = pcItem.custom_properties || pcItem.customProperties || {};
-        const caseChoice = String(props.CASE || props.case || '').toUpperCase();
-        if (/MINIMAL\s*CASE/i.test(caseChoice)) {
-            let newCase = null;
-            if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) newCase = 'CASE ATX WHITE';
-            else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) newCase = 'CASE ATX BLACK';
-            if (newCase) {
-                const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
-                if (caseIdx !== -1) {
-                    const oldCase = finalComponents[caseIdx].value;
-                    console.log(`📦 [CONFIG-CASE v32] config GOLD "${configKey}" + cliente sceglie "${caseChoice}" → CASE: "${oldCase}" → "${newCase}" (ALTRO)`);
-                    finalComponents[caseIdx].value = newCase;
-                    finalComponents[caseIdx].supplier = 'ALTRO';
-                }
-            }
-        }
+        // CASE: ora gestito centralmente da applyVitraCaseOverride (CASE v36).
+        // Blocco disattivato per evitare doppie scritture in conflitto.
     }
 };
 console.log('✅ applyConfigPsuOverride v32 registrata');

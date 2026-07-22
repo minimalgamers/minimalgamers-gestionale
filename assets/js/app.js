@@ -5348,13 +5348,21 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     if (caseColor) {
                         const coolerComp = finalComponents.find(c => String(c.type || '').toUpperCase() === 'COOLER');
                         if (coolerComp && coolerComp.value) {
-                            const isGenericDissipatore = /DISSIPATORE\s+240\s*MM\s+(NERO|BIANCO|BLACK|WHITE)/i.test(coolerComp.value);
-                            if (isGenericDissipatore) {
-                                const newValue = caseColor === 'WHITE' ? 'DISSIPATORE 240MM BIANCO' : 'DISSIPATORE 240MM NERO';
-                                if (coolerComp.value !== newValue) {
-                                    console.log(`🎨 [COOLER-COLOR-MATCH v19] Case ${caseColor} → COOLER: "${coolerComp.value}" → "${newValue}"`);
-                                    coolerComp.value = newValue;
-                                }
+                            const cv = String(coolerComp.value);
+                            const colorWord = caseColor === 'WHITE' ? 'BIANCO' : 'NERO';
+                            let newValue = null;
+                            // a) "DISSIPATORE 240MM NERO/BIANCO" (aria, generico)
+                            if (/DISSIPATORE\s+240\s*MM\s+(NERO|BIANCO|BLACK|WHITE)/i.test(cv)) {
+                                newValue = `DISSIPATORE 240MM ${colorWord}`;
+                            }
+                            // b) "DISSIPATORE (A) LIQUIDO 240mm" con o senza colore -> aggiungo/uniformo il colore
+                            else if (/DISSIPATORE\s+(A\s+)?LIQUIDO/i.test(cv)) {
+                                const base = cv.replace(/\s*\b(NERO|BIANCO|BLACK|WHITE)\b\s*/ig, ' ').replace(/\s+/g, ' ').trim();
+                                newValue = `${base} ${colorWord}`;
+                            }
+                            if (newValue && coolerComp.value !== newValue) {
+                                console.log(`🎨 [COOLER-COLOR-MATCH v20] Case ${caseColor} → COOLER: "${coolerComp.value}" → "${newValue}"`);
+                                coolerComp.value = newValue;
                             }
                         }
                     }

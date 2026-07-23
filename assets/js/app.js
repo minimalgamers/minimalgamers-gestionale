@@ -3601,14 +3601,11 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         
         const gpoMappableTypes = ['CPU', 'PSU', 'ALIMENTATORE', 'CASE', 'GPU', 'SCHEDA MADRE', 'SSD', 'SSD ADDON', 'RAM', 'COOLER', 'DISSIPATORE'];
         if (gpoMappableTypes.includes(gpoSearchType)) {
-            // v28/v32: se è già stato impostato il CASE da regole (NOUA VITRA o CASE ATX),
-            // NON sovrascrivere col gpoMatch (che rimetterebbe l'EAN del MINIMAL CASE standard).
-            if (gpoSearchType === 'CASE' && componentIndex !== -1) {
-                const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
-                    console.log(`🔒 [CASE-LOCK v32] CASE già impostato a "${currentCaseValue}" → skip gpoMatch`);
-                    continue;
-                }
+            // v37: la scelta del cliente vince SEMPRE, tranne "MINIMAL CASE" (in quel
+            // caso vale il case deciso dalla regola: NOUA VITRA / CASE ATX).
+            if (gpoSearchType === 'CASE' && /MINIMAL\s*CASE/i.test(String(value || ''))) {
+                console.log(`🔒 [CASE-RULE v37] "${value}" → mantengo il case da regola`);
+                continue;
             }
             // v29/v31: se v30/v31 hanno impostato il PSU per regola (TACENS 850W o 80+ GOLD 850W),
             // NON sovrascrivere col gpoMatch.
@@ -5118,13 +5115,13 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                         c.type.toUpperCase() === baseComponentType.toUpperCase()
                     );
 
-                    // v28/v32: se è già stato messo NOUA VITRA o CASE ATX da regole, non sovrascrivere
-                    if (gpoSearchType === 'CASE' && componentIndex !== -1) {
-                        const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                        if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
-                            console.log(`🔒 [CASE-LOCK v32] processOrder: CASE "${currentCaseValue}" preservato`);
-                            continue;
-                        }
+                    // v37: la scelta del cliente vince SEMPRE, tranne quando ha scelto
+                    // "MINIMAL CASE": in quel caso il case corretto (NOUA VITRA / CASE ATX)
+                    // è già stato deciso da applyVitraCaseOverride e la variante GPO
+                    // rimetterebbe il vecchio EAN Noua Vision. Solo allora la salto.
+                    if (gpoSearchType === 'CASE' && /MINIMAL\s*CASE/i.test(String(value || ''))) {
+                        console.log(`🔒 [CASE-RULE v37] "${value}" → mantengo il case da regola`);
+                        continue;
                     }
                     // v29/v31: se v30/v31 hanno messo TACENS 850W o 80+ GOLD 850W sul PSU, non sovrascrivere
                     if ((gpoSearchType === 'PSU' || gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {

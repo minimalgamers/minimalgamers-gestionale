@@ -567,13 +567,10 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 c.type.toUpperCase() === String(resolved.baseComponentType).toUpperCase()
             );
 
-            // v28/v32: preserva CASE NOUA VITRA o CASE ATX da regole
-            if (resolved.gpoSearchType === 'CASE' && componentIndex !== -1) {
-                const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
-                    console.log(`🔒 [CASE-LOCK v32] split: CASE "${currentCaseValue}" preservato`);
-                    continue;
-                }
+            // v37: la scelta del cliente vince, tranne "MINIMAL CASE" (vale la regola)
+            if (resolved.gpoSearchType === 'CASE' && /MINIMAL\s*CASE/i.test(String(value || ''))) {
+                console.log(`🔒 [CASE-RULE v37] split: "${value}" → mantengo case da regola`);
+                continue;
             }
             // v29/v31: preserva PSU TACENS 850W o 80+ GOLD 850W settato da regola
             if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {
@@ -829,13 +826,10 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     c.type.toUpperCase() === String(resolved.baseComponentType).toUpperCase()
                 );
 
-                // v28/v32: preserva CASE NOUA VITRA o CASE ATX da regole
-                if (resolved.gpoSearchType === 'CASE' && componentIndex !== -1) {
-                    const currentCaseValue = String(finalComponents[componentIndex].value || '');
-                    if (/NOUA\s*VITRA|CASE\s*ATX/i.test(currentCaseValue)) {
-                        console.log(`🔒 [CASE-LOCK v32] multiPC: CASE "${currentCaseValue}" preservato`);
-                        continue;
-                    }
+                // v37: la scelta del cliente vince, tranne "MINIMAL CASE" (vale la regola)
+                if (resolved.gpoSearchType === 'CASE' && /MINIMAL\s*CASE/i.test(String(value || ''))) {
+                    console.log(`🔒 [CASE-RULE v37] multiPC: "${value}" → mantengo case da regola`);
+                    continue;
                 }
                 // v29/v31: preserva PSU TACENS 850W o 80+ GOLD 850W settato da regola
                 if ((resolved.gpoSearchType === 'PSU' || resolved.gpoSearchType === 'ALIMENTATORE') && componentIndex !== -1) {

@@ -1,6 +1,19 @@
 // ============================================================
-// SUPABASE CONFIG v15 - Minimal Gamers Gestionale Ordini
+// SUPABASE CONFIG v16 - Minimal Gamers Gestionale Ordini
 // ============================================================
+// v16: tolte dal codice pubblico le credenziali Shopify e la password in
+//      chiaro. Questo repository e pubblico (serve GitHub Pages), quindi
+//      tutto quello che sta qui dentro e leggibile da chiunque:
+//      - SHOPIFY_ACCESS_TOKEN conteneva un token admin valido. Non era usato
+//        da nessuna parte (gli ordini passano dalla Edge Function
+//        shopify-proxy, che il token ce l'ha suo, lato server). Le costanti
+//        restano dichiarate e vuote per non rompere eventuali riferimenti.
+//      - verifyPassword accettava la password scritta in chiaro nel codice
+//        prima ancora di confrontare l'hash. Tolto: il confronto sull'hash
+//        da lo stesso risultato, senza pubblicare la password.
+//      ATTENZIONE: togliere una chiave da qui non la annulla. Il vecchio
+//      token e la vecchia password restano nella cronologia di git e vanno
+//      cambiati dal pannello Shopify e dal gestionale.
 // v15: fix URL troppo lungo in dbGetProcessedOrders.
 //      Con 400+ ordini, .in('order_id', orderIds) generava URL
 //      che PostgREST troncava silenziosamente → 0 components ritornati.
@@ -19,15 +32,24 @@
 // ============================================================
 
 const SUPABASE_URL = 'https://nulkachuhjdzohkzwvly.supabase.co';
+// Chiave "publishable": e fatta per stare nel browser, ma protegge i dati solo
+// se sulle tabelle sono attive le Row Level Security. Senza RLS chiunque legge
+// e scrive ordini, email e telefoni dei clienti con questa sola riga.
 const SUPABASE_KEY = 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
 
-// Password gestionale (SHA-256 di 'mini_mals22')
+// Password gestionale: qui resta solo l'impronta SHA-256, mai la password.
+// Questa impronta e comunque pubblica e la password era una parola corta: va
+// cambiata. Per sostituirla, calcola l'hash della nuova password e incolla
+// solo quello qui sotto.
 const ACCESS_PASSWORD_HASH = '703f23740c261e210b81117806ae3189856ab18163b38e7be4df8e9565b4742d';
 
-// Shopify (chiamata via Edge Function shopify-proxy)
+// Shopify: le chiamate passano dalla Edge Function shopify-proxy, che tiene le
+// proprie credenziali lato server. Queste costanti restano vuote apposta: se
+// un domani servisse una chiave, il posto giusto e la Edge Function, non un
+// file che il browser scarica in chiaro.
 const SHOPIFY_STORE = 'minimalgamers.myshopify.com';
-const SHOPIFY_ACCESS_TOKEN = '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';
-const SHOPIFY_API_KEY = '483112c3d1d5bd734b3c2f52b50cb5d6';
+const SHOPIFY_ACCESS_TOKEN = '';
+const SHOPIFY_API_KEY = '';
 const SHOPIFY_PROXY_URL = null;
 
 // ============================================================
@@ -57,7 +79,7 @@ let supabase = null;
 (async () => {
     const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
     supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    console.log('✅ Supabase DB pronto (v15)');
+    console.log('✅ Supabase DB pronto (v16)');
     window.SupabaseDB._ready = true;
     if (window.SupabaseDB._onReady) window.SupabaseDB._onReady();
 })();
@@ -66,7 +88,6 @@ let supabase = null;
 // AUTH
 // ============================================================
 async function verifyPassword(password) {
-    if (password === 'mini_mals22') return true;
     const encoder = new TextEncoder();
     const data = encoder.encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', data);

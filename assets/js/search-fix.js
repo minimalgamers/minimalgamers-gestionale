@@ -1,5 +1,5 @@
 // ============================================================
-// search-fix.js  (v4)
+// search-fix.js  (v5)
 // FIX ricerca componenti nel popup "Cerca Componente".
 // Avvolge window.fetch (DOPO api-adapter.js) e corregge gli URL
 // di ricerca al volo. Lavora SOLO su stringhe, come l'adapter,
@@ -13,6 +13,13 @@
 //     categoria=eq.XXX, escludendo articoli con categoria diversa dal
 //     tipo (es. "Dissipatore" vs "COOLER").
 //     -> Rimuove il filtro categoria da quella query.
+//
+// v5: carica anche configuratore-ordini.js, la sezione degli ordini del
+//     configuratore. Sta qui e non in index.html perche quel file e grosso e
+//     riscriverlo per intero per aggiungere una riga di <script> sarebbe un
+//     rischio sproporzionato. Se e possibile aggiungere quella riga a mano, il
+//     posto giusto e index.html insieme agli altri script, e questo blocco va
+//     tolto.
 // ============================================================
 (function () {
     if (window.__searchFixApplied) return;
@@ -22,6 +29,11 @@
 
     function fixUrl(url) {
         let u = String(url);
+
+        // La tabella del configuratore non c'entra con la ricerca componenti:
+        // le sue query non vanno toccate. In particolare non deve perdere
+        // niente dal select, che qui sotto verrebbe ripulito.
+        if (/configuratore_liste_fornitori/i.test(u)) return u;
 
         // (1) togli "fornitore" dal SELECT nelle query REST Supabase
         if (/\/rest\/v1\//i.test(u) && /fornitore/i.test(u)) {
@@ -56,5 +68,20 @@
         return _prevFetch(url, options);
     };
 
-    console.log('✅ search-fix.js attivo (v4 - no fornitore + custom items senza filtro categoria)');
+    // Carica la sezione degli ordini del configuratore. Se il file non c'e o
+    // non parte, il gestionale resta esattamente quello di prima: la sezione e
+    // aggiuntiva e non tocca niente di quello che gia funziona.
+    try {
+        const script = document.createElement('script');
+        script.src = 'assets/js/configuratore-ordini.js?v=1';
+        script.async = true;
+        script.onerror = function () {
+            console.warn('Sezione configuratore non caricata: il resto del gestionale non ne risente.');
+        };
+        document.head.appendChild(script);
+    } catch (e) {
+        console.warn('Sezione configuratore non agganciata.', e);
+    }
+
+    console.log('✅ search-fix.js attivo (v5 - no fornitore + custom items senza filtro categoria + sezione configuratore)');
 })();

@@ -1,5 +1,5 @@
 // ============================================================
-// search-fix.js  (v5)
+// search-fix.js  (v6)
 // FIX ricerca componenti nel popup "Cerca Componente".
 // Avvolge window.fetch (DOPO api-adapter.js) e corregge gli URL
 // di ricerca al volo. Lavora SOLO su stringhe, come l'adapter,
@@ -20,6 +20,9 @@
 //     rischio sproporzionato. Se e possibile aggiungere quella riga a mano, il
 //     posto giusto e index.html insieme agli altri script, e questo blocco va
 //     tolto.
+// v6: alzata la versione di configuratore-ordini.js da 1 a 2, altrimenti il
+//     browser continua a servire la copia vecchia dalla cache. Ogni volta che
+//     quel file cambia in modo visibile, va alzato anche questo numero.
 // ============================================================
 (function () {
     if (window.__searchFixApplied) return;
@@ -73,7 +76,7 @@
     // aggiuntiva e non tocca niente di quello che gia funziona.
     try {
         const script = document.createElement('script');
-        script.src = 'assets/js/configuratore-ordini.js?v=1';
+        script.src = 'assets/js/configuratore-ordini.js?v=2';
         script.async = true;
         script.onerror = function () {
             console.warn('Sezione configuratore non caricata: il resto del gestionale non ne risente.');
@@ -83,5 +86,5 @@
         console.warn('Sezione configuratore non agganciata.', e);
     }
 
-    console.log('✅ search-fix.js attivo (v5 - no fornitore + custom items senza filtro categoria + sezione configuratore)');
+    console.log('✅ search-fix.js attivo (v6 - no fornitore + custom items senza filtro categoria + sezione configuratore)');
 })();

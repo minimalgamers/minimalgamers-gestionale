@@ -1,25 +1,81 @@
 (function (globalScope) {
+    // Mappa stabile Shopify product_id -> chiave configurazione gestionale.
+    // Il match per titolo resta come fallback per i prodotti non ancora censiti.
+    const PRODUCT_ID_CONFIG_KEYS = Object.freeze({
+        '10358135882071': 'PC GAMING TERMINATOR',
+        '10239585059159': 'PC GAMING INFERNUS',
+        '8450749595991': 'PC GAMING BLACKNOVA',
+        '10358228844887': 'PC GAMING TITAN',
+        '9932076712279': 'PC GAMING RAGNAROK',
+        '10239534137687': 'PC GAMING PREDATOR',
+        '10645356872023': 'PC GAMING SINNER',
+        '10524971368791': 'PC GAMING MADAME',
+        '10358150431063': 'PC GAMING DOMINATOR V.2',
+        '10239585747287': 'PC GAMING DOMINATOR V.1',
+        '10067047186775': 'PC GAMING HELLFIRE',
+        '10045693526359': 'PC GAMING VANGUARD',
+        '9395079840087': 'PC GAMING ZEUS',
+        '8406087237975': 'PC GAMING NEMESIS',
+        '9022880940375': 'PC GAMING STERMINATOR',
+        '7374130839741': 'PC GAMING PERFY',
+        '8458647011671': 'PC GAMING HELLSTORM',
+        '10239011455319': 'PC GAMING STRIKE',
+        '10358321119575': 'PC GAMING VORTEX',
+        '9980815475031': 'PC GAMING CRIMSON',
+        '9018276512087': 'PC GAMING HECTORE',
+        '10291800277335': 'PC GAMING REX',
+        '7451312914621': 'PC GAMING VEGA',
+        '9979364901207': '[PC+MONITOR+KIT]',
+        '10241024655703': '[PC+MONITOR+KIT] PC GAMING',
+        '10510842331479': '[PC+MONITOR+KIT] PC GAMING ARC A770',
+        '10739861520727': '[PC+MONITOR+KIT] PC GAMING RTX 5070'
+    });
+
     function normalizeSpaces(value) {
         return String(value || '').replace(/\s+/g, ' ');
     }
 
-    function identifyPCConfigFromConfigs(productName, configs, silent = false) {
+    function normalizeProductId(value) {
+        if (value === null || value === undefined || value === '') return '';
+        return String(value).replace(/^gid:\/\/shopify\/Product\//, '').trim();
+    }
+
+    function buildResult(configKey, config, matchSource) {
+        return {
+            configKey,
+            fullName: config.fullName,
+            components: config.components,
+            isFallback: false,
+            matchSource
+        };
+    }
+
+    function identifyPCConfigFromConfigs(productName, configs, silent = false, productId = null) {
+        const safeConfigs = configs && typeof configs === 'object' ? configs : {};
+        const normalizedProductId = normalizeProductId(productId);
+
+        if (normalizedProductId && PRODUCT_ID_CONFIG_KEYS[normalizedProductId]) {
+            const configKey = PRODUCT_ID_CONFIG_KEYS[normalizedProductId];
+            const config = safeConfigs[configKey];
+            if (config && config.fullName) {
+                return buildResult(configKey, config, 'product_id');
+            }
+
+            if (!silent) {
+                console.error(`❌ CONFIG PRODUCT_ID NON PRESENTE: ${normalizedProductId} → "${configKey}"`);
+            }
+        }
+
         if (!productName) return null;
 
         const normalizedName = normalizeSpaces(productName);
-        const safeConfigs = configs && typeof configs === 'object' ? configs : {};
 
         for (const [configKey, config] of Object.entries(safeConfigs)) {
             if (!config || !config.fullName) continue;
 
             const normalizedFullName = normalizeSpaces(config.fullName);
             if (normalizedName === normalizedFullName) {
-                return {
-                    configKey,
-                    fullName: config.fullName,
-                    components: config.components,
-                    isFallback: false
-                };
+                return buildResult(configKey, config, 'exact_title');
             }
         }
 
@@ -110,7 +166,8 @@
     }
 
     globalScope.OrderConfigMatcher = {
-        identifyPCConfigFromConfigs
+        identifyPCConfigFromConfigs,
+        PRODUCT_ID_CONFIG_KEYS
     };
-    console.log('✅ OrderConfigMatcher v25 attivo (bundle multi-GPU)');
+    console.log('✅ OrderConfigMatcher v26 attivo (product_id + fallback titolo)');
 })(window);

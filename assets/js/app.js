@@ -2445,7 +2445,7 @@ async function processShopifyOrders(ordersData) {
         const pcItems = o.line_items?.filter(item => {
             const itemName = item.name || item.title || '';
             return itemName.toUpperCase().includes('PC GAMING') || 
-                   identifyPCConfig(itemName, true) !== null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         }) || [];
         
         let totalPCs = 0;
@@ -2931,7 +2931,7 @@ async function renderProcessedOrders(ordersMap) {
         const pcItem = order.items.find(item => {
             const itemName = item.name || item.title || '';
             return itemName.toUpperCase().includes('PC GAMING') || 
-                   identifyPCConfig(itemName, true) !== null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         });
         
         if (!pcItem && !isManualOrder) {
@@ -2954,7 +2954,7 @@ async function renderProcessedOrders(ordersMap) {
                 components: {} 
             };
         } else {
-            config = identifyPCConfig(pcItem.name);
+            config = identifyPCConfig(pcItem.name, false, pcItem.product_id ?? pcItem.productId);
         }
         
         if (!config) {
@@ -3789,7 +3789,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
             const itemName = item.name || item.title || '';
             return itemName.toUpperCase().includes('KIT') && 
                    !itemName.toUpperCase().includes('PC GAMING') &&
-                   identifyPCConfig(itemName, true) === null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
         });
         
         if (kitItem) {
@@ -3852,7 +3852,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                    !hasNonMonitorHints &&
                    !hasCustomProps &&
                    !upperItemName.includes('PC GAMING') &&
-                   identifyPCConfig(itemName, true) === null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
         });
 
         if (monitorItem) {
@@ -4608,11 +4608,11 @@ async function refreshProcessedOrders() {
         const pcItem = order.items.find(item => {
             const itemName = item.name || item.title || '';
             return itemName.toUpperCase().includes('PC GAMING') || 
-                   identifyPCConfig(itemName, true) !== null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         });
         
         if (pcItem) {
-            const config = identifyPCConfig(pcItem.name);
+            const config = identifyPCConfig(pcItem.name, false, pcItem.product_id ?? pcItem.productId);
             if (config) {
                 
                 const componentsContainer = document.getElementById(`components-${order.id}`);
@@ -5002,7 +5002,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
         const itemName = item.name || item.title || '';
         
         return itemName.toUpperCase().includes('PC GAMING') || 
-               identifyPCConfig(itemName) !== null;
+               identifyPCConfig(itemName, false, item.product_id ?? item.productId) !== null;
     }) || [];
     
     if (pcItems.length === 0) {
@@ -5034,12 +5034,12 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
         const pcItem = fullOrder?.line_items?.find(item => {
             const itemName = item.name || item.title || '';
             return itemName.toUpperCase().includes('PC GAMING') || 
-                   identifyPCConfig(itemName, true) !== null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         });
         
         if (pcItem) {
             
-            const config = identifyPCConfig(pcItem.name);
+            const config = identifyPCConfig(pcItem.name, false, pcItem.product_id ?? pcItem.productId);
             
             if (config) {
                 configName = config.configKey;
@@ -5219,7 +5219,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                                        upperItemName.includes('MOUSE') ||
                                        upperItemName.includes('CUFFIE')) &&
                                       !upperItemName.includes('PC GAMING') &&
-                                      identifyPCConfig(itemName, true) === null;
+                                      identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
                     const itemCustomProps = item?.custom_properties || item?.customProperties || {};
                     const hasItemCustomProps = itemCustomProps && Object.keys(itemCustomProps).length > 0;
                     const hasExplicitMonitor = upperItemName.includes('MONITOR');
@@ -5236,7 +5236,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                                           !hasNonMonitorHints &&
                                           !hasItemCustomProps &&
                                           !upperItemName.includes('PC GAMING') &&
-                                          identifyPCConfig(itemName, true) === null;
+                                          identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
 
                     const quantity = Math.max(1, parseInt(item.quantity, 10) || 1);
                     if (isKitItem) {

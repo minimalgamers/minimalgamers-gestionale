@@ -23,14 +23,14 @@
 
 
 
-function isKitGamingLineItem(itemName) {
+function isKitGamingLineItem(itemName, productId = null) {
     const upperName = String(itemName || '').toUpperCase();
     return (upperName.includes('KIT') ||
             upperName.includes('TASTIERA') ||
             upperName.includes('MOUSE') ||
             upperName.includes('CUFFIE')) &&
            !upperName.includes('PC GAMING') &&
-           identifyPCConfig(itemName, true) === null;
+           identifyPCConfig(itemName, true, productId) === null;
 }
 
 function extractKitUnitsFromOrder(fullOrder) {
@@ -39,7 +39,7 @@ function extractKitUnitsFromOrder(fullOrder) {
 
     for (const item of items) {
         const itemName = item?.name || item?.title || '';
-        if (!isKitGamingLineItem(itemName)) continue;
+        if (!isKitGamingLineItem(itemName, item.product_id ?? item.productId)) continue;
 
         const quantity = Math.max(1, parseInt(item.quantity, 10) || 1);
         for (let index = 0; index < quantity; index++) {
@@ -70,7 +70,7 @@ function isMonitorLineItem(item) {
            !hasNonMonitorHints &&
            !hasCustomProps &&
            !upperName.includes('PC GAMING') &&
-           identifyPCConfig(itemName, true) === null;
+           identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
 }
 
 function extractMonitorUnitsFromOrder(fullOrder) {
@@ -180,7 +180,7 @@ function processPendingOrdersWithSplitting(pendingOrders, pendingOrdersMap, proc
             const itemName = item.name || item.title || '';
             
             return itemName.toUpperCase().includes('PC GAMING') || 
-                   identifyPCConfig(itemName, true) !== null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         }) || [];
         
         
@@ -287,7 +287,7 @@ async function processProcessedOrdersWithSplitting(processedOrders, processedOrd
             const itemName = item.name || item.title || '';
             
             return itemName.toUpperCase().includes('PC GAMING') || 
-                   identifyPCConfig(itemName, true) !== null;
+                   identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         }) || [];
         
         let totalPCs = 0;
@@ -452,7 +452,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
         const itemName = item.name || item.title || '';
         
         return itemName.toUpperCase().includes('PC GAMING') || 
-               identifyPCConfig(itemName) !== null;
+               identifyPCConfig(itemName, false, item.product_id ?? item.productId) !== null;
     }) || [];
     
     if (pcItems.length === 0) {
@@ -484,7 +484,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
     console.log(`✅ PC target trovato: ${targetPcItem.name}`);
     
     
-    const config = identifyPCConfig(targetPcItem.name);
+    const config = identifyPCConfig(targetPcItem.name, false, targetPcItem.product_id ?? targetPcItem.productId);
     
     if (!config) {
         console.error(`❌ Configurazione non trovata per: ${targetPcItem.name}`);
@@ -720,7 +720,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
     const pcItems = fullOrder?.line_items?.filter(item => {
         const itemName = item.name || item.title || '';
         return itemName.toUpperCase().includes('PC GAMING') || 
-               identifyPCConfig(itemName, true) !== null;
+               identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
     }) || [];
     
     
@@ -729,7 +729,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
     
     for (const pcItem of pcItems) {
         const quantity = pcItem.quantity || 1;
-        const config = identifyPCConfig(pcItem.name);
+        const config = identifyPCConfig(pcItem.name, false, pcItem.product_id ?? pcItem.productId);
         
         
         for (let i = 0; i < quantity; i++) {

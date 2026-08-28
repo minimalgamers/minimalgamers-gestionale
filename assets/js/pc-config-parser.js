@@ -137,9 +137,9 @@ loadPCConfigs();
 
 
 
-function identifyPCConfig(productName, silent = false) {
+function identifyPCConfig(productName, silent = false, productId = null) {
     if (window.OrderConfigMatcher && typeof window.OrderConfigMatcher.identifyPCConfigFromConfigs === 'function') {
-        return window.OrderConfigMatcher.identifyPCConfigFromConfigs(productName, PC_CONFIGS, silent);
+        return window.OrderConfigMatcher.identifyPCConfigFromConfigs(productName, PC_CONFIGS, silent, productId);
     }
 
     console.error('❌ Modulo OrderConfigMatcher non caricato');

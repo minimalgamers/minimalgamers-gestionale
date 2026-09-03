@@ -10,7 +10,7 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox);
 
-const { identifyPCConfigFromConfigs, PRODUCT_ID_CONFIG_KEYS } = sandbox.window.OrderConfigMatcher;
+const { identifyPCConfigFromConfigs, PRODUCT_ID_CONFIG_KEYS, CONFIG_KEY_ALIASES } = sandbox.window.OrderConfigMatcher;
 const configs = Object.fromEntries(
   Object.values(PRODUCT_ID_CONFIG_KEYS).map(configKey => [configKey, {
     fullName: `TITOLO CORRENTE ${configKey}`,
@@ -75,7 +75,48 @@ assert.equal(renamedBundle.matchSource, 'product_id');
 
 assert.equal(identifyPCConfigFromConfigs('PRODOTTO NON MAPPATO', configs, true, 999), null);
 assert.equal(Object.isFrozen(PRODUCT_ID_CONFIG_KEYS), true);
-assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 27);
+assert.equal(Object.isFrozen(CONFIG_KEY_ALIASES), true);
+assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 28);
+
+const legacyMirageConfigs = {
+  'INFERNUS CUSTOM': {
+    fullName: '[CUSTOM] PC GAMING INFERNUS - RYZEN 9 9950X3D + RTX 5080',
+    components: [{ type: 'GPU', value: 'RTX 5080' }]
+  }
+};
+const mirageFromStableId = identifyPCConfigFromConfigs(
+  'PC GAMING MIRAGE - TITOLO SHOPIFY NUOVO',
+  legacyMirageConfigs,
+  false,
+  10786981806423
+);
+assert.equal(mirageFromStableId.configKey, 'PC GAMING MIRAGE');
+assert.equal(mirageFromStableId.resolvedConfigKey, 'INFERNUS CUSTOM');
+assert.equal(mirageFromStableId.matchSource, 'product_id');
+
+const renamedMirageConfigs = {
+  'PC GAMING MIRAGE': {
+    fullName: 'PC GAMING MIRAGE - RTX 5080 + RYZEN 9 9950X3D',
+    components: [{ type: 'GPU', value: 'RTX 5080' }]
+  }
+};
+const mirageAfterDbRename = identifyPCConfigFromConfigs(
+  'QUALSIASI TITOLO FUTURO',
+  renamedMirageConfigs,
+  false,
+  'gid://shopify/Product/10786981806423'
+);
+assert.equal(mirageAfterDbRename.configKey, 'PC GAMING MIRAGE');
+assert.equal(mirageAfterDbRename.matchSource, 'product_id');
+assert.equal('resolvedConfigKey' in mirageAfterDbRename, false);
+
+const historicMirageWithoutId = identifyPCConfigFromConfigs(
+  '[CUSTOM] PC GAMING INFERNUS - RYZEN 9 9950X3D 5.7GHZ + RTX 5080 16GB GDDR7',
+  renamedMirageConfigs,
+  false
+);
+assert.equal(historicMirageWithoutId.configKey, 'PC GAMING MIRAGE');
+assert.equal(historicMirageWithoutId.matchSource, 'legacy_title');
 
 for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KEYS)) {
   const result = identifyPCConfigFromConfigs('TITOLO RINOMINATO', configs, false, productId);
@@ -84,4 +125,4 @@ for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KE
   assert.equal(result.isFallback, false);
 }
 
-console.log('order-config-matcher: base 6/6 + product_id map 27/27 PASS');
+console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 28/28 PASS');

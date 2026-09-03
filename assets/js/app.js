@@ -25,7 +25,7 @@ function isProcessedTab(tabName) {
    Regola concordata:
      - ogni TACENS (750W/850W, qualsiasi)      -> DEEPCOOL PF-600X 80+ BRONZE
      - ogni 80+ GOLD 850W                       -> DEEPCOOL PN850-D V2 80+ GOLD
-     - INFERNUS CUSTOM / ALI 1000W 80+ GOLD     -> DEEPCOOL PQ1000-G 1000W 80+ GOLD
+     - MIRAGE (ex INFERNUS CUSTOM) / 1000W GOLD -> DEEPCOOL PQ1000-G 1000W 80+ GOLD
    Fornitore di tutti e tre: ABACO.
    Le build MSI (nascoste) hanno PSU [MSI] con EAN numerici: NON vengono toccate.
    ========================================================================= */
@@ -44,8 +44,8 @@ function mapPsuToDeepcool(psuValue, configKey) {
     // già convertito
     if (v.includes('DEEPCOOL')) return null;
 
-    // eccezione per nome config: INFERNUS CUSTOM (RTX 5080) -> PQ1000-G
-    if (/INFERNUS\s*CUSTOM/.test(cfg)) return PSU_DEEPCOOL.PQ1000;
+    // eccezione per nome config: MIRAGE (ex INFERNUS CUSTOM, RTX 5080) -> PQ1000-G
+    if (/\bPC\s*GAMING\s*MIRAGE\b|INFERNUS\s*CUSTOM/.test(cfg)) return PSU_DEEPCOOL.PQ1000;
     // eccezione per valore: "ALI 1000W 80+ GOLD" (stesso PC) -> PQ1000-G
     if (/ALI\s*1000W/.test(v) || /1000W/.test(v)) return PSU_DEEPCOOL.PQ1000;
 
@@ -148,8 +148,8 @@ function appendColorLabel(value, color) {
 
 window.applyComponentNormalization = function(finalComponents, configKey, pcItem, fullOrder) {
     if (!Array.isArray(finalComponents)) return;
-    if (/CUSTOM/i.test(String(configKey || ''))) {
-        console.log(`⏭️ [NORM v35] "${configKey}" è CUSTOM → nessuna normalizzazione`);
+    if (/CUSTOM/i.test(String(configKey || '')) || String(configKey || '') === 'PC GAMING MIRAGE') {
+        console.log(`⏭️ [NORM v35] "${configKey}" è una build custom protetta → nessuna normalizzazione`);
         return;
     }
     // FASE 1: qui i componenti hanno il valore RAM già leggibile, ma MOBO/GPU
@@ -431,7 +431,7 @@ function isUpgradedMobo(moboChoice) {
 
 function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
     if (!Array.isArray(finalComponents) || !configKey) return;
-    if (/CUSTOM/i.test(configKey)) return; // CUSTOM: mai toccare
+    if (/CUSTOM/i.test(configKey) || configKey === 'PC GAMING MIRAGE') return; // custom protette: mai toccare
 
     const isTop = CASE_TOP_CONFIGS.has(configKey);
     const isEco = CASE_ECONOMY_CONFIGS.has(configKey);

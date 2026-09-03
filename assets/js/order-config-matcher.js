@@ -25,10 +25,21 @@
         '9018276512087': 'PC GAMING HECTORE',
         '10291800277335': 'PC GAMING REX',
         '7451312914621': 'PC GAMING VEGA',
+        '10786981806423': 'PC GAMING MIRAGE',
         '9979364901207': '[PC+MONITOR+KIT]',
         '10241024655703': '[PC+MONITOR+KIT] PC GAMING',
         '10510842331479': '[PC+MONITOR+KIT] PC GAMING ARC A770',
         '10739861520727': '[PC+MONITOR+KIT] PC GAMING RTX 5070'
+    });
+
+    // Compatibilita temporanea durante la rinomina del record #47 nel database.
+    // La chiave pubblica/canonica resta MIRAGE, mentre il gestionale continua a
+    // leggere correttamente anche il vecchio record "INFERNUS CUSTOM".
+    const CONFIG_KEY_ALIASES = Object.freeze({
+        'PC GAMING MIRAGE': Object.freeze(['INFERNUS CUSTOM'])
+    });
+    const CANONICAL_CONFIG_KEY_BY_ALIAS = Object.freeze({
+        'INFERNUS CUSTOM': 'PC GAMING MIRAGE'
     });
 
     function normalizeSpaces(value) {
@@ -40,14 +51,32 @@
         return String(value).replace(/^gid:\/\/shopify\/Product\//, '').trim();
     }
 
-    function buildResult(configKey, config, matchSource) {
-        return {
+    function buildResult(configKey, config, matchSource, resolvedConfigKey = configKey) {
+        const result = {
             configKey,
             fullName: config.fullName,
             components: config.components,
             isFallback: false,
             matchSource
         };
+        if (resolvedConfigKey !== configKey) result.resolvedConfigKey = resolvedConfigKey;
+        return result;
+    }
+
+    function resolveConfig(configKey, safeConfigs) {
+        const direct = safeConfigs[configKey];
+        if (direct && direct.fullName) {
+            return { configKey, resolvedConfigKey: configKey, config: direct };
+        }
+
+        for (const alias of CONFIG_KEY_ALIASES[configKey] || []) {
+            const aliased = safeConfigs[alias];
+            if (aliased && aliased.fullName) {
+                return { configKey, resolvedConfigKey: alias, config: aliased };
+            }
+        }
+
+        return null;
     }
 
     function identifyPCConfigFromConfigs(productName, configs, silent = false, productId = null) {
@@ -56,9 +85,14 @@
 
         if (normalizedProductId && PRODUCT_ID_CONFIG_KEYS[normalizedProductId]) {
             const configKey = PRODUCT_ID_CONFIG_KEYS[normalizedProductId];
-            const config = safeConfigs[configKey];
-            if (config && config.fullName) {
-                return buildResult(configKey, config, 'product_id');
+            const resolved = resolveConfig(configKey, safeConfigs);
+            if (resolved) {
+                return buildResult(
+                    resolved.configKey,
+                    resolved.config,
+                    'product_id',
+                    resolved.resolvedConfigKey
+                );
             }
 
             if (!silent) {
@@ -75,7 +109,23 @@
 
             const normalizedFullName = normalizeSpaces(config.fullName);
             if (normalizedName === normalizedFullName) {
-                return buildResult(configKey, config, 'exact_title');
+                const canonicalKey = CANONICAL_CONFIG_KEY_BY_ALIAS[configKey] || configKey;
+                return buildResult(canonicalKey, config, 'exact_title', configKey);
+            }
+        }
+
+        // Ordini storici senza product_id: riconosce l'unica vecchia build
+        // [CUSTOM] INFERNUS con Ryzen 9 9950X3D + RTX 5080 come MIRAGE.
+        if (/^\[CUSTOM\]\s*PC\s+GAMING\s+INFERNUS\b/i.test(normalizedName) &&
+            /9950X3D/i.test(normalizedName) && /RTX\s*5080/i.test(normalizedName)) {
+            const resolved = resolveConfig('PC GAMING MIRAGE', safeConfigs);
+            if (resolved) {
+                return buildResult(
+                    resolved.configKey,
+                    resolved.config,
+                    'legacy_title',
+                    resolved.resolvedConfigKey
+                );
             }
         }
 
@@ -167,7 +217,8 @@
 
     globalScope.OrderConfigMatcher = {
         identifyPCConfigFromConfigs,
-        PRODUCT_ID_CONFIG_KEYS
+        PRODUCT_ID_CONFIG_KEYS,
+        CONFIG_KEY_ALIASES
     };
-    console.log('✅ OrderConfigMatcher v26 attivo (product_id + fallback titolo)');
+    console.log('✅ OrderConfigMatcher v27 attivo (product_id + alias rinomina + fallback titolo)');
 })(window);

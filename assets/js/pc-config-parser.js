@@ -8,6 +8,47 @@ let PC_CONFIGS = {};
 
 const CONFIGS_API_URL = 'api_gateway/db_bridge/configs_service/endpoint/api-configs.php';
 
+const LEGACY_MIRAGE_CONFIG = 'INFERNUS CUSTOM';
+const MIRAGE_CONFIG = 'PC GAMING MIRAGE';
+
+function getMirageFullName(config) {
+    const currentName = String(config?.fullName || '').trim();
+    if (!currentName) return MIRAGE_CONFIG;
+
+    return currentName
+        .replace(/^\[CUSTOM\]\s*PC\s+GAMING\s+INFERNUS\b/i, MIRAGE_CONFIG)
+        .replace(/^PC\s+GAMING\s+INFERNUS\b/i, MIRAGE_CONFIG)
+        .replace(/^INFERNUS\s+CUSTOM\b/i, MIRAGE_CONFIG);
+}
+
+async function migrateLegacyMirageConfig(configs) {
+    const legacyConfig = configs?.[LEGACY_MIRAGE_CONFIG];
+    if (!legacyConfig || configs[MIRAGE_CONFIG]) return configs;
+
+    const migratedConfig = {
+        fullName: getMirageFullName(legacyConfig),
+        components: Array.isArray(legacyConfig.components) ? legacyConfig.components : []
+    };
+
+    // Prima crea la nuova chiave e solo dopo elimina quella storica: in caso di
+    // errore non perdiamo mai i componenti della build.
+    const saved = await saveConfigToDatabase(MIRAGE_CONFIG, migratedConfig);
+    if (!saved) {
+        console.warn('⚠️ Migrazione MIRAGE rimandata: creazione nuova chiave non riuscita');
+        return configs;
+    }
+
+    const deleted = await deleteConfigFromDatabase(LEGACY_MIRAGE_CONFIG);
+    if (!deleted) {
+        console.warn('⚠️ MIRAGE creata, ma la chiave storica non è stata ancora rimossa');
+    }
+
+    configs[MIRAGE_CONFIG] = migratedConfig;
+    delete configs[LEGACY_MIRAGE_CONFIG];
+    console.log('✅ Configurazione rinominata: INFERNUS CUSTOM → PC GAMING MIRAGE');
+    return configs;
+}
+
 
 
 
@@ -116,6 +157,7 @@ async function loadPCConfigs() {
             
             if (data.success && data.configs) {
                 PC_CONFIGS = data.configs;
+                PC_CONFIGS = await migrateLegacyMirageConfig(PC_CONFIGS);
                 console.log('✅ Configurazioni PC caricate dal database:', Object.keys(PC_CONFIGS).length);
                 return PC_CONFIGS;
             }

@@ -23,7 +23,8 @@ function isProcessedTab(tabName) {
    PSU DEEPCOOL v34 — sostituzione centralizzata alimentatori
    -------------------------------------------------------------------------
    Regola concordata:
-     - ogni TACENS (750W/850W, qualsiasi)      -> DEEPCOOL PF-600X 80+ BRONZE
+     - TACENS 850W                              -> DEEPCOOL PN850-D V2 80+ GOLD
+     - altri TACENS (regola storica)            -> DEEPCOOL PF-600X 80+ BRONZE
      - ogni 80+ GOLD 850W                       -> DEEPCOOL PN850-D V2 80+ GOLD
      - MIRAGE (ex INFERNUS CUSTOM) / 1000W GOLD -> DEEPCOOL PQ1000-G 1000W 80+ GOLD
    Fornitore di tutti e tre: ABACO.
@@ -51,7 +52,10 @@ function mapPsuToDeepcool(psuValue, configKey) {
 
     // 80+ GOLD 850W -> PN850-D V2 GOLD
     if (/80\+?\s*GOLD\s*850W/.test(v)) return PSU_DEEPCOOL.GOLD;
-    // TACENS (qualsiasi wattaggio) -> PF-600X BRONZE
+    // Non ridurre a 600 W un alimentatore da 850 W scelto dalle regole GPO.
+    // Esempio: HELLSTORM con ASUS ROG B550 WiFi imposta TACENS 850W.
+    if (/TACENS/.test(v) && /\b850\s*W\b/.test(v)) return PSU_DEEPCOOL.GOLD;
+    // Altri TACENS: mantenere la conversione storica in attesa di audit per build.
     if (/TACENS/.test(v)) return PSU_DEEPCOOL.BRONZE;
 
     // build MSI o altri PSU con EAN numerico/sconosciuto: non toccare

@@ -56,6 +56,7 @@ function getSupplierAbbreviation(supplier) {
         'AMAZON': 'AZ',
         'OMEGA': 'OM',
         'TIER ONE': 'TO',
+        'ACTION': 'AC',
         'PROKS': 'PR',
         'ECOM': 'EC',
         'NOUA': 'NO',

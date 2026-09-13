@@ -144,6 +144,7 @@ async function renderGpoMappingList() {
                 'PROKS': { bg: 'rgba(231, 76, 60, 0.2)', color: '#e74c3c' },
                 'OMEGA': { bg: 'rgba(155, 89, 182, 0.2)', color: '#9b59b6' },
                 'TIER ONE': { bg: 'rgba(52, 152, 219, 0.2)', color: '#3498db' },
+                'ACTION': { bg: 'rgba(48, 111, 204, 0.2)', color: '#6fa9ff' },
                 'AMAZON': { bg: 'rgba(243, 156, 18, 0.2)', color: '#f39c12' },
                 'NOUA': { bg: 'rgba(46, 204, 113, 0.2)', color: '#2ecc71' },
                 'ECOM': { bg: 'rgba(52, 152, 219, 0.2)', color: '#3498db' },
@@ -305,6 +306,10 @@ function openEditGpoMappingPopup(mapping) {
                 <option value="PROKS" ${mapping.supplier === 'PROKS' ? 'selected' : ''}>PROKS</option>
                 <option value="OMEGA" ${mapping.supplier === 'OMEGA' ? 'selected' : ''}>OMEGA</option>
                 <option value="TIER ONE" ${mapping.supplier === 'TIER ONE' ? 'selected' : ''}>TIER ONE</option>
+                <option value="ACTION" ${mapping.supplier === 'ACTION' ? 'selected' : ''}>ACTION</option>
+                <option value="MSI" ${mapping.supplier === 'MSI' ? 'selected' : ''}>MSI</option>
+                <option value="CASEKING" ${mapping.supplier === 'CASEKING' ? 'selected' : ''}>CASEKING</option>
+                <option value="NAVY BLUE" ${mapping.supplier === 'NAVY BLUE' ? 'selected' : ''}>NAVY BLUE</option>
                 <option value="AMAZON" ${mapping.supplier === 'AMAZON' ? 'selected' : ''}>AMAZON</option>
                 <option value="NOUA" ${mapping.supplier === 'NOUA' ? 'selected' : ''}>NOUA</option>
             </select>

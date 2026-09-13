@@ -1037,6 +1037,7 @@ function getSupplierAbbreviation(supplier) {
         'AMAZON': 'AZ',
         'OMEGA': 'OM',
         'TIER ONE': 'TO',
+        'ACTION': 'AC',
         'PROKS': 'PR',
         'ECOM': 'EC',
         'NOUA': 'NO',
@@ -6294,6 +6295,7 @@ function showCustomItemPopup(orderId) {
                 <option value="PROKS" style="background: #1a1a1a; color: white;">PROKS</option>
                 <option value="OMEGA" style="background: #1a1a1a; color: white;">OMEGA</option>
                 <option value="TIER ONE" style="background: #1a1a1a; color: white;">TIER ONE</option>
+                <option value="ACTION" style="background: #1a1a1a; color: white;">ACTION</option>
                 <option value="AMAZON" style="background: #1a1a1a; color: white;">AMAZON</option>
                 <option value="NOUA" style="background: #1a1a1a; color: white;">NOUA</option>
                 <option value="INTEGRATA" style="background: #1a1a1a; color: white;">INTEGRATA</option>
@@ -8472,6 +8474,7 @@ function showSupplierSelectionForBulkReplace(manualText, searchText) {
             <button class="bulk-supplier-option" data-supplier="PROKS" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(231, 76, 60, 0.2); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.4); transition: all 0.2s ease;">PROKS</button>
             <button class="bulk-supplier-option" data-supplier="OMEGA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4); transition: all 0.2s ease;">OMEGA</button>
             <button class="bulk-supplier-option" data-supplier="TIER ONE" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.4); transition: all 0.2s ease;">TIER ONE</button>
+<button class="bulk-supplier-option" data-supplier="ACTION" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(48, 111, 204, 0.2); color: #6fa9ff; border: 1px solid rgba(48, 111, 204, 0.4); transition: all 0.2s ease;">ACTION</button>
             <button class="bulk-supplier-option" data-supplier="AMAZON" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(243, 156, 18, 0.2); color: #f39c12; border: 1px solid rgba(243, 156, 18, 0.4); transition: all 0.2s ease;">AMAZON</button>
             <button class="bulk-supplier-option" data-supplier="NOUA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.4); transition: all 0.2s ease;">NOUA</button>
             <button class="bulk-supplier-option" data-supplier="INTEGRATA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(127, 140, 141, 0.2); color: #7f8c8d; border: 1px solid rgba(127, 140, 141, 0.4); transition: all 0.2s ease;">INTEGRATA</button>
@@ -9960,6 +9963,7 @@ function showConfigSupplierSelectPopup(configKey, componentType, componentIndex)
             <button class="config-supplier-option" data-supplier="PROKS" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(231, 76, 60, 0.2); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.4); transition: all 0.2s ease;">PROKS</button>
             <button class="config-supplier-option" data-supplier="OMEGA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4); transition: all 0.2s ease;">OMEGA</button>
             <button class="config-supplier-option" data-supplier="TIER ONE" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.4); transition: all 0.2s ease;">TIER ONE</button>
+<button class="config-supplier-option" data-supplier="ACTION" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(48, 111, 204, 0.2); color: #6fa9ff; border: 1px solid rgba(48, 111, 204, 0.4); transition: all 0.2s ease;">ACTION</button>
             <button class="config-supplier-option" data-supplier="AMAZON" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(243, 156, 18, 0.2); color: #f39c12; border: 1px solid rgba(243, 156, 18, 0.4); transition: all 0.2s ease;">AMAZON</button>
             <button class="config-supplier-option" data-supplier="NOUA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.4); transition: all 0.2s ease;">NOUA</button>
             <button class="config-supplier-option" data-supplier="INTEGRATA" style="flex: 1 1 45%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; background: rgba(127, 140, 141, 0.2); color: #7f8c8d; border: 1px solid rgba(127, 140, 141, 0.4); transition: all 0.2s ease;">INTEGRATA</button>
@@ -11626,6 +11630,7 @@ function showManualEntryPopup(inputElement, currentQuery) {
                 <button class="manual-supplier-btn" data-supplier="PROKS" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(231, 76, 60, 0.2); color: #e74c3c; border: 1px solid rgba(231, 76, 60, 0.4);">PROKS</button>
                 <button class="manual-supplier-btn" data-supplier="OMEGA" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(155, 89, 182, 0.2); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.4);">OMEGA</button>
                 <button class="manual-supplier-btn" data-supplier="TIER ONE" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(52, 152, 219, 0.2); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.4);">TIER ONE</button>
+<button class="manual-supplier-btn" data-supplier="ACTION" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(48, 111, 204, 0.2); color: #6fa9ff; border: 1px solid rgba(48, 111, 204, 0.4);">ACTION</button>
                 <button class="manual-supplier-btn" data-supplier="AMAZON" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(243, 156, 18, 0.2); color: #f39c12; border: 1px solid rgba(243, 156, 18, 0.4);">AMAZON</button>
                 <button class="manual-supplier-btn" data-supplier="NOUA" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(46, 204, 113, 0.2); color: #2ecc71; border: 1px solid rgba(46, 204, 113, 0.4);">NOUA</button>
                 <button class="manual-supplier-btn" data-supplier="CASEKING" style="flex: 1 1 45%; padding: 8px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.8em; background: rgba(230, 126, 34, 0.2); color: #e67e22; border: 1px solid rgba(230, 126, 34, 0.4);">CASEKING</button>

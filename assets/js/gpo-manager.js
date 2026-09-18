@@ -37,7 +37,7 @@ function findGpoMapping(variable, variantValue) {
     };
 
     const normalizeVariantValue = (value) => String(value || '')
-        .replace(/\u00A0/g, ' ')
+        .replace(/ /g, ' ')
         .replace(/[‐‑‒–—―]/g, '-')
         .replace(/\s*-\s*/g, ' - ')
         .replace(/\s+/g, ' ')
@@ -77,9 +77,28 @@ function findGpoMapping(variable, variantValue) {
     return null;
 }
 
+// Valori "base" delle opzioni obbligatorie dei set GPO dedicati (18/09/2026):
+// la scelta gratuita che non aggiunge nessun pezzo. Non e' un componente da
+// ordinare, quindi non deve mai sostituire CASE/COOLER/SSD ADDON della distinta.
+// Esempi: "VENTOLE INCLUSE NEL CASE", "SENZA SCATOLE COMPONENTI",
+// "SOLO ETHERNET (SENZA WI-FI)", "NESSUN SOFTWARE AGGIUNTIVO", "NESSUN HDD AGGIUNTIVO".
+const GPO_BASE_NO_COMPONENT_VALUE = /^\s*(NESSUN[AO]?\b|SENZA\b|SOLO\s+ETHERNET|VENTOLE\s+INCLUSE)/i;
+
+function isGpoBaseNoComponentValue(value) {
+    return GPO_BASE_NO_COMPONENT_VALUE.test(String(value || ''));
+}
+
 function resolveVariantTypeFromKeyAndValue(key, value) {
     const upperKey = String(key || '').toUpperCase();
     const upperValue = String(value || '').toUpperCase();
+
+    if (isGpoBaseNoComponentValue(value)) {
+        return {
+            componentType: null,
+            gpoSearchType: null,
+            baseComponentType: null
+        };
+    }
     const hasAddonHint = (text) => {
         const upperText = String(text || '').toUpperCase();
         return upperText.includes('ADDON') || upperText.includes('ADD-ON') || upperText.includes('AGGIUNT');

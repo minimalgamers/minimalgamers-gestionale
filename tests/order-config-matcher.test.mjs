@@ -76,7 +76,7 @@ assert.equal(renamedBundle.matchSource, 'product_id');
 assert.equal(identifyPCConfigFromConfigs('PRODOTTO NON MAPPATO', configs, true, 999), null);
 assert.equal(Object.isFrozen(PRODUCT_ID_CONFIG_KEYS), true);
 assert.equal(Object.isFrozen(CONFIG_KEY_ALIASES), true);
-assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 43);
+assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 67);
 
 // Nuove build Minimal (fase 2E, 18/09/2026): id stabile -> chiave config.
 const newBuildVolt = identifyPCConfigFromConfigs(
@@ -90,6 +90,44 @@ assert.equal(newBuildVolt.matchSource, 'product_id');
 assert.equal(PRODUCT_ID_CONFIG_KEYS['11191796629847'], 'PC GAMING ARMAGEDDON');
 // PERFY archiviata ma ancora riconosciuta per gli ordini storici.
 assert.equal(PRODUCT_ID_CONFIG_KEYS['7374130839741'], 'PC GAMING PERFY');
+
+// Build MSI (fase 3, 19/09/2026): id stabile -> chiave config esistente/nuova.
+const msiOmega = identifyPCConfigFromConfigs(
+  'MSI OMEGA - PC GAMING RYZEN 9 9950X3D + RTX 5090 32GB GDDR7 + 32GB RAM DDR5 6000MHz + SSD M.2 NVMe 1TB + AIO 360 LIQUIDO',
+  configs,
+  false,
+  'gid://shopify/Product/10487168041303'
+);
+assert.equal(msiOmega.configKey, 'MSI OMEGA');
+assert.equal(msiOmega.matchSource, 'product_id');
+assert.equal(PRODUCT_ID_CONFIG_KEYS['11192508547415'], 'MSI VIPER');
+assert.equal(PRODUCT_ID_CONFIG_KEYS['11192508645719'], 'MSI BUNDLE BASTION');
+
+// MSI NEBULA: il record storico del DB si chiama 'NEBULA'.
+const legacyNebulaConfigs = {
+  'NEBULA': {
+    fullName: 'MSI NEBULA - Intel i7 14700K 5.6Ghz + RTX 5070 12GB GDDR7 + 16B RAM DDR5 + SSD M.2 500GB',
+    components: [{ type: 'GPU', value: 'V532-003R' }]
+  }
+};
+const nebulaFromStableId = identifyPCConfigFromConfigs(
+  'MSI NEBULA - PC GAMING INTEL CORE i7-14700KF + RTX 5070 12GB GDDR7 + 16GB RAM DDR5 6000MHz + SSD M.2 NVMe 1TB + AIO 240 LIQUIDO',
+  legacyNebulaConfigs,
+  false,
+  10487191896407
+);
+assert.equal(nebulaFromStableId.configKey, 'MSI NEBULA');
+assert.equal(nebulaFromStableId.resolvedConfigKey, 'NEBULA');
+assert.equal(nebulaFromStableId.matchSource, 'product_id');
+const nebulaByTitle = identifyPCConfigFromConfigs(
+  'MSI NEBULA - Intel i7 14700K 5.6Ghz + RTX 5070 12GB GDDR7 + 16B RAM DDR5 + SSD M.2 500GB',
+  legacyNebulaConfigs,
+  false,
+  null
+);
+assert.equal(nebulaByTitle.configKey, 'MSI NEBULA');
+assert.equal(nebulaByTitle.resolvedConfigKey, 'NEBULA');
+assert.equal(nebulaByTitle.matchSource, 'exact_title');
 
 const legacyMirageConfigs = {
   'INFERNUS CUSTOM': {
@@ -138,4 +176,4 @@ for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KE
   assert.equal(result.isFallback, false);
 }
 
-console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 43/43 PASS');
+console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 67/67 PASS');

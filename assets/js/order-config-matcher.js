@@ -47,17 +47,47 @@
         '11191790534999': 'PC GAMING IMPERATOR',
         '11191790567767': 'PC GAMING KRONOS',
         '11191796597079': 'PC GAMING TYPHON',
-        '11191796629847': 'PC GAMING ARMAGEDDON'
+        '11191796629847': 'PC GAMING ARMAGEDDON',
+        // Build MSI (fase 3, 19/09/2026): 14 esistenti rinominate + 10 nuove in bozza.
+        // Le chiavi sono i record gia presenti in standard_configs ('MSI ORION', ...);
+        // MSI NEBULA e un alias del record storico 'NEBULA' (vedi CONFIG_KEY_ALIASES).
+        '10487265689943': 'MSI ORION',
+        '10486250340695': 'MSI HELIOS',
+        '10487171973463': 'MSI BASTION',
+        '11192508547415': 'MSI VIPER',
+        '10487182754135': 'MSI FALCON',
+        '11192508580183': 'MSI TALON',
+        '10487160242519': 'MSI TEMPEST',
+        '11192508612951': 'MSI GRIFFIN',
+        '11192508645719': 'MSI BUNDLE BASTION',
+        '10487174136151': 'MSI SENTINEL',
+        '10487143072087': 'MSI CHIMERA',
+        '10487150608727': 'MSI DOMINION',
+        '10487191896407': 'MSI NEBULA',
+        '10487184687447': 'MSI DRAGONFIRE',
+        '10487180951895': 'MSI ODIN',
+        '10486334456151': 'MSI MAGMA',
+        '11192508678487': 'MSI ECLIPSE',
+        '10487165026647': 'MSI CERBERUS',
+        '11192508711255': 'MSI PHOENIX',
+        '11192508744023': 'MSI COLOSSUS',
+        '11192508776791': 'MSI LEVIATHAN',
+        '11192508809559': 'MSI HYDRA',
+        '11192508842327': 'MSI ATLAS',
+        '10487168041303': 'MSI OMEGA'
     });
 
     // Compatibilita temporanea durante la rinomina del record #47 nel database.
     // La chiave pubblica/canonica resta MIRAGE, mentre il gestionale continua a
     // leggere correttamente anche il vecchio record "INFERNUS CUSTOM".
     const CONFIG_KEY_ALIASES = Object.freeze({
-        'PC GAMING MIRAGE': Object.freeze(['INFERNUS CUSTOM'])
+        'PC GAMING MIRAGE': Object.freeze(['INFERNUS CUSTOM']),
+        // Il record storico della build MSI NEBULA si chiama 'NEBULA' (senza prefisso).
+        'MSI NEBULA': Object.freeze(['NEBULA'])
     });
     const CANONICAL_CONFIG_KEY_BY_ALIAS = Object.freeze({
-        'INFERNUS CUSTOM': 'PC GAMING MIRAGE'
+        'INFERNUS CUSTOM': 'PC GAMING MIRAGE',
+        'NEBULA': 'MSI NEBULA'
     });
 
     function normalizeSpaces(value) {
@@ -238,5 +268,5 @@
         PRODUCT_ID_CONFIG_KEYS,
         CONFIG_KEY_ALIASES
     };
-    console.log('✅ OrderConfigMatcher v28 attivo (product_id + alias rinomina + fallback titolo + 15 nuove build Minimal)');
+    console.log('✅ OrderConfigMatcher v29 attivo (product_id + alias rinomina + fallback titolo + 15 nuove build Minimal + 24 build MSI)');
 })(window);

@@ -1,5 +1,5 @@
 // ============================================================
-// search-fix.js  (v6)
+// search-fix.js  (v7)
 // FIX ricerca componenti nel popup "Cerca Componente".
 // Avvolge window.fetch (DOPO api-adapter.js) e corregge gli URL
 // di ricerca al volo. Lavora SOLO su stringhe, come l'adapter,
@@ -23,6 +23,9 @@
 // v6: alzata la versione di configuratore-ordini.js da 1 a 2, altrimenti il
 //     browser continua a servire la copia vecchia dalla cache. Ogni volta che
 //     quel file cambia in modo visibile, va alzato anche questo numero.
+// v7: carica anche session-no-timeout.js (18/09/2026): niente auto-logout per
+//     inattivita' e sessione salvata per 30 giorni invece di 2 ore. Stesso
+//     motivo del v5: index.html e' troppo grosso per riscriverlo.
 // ============================================================
 (function () {
     if (window.__searchFixApplied) return;
@@ -86,5 +89,19 @@
         console.warn('Sezione configuratore non agganciata.', e);
     }
 
-    console.log('✅ search-fix.js attivo (v6 - no fornitore + custom items senza filtro categoria + sezione configuratore)');
+    // Sessione senza scadenza (v7). Se il file manca, il gestionale resta
+    // esattamente com'era (timeout da impostazioni, sessione 2 ore).
+    try {
+        const sessionScript = document.createElement('script');
+        sessionScript.src = 'assets/js/session-no-timeout.js?v=1';
+        sessionScript.async = true;
+        sessionScript.onerror = function () {
+            console.warn('session-no-timeout.js non caricato: valgono timeout e scadenza di prima.');
+        };
+        document.head.appendChild(sessionScript);
+    } catch (e) {
+        console.warn('session-no-timeout.js non agganciato.', e);
+    }
+
+    console.log('✅ search-fix.js attivo (v7 - no fornitore + custom items senza filtro categoria + sezione configuratore + sessione senza scadenza)');
 })();

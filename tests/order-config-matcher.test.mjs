@@ -76,7 +76,20 @@ assert.equal(renamedBundle.matchSource, 'product_id');
 assert.equal(identifyPCConfigFromConfigs('PRODOTTO NON MAPPATO', configs, true, 999), null);
 assert.equal(Object.isFrozen(PRODUCT_ID_CONFIG_KEYS), true);
 assert.equal(Object.isFrozen(CONFIG_KEY_ALIASES), true);
-assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 28);
+assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 43);
+
+// Nuove build Minimal (fase 2E, 18/09/2026): id stabile -> chiave config.
+const newBuildVolt = identifyPCConfigFromConfigs(
+  'PC GAMING VOLT - RYZEN 5 5500F 2026 + INTEL ARC B580 12GB GDDR6 + 16GB RAM DDR4 3200MHz + SSD M.2 NVMe 500GB',
+  configs,
+  false,
+  'gid://shopify/Product/11191758750039'
+);
+assert.equal(newBuildVolt.configKey, 'PC GAMING VOLT');
+assert.equal(newBuildVolt.matchSource, 'product_id');
+assert.equal(PRODUCT_ID_CONFIG_KEYS['11191796629847'], 'PC GAMING ARMAGEDDON');
+// PERFY archiviata ma ancora riconosciuta per gli ordini storici.
+assert.equal(PRODUCT_ID_CONFIG_KEYS['7374130839741'], 'PC GAMING PERFY');
 
 const legacyMirageConfigs = {
   'INFERNUS CUSTOM': {
@@ -125,4 +138,4 @@ for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KE
   assert.equal(result.isFallback, false);
 }
 
-console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 28/28 PASS');
+console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 43/43 PASS');

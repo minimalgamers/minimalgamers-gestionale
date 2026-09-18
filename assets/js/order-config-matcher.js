@@ -17,6 +17,7 @@
         '9395079840087': 'PC GAMING ZEUS',
         '8406087237975': 'PC GAMING NEMESIS',
         '9022880940375': 'PC GAMING STERMINATOR',
+        // PERFY archiviata su Shopify il 18/09/2026: la voce resta per gli ordini storici.
         '7374130839741': 'PC GAMING PERFY',
         '8458647011671': 'PC GAMING HELLSTORM',
         '10239011455319': 'PC GAMING STRIKE',
@@ -29,7 +30,24 @@
         '9979364901207': '[PC+MONITOR+KIT]',
         '10241024655703': '[PC+MONITOR+KIT] PC GAMING',
         '10510842331479': '[PC+MONITOR+KIT] PC GAMING ARC A770',
-        '10739861520727': '[PC+MONITOR+KIT] PC GAMING RTX 5070'
+        '10739861520727': '[PC+MONITOR+KIT] PC GAMING RTX 5070',
+        // Nuove build Minimal create il 18/09/2026 (fase 2E), in bozza fino al set GPO.
+        // La chiave deve esistere in standard_configs con la distinta base.
+        '11191758750039': 'PC GAMING VOLT',
+        '11191765827927': 'PC GAMING VALHALLA',
+        '11191765893463': 'PC GAMING ALCARAZ',
+        '11191772119383': 'PC GAMING RAPTOR',
+        '11191772184919': 'PC GAMING CENTURION',
+        '11191777788247': 'PC GAMING BERSERKER',
+        '11191777853783': 'PC GAMING SPARTAN',
+        '11191780475223': 'PC GAMING NEUTRON',
+        '11191780507991': 'PC GAMING ARES',
+        '11191784800599': 'PC GAMING ACHILLES',
+        '11191784833367': 'PC GAMING APOCALYPSE',
+        '11191790534999': 'PC GAMING IMPERATOR',
+        '11191790567767': 'PC GAMING KRONOS',
+        '11191796597079': 'PC GAMING TYPHON',
+        '11191796629847': 'PC GAMING ARMAGEDDON'
     });
 
     // Compatibilita temporanea durante la rinomina del record #47 nel database.
@@ -220,5 +238,5 @@
         PRODUCT_ID_CONFIG_KEYS,
         CONFIG_KEY_ALIASES
     };
-    console.log('✅ OrderConfigMatcher v27 attivo (product_id + alias rinomina + fallback titolo)');
+    console.log('✅ OrderConfigMatcher v28 attivo (product_id + alias rinomina + fallback titolo + 15 nuove build Minimal)');
 })(window);

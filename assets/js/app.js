@@ -3096,7 +3096,7 @@ async function renderProcessedOrders(ordersMap) {
             loadManualOrderComponents(order.id);
         } else {
             
-            loadComponentsForOrder(order.id, config.components, pcItem.customProperties || {}, order.items);
+            loadComponentsForOrder(order.id, config.components, pcItem.customProperties || {}, order.items, config.configKey);
         }
         
         
@@ -3493,7 +3493,9 @@ async function loadManualOrderComponents(orderId) {
 
 
 
-async function loadComponentsForOrder(orderId, baseComponents, variants = {}, allItems = []) {
+async function loadComponentsForOrder(orderId, baseComponents, variants = {}, allItems = [], configKey = null) {
+    // Scope GPO per linea (19/09/2026): le build MSI leggono prima le mappature "MSI <VARIABILE>".
+    const gpoLineScopeKey = configKey;
     const componentsContainer = document.getElementById(`components-${orderId}`);
     
     
@@ -3617,7 +3619,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                     continue;
                 }
             }
-            const gpoMatch = findGpoMapping(gpoSearchType, value);
+            const gpoMatch = findGpoMapping(gpoSearchType, value, gpoLineScopeKey);
             if (gpoMatch) {
                 variantValue = gpoMatch.supplier 
                     ? `${gpoMatch.ean} (${gpoMatch.supplier})` 
@@ -3701,9 +3703,9 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         
         
         
-        const ramGpoMatchComplete = findGpoMapping('RAM', value);
+        const ramGpoMatchComplete = findGpoMapping('RAM', value, gpoLineScopeKey);
         
-        const ssdGpoMatchComplete = findGpoMapping('SSD', value);
+        const ssdGpoMatchComplete = findGpoMapping('SSD', value, gpoLineScopeKey);
         
         if (ramGpoMatchComplete || ssdGpoMatchComplete) {
             
@@ -3721,7 +3723,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                 const ramIndex = finalComponents.findIndex(c => c.type.toUpperCase() === 'RAM');
                 let ramValue = splitResult.ram;
                 
-                const ramGpoMatch = findGpoMapping('RAM', splitResult.ram);
+                const ramGpoMatch = findGpoMapping('RAM', splitResult.ram, gpoLineScopeKey);
                 if (ramGpoMatch) {
                     ramValue = ramGpoMatch.supplier 
                         ? `${ramGpoMatch.ean} (${ramGpoMatch.supplier})` 
@@ -3744,7 +3746,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                 const ssdIndex = finalComponents.findIndex(c => c.type.toUpperCase() === 'SSD');
                 let ssdValue = splitResult.ssd;
                 
-                const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd);
+                const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd, gpoLineScopeKey);
                 if (ssdGpoMatch) {
                     ssdValue = ssdGpoMatch.supplier 
                         ? `${ssdGpoMatch.ean} (${ssdGpoMatch.supplier})` 
@@ -3760,7 +3762,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
             const ramIndex = finalComponents.findIndex(c => c.type.toUpperCase() === 'RAM');
             let ramValue = splitResult.ram;
             
-            const ramGpoMatch = findGpoMapping('RAM', splitResult.ram);
+            const ramGpoMatch = findGpoMapping('RAM', splitResult.ram, gpoLineScopeKey);
             if (ramGpoMatch) {
                 ramValue = ramGpoMatch.supplier 
                     ? `${ramGpoMatch.ean} (${ramGpoMatch.supplier})` 
@@ -3773,7 +3775,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
             const ssdIndex = finalComponents.findIndex(c => c.type.toUpperCase() === 'SSD');
             let ssdValue = splitResult.ssd;
             
-            const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd);
+            const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd, gpoLineScopeKey);
             if (ssdGpoMatch) {
                 ssdValue = ssdGpoMatch.supplier 
                     ? `${ssdGpoMatch.ean} (${ssdGpoMatch.supplier})` 
@@ -4623,7 +4625,7 @@ async function refreshProcessedOrders() {
                 
                 
                 
-                await loadComponentsForOrder(order.id, config.components, pcItem.customProperties || {}, order.items);
+                await loadComponentsForOrder(order.id, config.components, pcItem.customProperties || {}, order.items, config.configKey);
             }
         }
     }
@@ -5133,7 +5135,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                         }
                     }
 
-                    const gpoMatch = findGpoMapping(gpoSearchType, value);
+                    const gpoMatch = findGpoMapping(gpoSearchType, value, config.configKey);
                     const finalValue = gpoMatch
                         ? (gpoMatch.supplier ? `${gpoMatch.ean} (${gpoMatch.supplier})` : gpoMatch.ean)
                         : value;
@@ -5154,8 +5156,8 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                         updateComponentIfExists(finalComponents, type, mappedValue, `processOrder ${type}`);
                     };
 
-                    const ramGpoMatchComplete = findGpoMapping('RAM', value);
-                    const ssdGpoMatchComplete = findGpoMapping('SSD', value);
+                    const ramGpoMatchComplete = findGpoMapping('RAM', value, config.configKey);
+                    const ssdGpoMatchComplete = findGpoMapping('SSD', value, config.configKey);
 
                     let ramValue = null;
                     if (ramGpoMatchComplete) {
@@ -5163,7 +5165,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                             ? `${ramGpoMatchComplete.ean} (${ramGpoMatchComplete.supplier})`
                             : ramGpoMatchComplete.ean;
                     } else if (splitResult.ram) {
-                        const ramGpoMatch = findGpoMapping('RAM', splitResult.ram);
+                        const ramGpoMatch = findGpoMapping('RAM', splitResult.ram, config.configKey);
                         ramValue = ramGpoMatch
                             ? (ramGpoMatch.supplier ? `${ramGpoMatch.ean} (${ramGpoMatch.supplier})` : ramGpoMatch.ean)
                             : splitResult.ram;
@@ -5175,7 +5177,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                             ? `${ssdGpoMatchComplete.ean} (${ssdGpoMatchComplete.supplier})`
                             : ssdGpoMatchComplete.ean;
                     } else if (splitResult.ssd) {
-                        const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd);
+                        const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd, config.configKey);
                         ssdValue = ssdGpoMatch
                             ? (ssdGpoMatch.supplier ? `${ssdGpoMatch.ean} (${ssdGpoMatch.supplier})` : ssdGpoMatch.ean)
                             : splitResult.ssd;

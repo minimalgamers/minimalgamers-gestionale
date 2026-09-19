@@ -41,9 +41,24 @@ function resolveGpoLineScope(configKey) {
     return scope ? scope.prefix : null;
 }
 
-// "MSI GPU" -> { scope: 'MSI', base: 'GPU' } ; "GPU" -> { scope: null, base: 'GPU' }
+// Tre livelli di scope, dal piu' specifico al piu' generico:
+//   "MSI CHIMERA::GPU" -> { scope: 'MSI CHIMERA', base: 'GPU' }   (una sola build)
+//   "MSI GPU"          -> { scope: 'MSI',         base: 'GPU' }   (tutta la linea MSI)
+//   "GPU"              -> { scope: null,          base: 'GPU' }   (globale / Minimal)
+// Il livello build serve quando lo stesso testo vale pezzi MSI diversi a seconda
+// della build (es. "RTX 5070 12GB GDDR7" = Ventus 2X OC in FALCON/GRIFFIN/TALON/
+// TEMPEST ma Gaming Trio OC in CHIMERA/DOMINION/NEBULA/DRAGONFIRE/ODIN).
 function splitGpoScopedVariable(value) {
     const raw = String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+    const separator = raw.indexOf('::');
+    if (separator > 0 && separator < raw.length - 2) {
+        return {
+            scope: raw.slice(0, separator).trim(),
+            base: raw.slice(separator + 2).trim()
+        };
+    }
+
     for (const item of GPO_LINE_SCOPES) {
         const head = item.prefix + ' ';
         if (raw.startsWith(head) && raw.length > head.length) {
@@ -51,6 +66,10 @@ function splitGpoScopedVariable(value) {
         }
     }
     return { scope: null, base: raw };
+}
+
+function normalizeGpoScopeName(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toUpperCase() || null;
 }
 
 function normalizeGpoVariableName(value) {
@@ -93,9 +112,14 @@ function findGpoMapping(variable, variantValue, configKey = null) {
         return rightId - leftId;
     })[0];
 
-    // Un ordine MSI cerca prima "MSI <VARIABILE>"; una build Minimal (scope null)
-    // vede solo le righe globali e non puo' mai pescare un pezzo MSI dedicato.
-    const attempts = requestedScope ? [requestedScope, null] : [null];
+    // Un ordine MSI cerca prima la riga della sua build ("MSI CHIMERA::GPU"),
+    // poi quella di linea ("MSI GPU"), infine ricade sulla globale con un avviso.
+    // Una build Minimal (scope null) vede solo le righe globali e non puo' mai
+    // pescare un pezzo MSI dedicato.
+    const buildScope = requestedScope ? normalizeGpoScopeName(configKey) : null;
+    const attempts = requestedScope
+        ? [...new Set([buildScope, requestedScope, null])]
+        : [null];
 
     for (const wantedScope of attempts) {
         const candidates = gpoMappingsCache.filter(m => {
@@ -129,6 +153,7 @@ function findGpoMapping(variable, variantValue, configKey = null) {
 if (typeof window !== 'undefined') {
     window.resolveGpoLineScope = resolveGpoLineScope;
     window.splitGpoScopedVariable = splitGpoScopedVariable;
+    window.normalizeGpoScopeName = normalizeGpoScopeName;
     window.findGpoMapping = findGpoMapping;
 }
 

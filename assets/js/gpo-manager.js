@@ -22,41 +22,68 @@ async function loadGpoMappingsGlobal() {
     }
 }
 
-function findGpoMapping(variable, variantValue) {
-    if (!gpoMappingsCache || gpoMappingsCache.length === 0) {
-        return null;
+// --- Scope per linea di prodotto (19/09/2026) -------------------------------
+// Le build Minimal (REX ecc.) vivono di brand a rotazione: conta la classe del
+// pezzo (B650, RTX 5070), non la marca. Le build MSI sono l'opposto: il pezzo
+// ordinato deve essere SEMPRE quello MSI della distinta.
+// Nel DB le mappature delle build MSI hanno la variabile prefissata
+// ("MSI GPU", "MSI SCHEDA MADRE", ...). Senza questo scope una sola riga
+// servirebbe entrambe le linee (28 testi di variante sono identici tra set
+// Minimal e set MSI) e l'ordine MSI riceverebbe il pezzo scelto per la Minimal.
+const GPO_LINE_SCOPES = Object.freeze([
+    { prefix: 'MSI', test: /^\s*MSI\b/i }
+]);
+
+function resolveGpoLineScope(configKey) {
+    const key = String(configKey || '');
+    if (!key) return null;
+    const scope = GPO_LINE_SCOPES.find(item => item.test.test(key));
+    return scope ? scope.prefix : null;
+}
+
+// "MSI GPU" -> { scope: 'MSI', base: 'GPU' } ; "GPU" -> { scope: null, base: 'GPU' }
+function splitGpoScopedVariable(value) {
+    const raw = String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    for (const item of GPO_LINE_SCOPES) {
+        const head = item.prefix + ' ';
+        if (raw.startsWith(head) && raw.length > head.length) {
+            return { scope: item.prefix, base: raw.slice(head.length) };
+        }
     }
+    return { scope: null, base: raw };
+}
 
-    const normalizeVariable = (value) => {
-        const normalized = String(value || '').trim().toUpperCase();
-        if (normalized === 'MOBO' || normalized === 'MOTHERBOARD') return 'SCHEDA MADRE';
-        if (normalized === 'SSD AGGIUNTIVO') return 'SSD ADDON';
-        if (normalized === 'DISSIPATORE') return 'COOLER';
-        if (normalized === 'ALIMENTATORE') return 'PSU';
-        return normalized;
-    };
+function normalizeGpoVariableName(value) {
+    const normalized = String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    if (normalized === 'MOBO' || normalized === 'MOTHERBOARD') return 'SCHEDA MADRE';
+    if (normalized === 'SSD AGGIUNTIVO') return 'SSD ADDON';
+    if (normalized === 'DISSIPATORE') return 'COOLER';
+    if (normalized === 'ALIMENTATORE') return 'PSU';
+    return normalized;
+}
 
-    const normalizeVariantValue = (value) => String(value || '')
+function normalizeGpoVariantValue(value) {
+    return String(value || '')
         .replace(/ /g, ' ')
         .replace(/[‐‑‒–—―]/g, '-')
         .replace(/\s*-\s*/g, ' - ')
         .replace(/\s+/g, ' ')
         .trim()
         .toUpperCase();
+}
 
-    const normalizedVariable = normalizeVariable(variable);
-    const normalizedValue = normalizeVariantValue(variantValue);
-
-    const candidates = gpoMappingsCache.filter(m =>
-        normalizeVariable(m.variable) === normalizedVariable &&
-        normalizeVariantValue(m.variant_value) === normalizedValue
-    );
-
-    if (candidates.length === 0) {
+// configKey = chiave della configurazione dell'ordine (es. "MSI ORION", "REX").
+// Ricerca a due passi: prima la riga della linea (MSI), poi quella globale.
+function findGpoMapping(variable, variantValue, configKey = null) {
+    if (!gpoMappingsCache || gpoMappingsCache.length === 0) {
         return null;
     }
 
-    const mapping = candidates.sort((left, right) => {
+    const requestedScope = resolveGpoLineScope(configKey);
+    const normalizedVariable = normalizeGpoVariableName(splitGpoScopedVariable(variable).base);
+    const normalizedValue = normalizeGpoVariantValue(variantValue);
+
+    const pickNewest = (rows) => rows.sort((left, right) => {
         const leftUpdated = new Date(left.updated_at || left.created_at || 0).getTime();
         const rightUpdated = new Date(right.updated_at || right.created_at || 0).getTime();
         if (rightUpdated !== leftUpdated) return rightUpdated - leftUpdated;
@@ -66,15 +93,43 @@ function findGpoMapping(variable, variantValue) {
         return rightId - leftId;
     })[0];
 
-    if (mapping) {
+    // Un ordine MSI cerca prima "MSI <VARIABILE>"; una build Minimal (scope null)
+    // vede solo le righe globali e non puo' mai pescare un pezzo MSI dedicato.
+    const attempts = requestedScope ? [requestedScope, null] : [null];
+
+    for (const wantedScope of attempts) {
+        const candidates = gpoMappingsCache.filter(m => {
+            const parts = splitGpoScopedVariable(m.variable);
+            if (parts.scope !== wantedScope) return false;
+            if (normalizeGpoVariableName(parts.base) !== normalizedVariable) return false;
+            return normalizeGpoVariantValue(m.variant_value) === normalizedValue;
+        });
+
+        if (candidates.length === 0) continue;
+
+        const mapping = pickNewest(candidates);
+        if (!mapping) continue;
+
+        if (requestedScope && wantedScope === null) {
+            console.warn(`[GPO scope] "${normalizedVariable}" / "${normalizedValue}": manca la riga ${requestedScope}, uso quella globale (verificare il pezzo)`);
+        }
+
         return {
             ean: mapping.ean,
             component_name: mapping.component_name,
-            supplier: mapping.supplier
+            supplier: mapping.supplier,
+            scope: wantedScope,
+            scopeFallback: Boolean(requestedScope) && wantedScope === null
         };
     }
 
     return null;
+}
+
+if (typeof window !== 'undefined') {
+    window.resolveGpoLineScope = resolveGpoLineScope;
+    window.splitGpoScopedVariable = splitGpoScopedVariable;
+    window.findGpoMapping = findGpoMapping;
 }
 
 // Valori "base" delle opzioni obbligatorie dei set GPO dedicati (18/09/2026):

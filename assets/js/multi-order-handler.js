@@ -581,7 +581,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 }
             }
 
-            const gpoMatch = findGpoMapping(resolved.gpoSearchType, value);
+            const gpoMatch = findGpoMapping(resolved.gpoSearchType, value, config.configKey);
             const finalValue = gpoMatch
                 ? (gpoMatch.supplier ? `${gpoMatch.ean} (${gpoMatch.supplier})` : gpoMatch.ean)
                 : value;
@@ -603,8 +603,8 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 updateSplitComponentIfExists(finalComponents, type, mappedValue, `split ${type}`);
             };
 
-            const ramGpoMatchComplete = findGpoMapping('RAM', value);
-            const ssdGpoMatchComplete = findGpoMapping('SSD', value);
+            const ramGpoMatchComplete = findGpoMapping('RAM', value, config.configKey);
+            const ssdGpoMatchComplete = findGpoMapping('SSD', value, config.configKey);
 
             let ramValue = null;
             if (ramGpoMatchComplete) {
@@ -612,7 +612,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                     ? `${ramGpoMatchComplete.ean} (${ramGpoMatchComplete.supplier})`
                     : ramGpoMatchComplete.ean;
             } else if (splitResult.ram) {
-                const ramGpoMatch = findGpoMapping('RAM', splitResult.ram);
+                const ramGpoMatch = findGpoMapping('RAM', splitResult.ram, config.configKey);
                 ramValue = ramGpoMatch
                     ? (ramGpoMatch.supplier ? `${ramGpoMatch.ean} (${ramGpoMatch.supplier})` : ramGpoMatch.ean)
                     : splitResult.ram;
@@ -624,7 +624,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                     ? `${ssdGpoMatchComplete.ean} (${ssdGpoMatchComplete.supplier})`
                     : ssdGpoMatchComplete.ean;
             } else if (splitResult.ssd) {
-                const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd);
+                const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd, config.configKey);
                 ssdValue = ssdGpoMatch
                     ? (ssdGpoMatch.supplier ? `${ssdGpoMatch.ean} (${ssdGpoMatch.supplier})` : ssdGpoMatch.ean)
                     : splitResult.ssd;
@@ -840,7 +840,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     }
                 }
 
-                const gpoMatch = findGpoMapping(resolved.gpoSearchType, value);
+                const gpoMatch = findGpoMapping(resolved.gpoSearchType, value, config.configKey);
                 const finalValue = gpoMatch
                     ? (gpoMatch.supplier ? `${gpoMatch.ean} (${gpoMatch.supplier})` : gpoMatch.ean)
                     : value;
@@ -862,8 +862,8 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     updateSplitComponentIfExists(finalComponents, type, mappedValue, `multiPC ${type}`);
                 };
 
-                const ramGpoMatchComplete = findGpoMapping('RAM', value);
-                const ssdGpoMatchComplete = findGpoMapping('SSD', value);
+                const ramGpoMatchComplete = findGpoMapping('RAM', value, config.configKey);
+                const ssdGpoMatchComplete = findGpoMapping('SSD', value, config.configKey);
 
                 let ramValue = null;
                 if (ramGpoMatchComplete) {
@@ -871,7 +871,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                         ? `${ramGpoMatchComplete.ean} (${ramGpoMatchComplete.supplier})`
                         : ramGpoMatchComplete.ean;
                 } else if (splitResult.ram) {
-                    const ramGpoMatch = findGpoMapping('RAM', splitResult.ram);
+                    const ramGpoMatch = findGpoMapping('RAM', splitResult.ram, config.configKey);
                     ramValue = ramGpoMatch
                         ? (ramGpoMatch.supplier ? `${ramGpoMatch.ean} (${ramGpoMatch.supplier})` : ramGpoMatch.ean)
                         : splitResult.ram;
@@ -883,7 +883,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                         ? `${ssdGpoMatchComplete.ean} (${ssdGpoMatchComplete.supplier})`
                         : ssdGpoMatchComplete.ean;
                 } else if (splitResult.ssd) {
-                    const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd);
+                    const ssdGpoMatch = findGpoMapping('SSD', splitResult.ssd, config.configKey);
                     ssdValue = ssdGpoMatch
                         ? (ssdGpoMatch.supplier ? `${ssdGpoMatch.ean} (${ssdGpoMatch.supplier})` : ssdGpoMatch.ean)
                         : splitResult.ssd;

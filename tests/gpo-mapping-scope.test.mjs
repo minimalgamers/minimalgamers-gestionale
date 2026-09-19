@@ -36,6 +36,9 @@ assert.deepEqual(split('  msi   scheda  madre '), { scope: 'MSI', base: 'SCHEDA 
 assert.deepEqual(split('GPU'), { scope: null, base: 'GPU' });
 // "MSI" da solo non e' uno scope: resta una variabile globale
 assert.deepEqual(split('MSI'), { scope: null, base: 'MSI' });
+// livello build, separatore "::"
+assert.deepEqual(split('MSI CHIMERA::GPU'), { scope: 'MSI CHIMERA', base: 'GPU' });
+assert.deepEqual(split(' msi chimera :: gpu '), { scope: 'MSI CHIMERA', base: 'GPU' });
 
 const rows = [
   // stesso testo di variante condiviso tra le due linee
@@ -86,4 +89,25 @@ assert.equal(findGpoMapping('GPU', 'VALORE INESISTENTE', 'MSI ATLAS'), null);
 // 7. normalizzazione valore (nbsp, trattini tipografici, spazi doppi)
 assert.equal(findGpoMapping('GPU', 'RTX 5070  12GB–GDDR7'.replace('–', ' '), 'MSI SENTINEL').ean, 'EAN-MSI-5070');
 
-console.log('gpo-mapping-scope: scope MSI/globale, alias variabili, fallback con avviso — PASS');
+// --- livello build: stesso testo, pezzo MSI diverso a seconda della build ---
+__setCache([
+  ...rows,
+  { id: 10, variable: 'MSI GPU', variant_value: 'RTX 5070 12GB GDDR7 TRIO', ean: 'EAN-MSI-LINEA', component_name: 'fallback di linea', supplier: 'ABACO', updated_at: '2026-09-19T00:00:00Z' },
+  { id: 11, variable: 'MSI CHIMERA::GPU', variant_value: 'RTX 5070 12GB GDDR7 TRIO', ean: 'EAN-MSI-TRIO', component_name: 'MSI RTX 5070 Gaming Trio OC', supplier: 'ABACO', updated_at: '2026-09-19T00:00:00Z' },
+  { id: 12, variable: 'MSI FALCON::GPU', variant_value: 'RTX 5070 12GB GDDR7 TRIO', ean: 'EAN-MSI-VENTUS', component_name: 'MSI RTX 5070 Ventus 2X OC', supplier: 'BREVI', updated_at: '2026-09-19T00:00:00Z' }
+]);
+
+const chimera = findGpoMapping('GPU', 'RTX 5070 12GB GDDR7 TRIO', 'MSI CHIMERA');
+assert.equal(chimera.ean, 'EAN-MSI-TRIO');
+assert.equal(chimera.scope, 'MSI CHIMERA');
+const falcon = findGpoMapping('GPU', 'RTX 5070 12GB GDDR7 TRIO', 'MSI FALCON');
+assert.equal(falcon.ean, 'EAN-MSI-VENTUS');
+// build MSI senza riga dedicata: scende al livello di linea, non alla globale
+const altraBuild = findGpoMapping('GPU', 'RTX 5070 12GB GDDR7 TRIO', 'MSI ATLAS');
+assert.equal(altraBuild.ean, 'EAN-MSI-LINEA');
+assert.equal(altraBuild.scope, 'MSI');
+assert.equal(altraBuild.scopeFallback, false);
+// una build Minimal non vede nessuna delle tre righe MSI
+assert.equal(findGpoMapping('GPU', 'RTX 5070 12GB GDDR7 TRIO', 'PC GAMING REX'), null);
+
+console.log('gpo-mapping-scope: scope build/linea/globale, alias variabili, fallback con avviso — PASS');

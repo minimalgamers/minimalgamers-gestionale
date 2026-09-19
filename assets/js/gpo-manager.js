@@ -206,6 +206,11 @@ function resolveVariantTypeFromKeyAndValue(key, value) {
         componentType = 'PSU';
     } else if (upperKey.includes('MONITOR')) {
         componentType = 'MONITOR';
+    // Tipi introdotti con i bundle SETUP (19/09/2026): sedia e scrivania da gaming.
+    } else if (upperKey.includes('SEDIA') || upperKey.includes('POLTRONA')) {
+        componentType = 'SEDIA';
+    } else if (upperKey.includes('SCRIVANIA') || upperKey.includes('DESK')) {
+        componentType = 'SCRIVANIA';
     } else if (upperKey.includes('COOLER') || upperKey.includes('DISSIPATORE') || upperKey.includes('RAFFREDDAMENTO')) {
         componentType = 'COOLER';
     } else if (isSsdAddon) {

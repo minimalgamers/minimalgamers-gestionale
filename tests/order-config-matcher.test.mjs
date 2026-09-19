@@ -76,7 +76,7 @@ assert.equal(renamedBundle.matchSource, 'product_id');
 assert.equal(identifyPCConfigFromConfigs('PRODOTTO NON MAPPATO', configs, true, 999), null);
 assert.equal(Object.isFrozen(PRODUCT_ID_CONFIG_KEYS), true);
 assert.equal(Object.isFrozen(CONFIG_KEY_ALIASES), true);
-assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 67);
+assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 69);
 
 // Nuove build Minimal (fase 2E, 18/09/2026): id stabile -> chiave config.
 const newBuildVolt = identifyPCConfigFromConfigs(
@@ -102,6 +102,8 @@ assert.equal(msiOmega.configKey, 'MSI OMEGA');
 assert.equal(msiOmega.matchSource, 'product_id');
 assert.equal(PRODUCT_ID_CONFIG_KEYS['11192508547415'], 'MSI VIPER');
 assert.equal(PRODUCT_ID_CONFIG_KEYS['11192508645719'], 'MSI BUNDLE BASTION');
+assert.equal(PRODUCT_ID_CONFIG_KEYS['11192864735575'], 'SETUP VOLT');
+assert.equal(PRODUCT_ID_CONFIG_KEYS['11192864768343'], 'SETUP SINNER');
 
 // MSI NEBULA: il record storico del DB si chiama 'NEBULA'.
 const legacyNebulaConfigs = {
@@ -176,4 +178,4 @@ for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KE
   assert.equal(result.isFallback, false);
 }
 
-console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 67/67 PASS');
+console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 69/69 PASS');

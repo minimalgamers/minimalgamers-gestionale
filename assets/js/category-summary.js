@@ -11,7 +11,7 @@
     // ordine preferito delle categorie (quelle non elencate vanno in fondo, alfabetiche)
     const TYPE_ORDER = [
         'CPU', 'GPU', 'MOBO', 'RAM', 'SSD', 'SSD ADDON', 'HDD', 'PSU',
-        'COOLER', 'CASE', 'MONITOR', 'KIT GAMING'
+        'COOLER', 'CASE', 'MONITOR', 'KIT GAMING', 'SEDIA', 'SCRIVANIA'
     ];
 
     // colore per categoria (riusa la palette del tool)
@@ -20,7 +20,8 @@
         const map = {
             'CPU': '#3498db', 'GPU': '#9b59b6', 'MOBO': '#e67e22', 'RAM': '#f39c12',
             'SSD': '#1abc9c', 'SSD ADDON': '#16a085', 'HDD': '#16a085', 'PSU': '#e74c3c',
-            'COOLER': '#2980b9', 'CASE': '#2ecc71', 'MONITOR': '#8e44ad', 'KIT GAMING': '#d35400'
+            'COOLER': '#2980b9', 'CASE': '#2ecc71', 'MONITOR': '#8e44ad', 'KIT GAMING': '#d35400',
+            'SEDIA': '#c0392b', 'SCRIVANIA': '#8e6e53'
         };
         return map[t] || '#95a5a6';
     }

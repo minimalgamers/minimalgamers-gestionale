@@ -3405,6 +3405,16 @@ function identifyComponentTypeFromValue(value) {
         upperValue.includes('SCHERMO')) {
         return 'MONITOR';
     }
+
+
+    // Tipi introdotti con i bundle SETUP (19/09/2026).
+    if (upperValue.includes('SEDIA') || upperValue.includes('POLTRONA')) {
+        return 'SEDIA';
+    }
+
+    if (upperValue.includes('SCRIVANIA') || upperValue.includes('DESK')) {
+        return 'SCRIVANIA';
+    }
     
     
     if (upperValue.includes('KIT') || 
@@ -9544,7 +9554,9 @@ function showAddComponentToConfigPopup(configKey) {
         { type: 'COOLER', color: '#3498db', icon: '❄️' },
         { type: 'CASE', color: '#9b59b6', icon: '📦' },
         { type: 'MONITOR', color: '#1abc9c', icon: '🖥️' },
-        { type: 'KIT GAMING', color: '#34495e', icon: '🎮' }
+        { type: 'KIT GAMING', color: '#34495e', icon: '🎮' },
+        { type: 'SEDIA', color: '#c0392b', icon: '🪑' },
+        { type: 'SCRIVANIA', color: '#8e6e53', icon: '🪵' }
     ];
     
     
@@ -10289,7 +10301,9 @@ async function searchConfigComponents(query, componentType, configKey, component
             'CASE': 'Case_PC',
             'SCHEDA AGGIUNTIVA': 'Scheda_Aggiuntiva',
             'MONITOR': 'Scheda_Aggiuntiva',
-            'KIT GAMING': 'Scheda_Aggiuntiva'
+            'KIT GAMING': 'Scheda_Aggiuntiva',
+            'SEDIA': 'Scheda_Aggiuntiva',
+            'SCRIVANIA': 'Scheda_Aggiuntiva'
         };
         
         const dbType = typeMap[componentType] || '';
@@ -10520,7 +10534,9 @@ function showAddNewConfigPopup() {
         { type: 'COOLER', value: '' },
         { type: 'CASE', value: '' },
         { type: 'MONITOR', value: '' },
-        { type: 'KIT GAMING', value: '' }
+        { type: 'KIT GAMING', value: '' },
+        { type: 'SEDIA', value: '' },
+        { type: 'SCRIVANIA', value: '' }
     ];
     
     let componentsHtml = '';
@@ -10537,6 +10553,8 @@ function showAddNewConfigPopup() {
         else if (comp.type === 'CASE') compColor = '#9b59b6';
         else if (comp.type === 'MONITOR') compColor = '#1abc9c';
         else if (comp.type === 'KIT GAMING') compColor = '#34495e';
+        else if (comp.type === 'SEDIA') compColor = '#c0392b';
+        else if (comp.type === 'SCRIVANIA') compColor = '#8e6e53';
         
         componentsHtml += `
             <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 12px; border: 1px solid rgba(255,255,255,0.1); position: relative;">

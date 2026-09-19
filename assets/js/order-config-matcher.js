@@ -74,7 +74,10 @@
         '11192508776791': 'MSI LEVIATHAN',
         '11192508809559': 'MSI HYDRA',
         '11192508842327': 'MSI ATLAS',
-        '10487168041303': 'MSI OMEGA'
+        '10487168041303': 'MSI OMEGA',
+        // Bundle SETUP (promo 19/09/2026): PC + monitor + sedia + scrivania.
+        '11192864735575': 'SETUP VOLT',
+        '11192864768343': 'SETUP SINNER'
     });
 
     // Compatibilita temporanea durante la rinomina del record #47 nel database.

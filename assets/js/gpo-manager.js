@@ -31,7 +31,8 @@ async function loadGpoMappingsGlobal() {
 // servirebbe entrambe le linee (28 testi di variante sono identici tra set
 // Minimal e set MSI) e l'ordine MSI riceverebbe il pezzo scelto per la Minimal.
 const GPO_LINE_SCOPES = Object.freeze([
-    { prefix: 'MSI', test: /^\s*MSI\b/i }
+    { prefix: 'MSI', test: /^\s*MSI\b/i },
+    { prefix: 'DEEPCOOL', test: /^\s*DEEPCOOL\b/i }
 ]);
 
 function resolveGpoLineScope(configKey) {

@@ -22,6 +22,9 @@
         '8458647011671': 'PC GAMING HELLSTORM',
         '10239011455319': 'PC GAMING STRIKE',
         '10358321119575': 'PC GAMING VORTEX',
+        // STREAM era l'unica build attiva senza mappatura product_id: gli ordini
+        // ricadevano sul match per titolo. Aggiunta il 21/09/2026.
+        '8949881602391': 'PC GAMING STREAM',
         '9980815475031': 'PC GAMING CRIMSON',
         '9018276512087': 'PC GAMING HECTORE',
         '10291800277335': 'PC GAMING REX',
@@ -277,5 +280,5 @@
         PRODUCT_ID_CONFIG_KEYS,
         CONFIG_KEY_ALIASES
     };
-    console.log('✅ OrderConfigMatcher v30 attivo (product_id + alias rinomina + fallback titolo + 15 nuove build Minimal + 24 build MSI + 4 build DEEPCOOL)');
+    console.log('✅ OrderConfigMatcher v31 attivo (74 product_id mappati: Minimal + bundle + SETUP + 24 MSI + 4 DEEPCOOL)');
 })(window);

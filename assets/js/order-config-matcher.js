@@ -77,7 +77,13 @@
         '10487168041303': 'MSI OMEGA',
         // Bundle SETUP (promo 19/09/2026): PC + monitor + sedia + scrivania.
         '11192864735575': 'SETUP VOLT',
-        '11192864768343': 'SETUP SINNER'
+        '11192864768343': 'SETUP SINNER',
+        // Linea partner DEEPCOOL (20/09/2026): guscio DeepCool su basi Minimal,
+        // in bozza su Shopify fino a foto e set GPO dedicati.
+        '11193690718551': 'DEEPCOOL CRYO',
+        '11193690784087': 'DEEPCOOL GLACIER',
+        '11193690816855': 'DEEPCOOL MONOLITH',
+        '11193690849623': 'DEEPCOOL AURORA'
     });
 
     // Compatibilita temporanea durante la rinomina del record #47 nel database.
@@ -271,5 +277,5 @@
         PRODUCT_ID_CONFIG_KEYS,
         CONFIG_KEY_ALIASES
     };
-    console.log('✅ OrderConfigMatcher v29 attivo (product_id + alias rinomina + fallback titolo + 15 nuove build Minimal + 24 build MSI)');
+    console.log('✅ OrderConfigMatcher v30 attivo (product_id + alias rinomina + fallback titolo + 15 nuove build Minimal + 24 build MSI + 4 build DEEPCOOL)');
 })(window);

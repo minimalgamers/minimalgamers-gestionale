@@ -76,7 +76,7 @@ assert.equal(renamedBundle.matchSource, 'product_id');
 assert.equal(identifyPCConfigFromConfigs('PRODOTTO NON MAPPATO', configs, true, 999), null);
 assert.equal(Object.isFrozen(PRODUCT_ID_CONFIG_KEYS), true);
 assert.equal(Object.isFrozen(CONFIG_KEY_ALIASES), true);
-assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 73);
+assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 74);
 
 // Nuove build Minimal (fase 2E, 18/09/2026): id stabile -> chiave config.
 const newBuildVolt = identifyPCConfigFromConfigs(
@@ -108,6 +108,17 @@ assert.equal(PRODUCT_ID_CONFIG_KEYS['11193690718551'], 'DEEPCOOL CRYO');
 assert.equal(PRODUCT_ID_CONFIG_KEYS['11193690784087'], 'DEEPCOOL GLACIER');
 assert.equal(PRODUCT_ID_CONFIG_KEYS['11193690816855'], 'DEEPCOOL MONOLITH');
 assert.equal(PRODUCT_ID_CONFIG_KEYS['11193690849623'], 'DEEPCOOL AURORA');
+assert.equal(PRODUCT_ID_CONFIG_KEYS['8949881602391'], 'PC GAMING STREAM');
+
+// Nessun product_id duplicato e nessuna chiave configurazione duplicata:
+// un doppione qui farebbe attribuire i componenti alla build sbagliata.
+{
+  const ids = Object.keys(PRODUCT_ID_CONFIG_KEYS);
+  assert.equal(new Set(ids).size, ids.length, 'product_id duplicati nella mappa');
+  const keys = Object.values(PRODUCT_ID_CONFIG_KEYS);
+  assert.equal(new Set(keys).size, keys.length, 'chiavi configurazione duplicate nella mappa');
+  for (const id of ids) assert.match(id, /^\d{10,}$/, `product_id non numerico: ${id}`);
+}
 
 // MSI NEBULA: il record storico del DB si chiama 'NEBULA'.
 const legacyNebulaConfigs = {
@@ -182,4 +193,4 @@ for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KE
   assert.equal(result.isFallback, false);
 }
 
-console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 73/73 PASS');
+console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 74/74 + unicita PASS');

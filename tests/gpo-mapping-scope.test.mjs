@@ -21,6 +21,8 @@ const { findGpoMapping, resolveGpoLineScope, splitGpoScopedVariable, __setCache 
 assert.equal(resolveGpoLineScope('MSI ORION'), 'MSI');
 assert.equal(resolveGpoLineScope('MSI BUNDLE BASTION'), 'MSI');
 assert.equal(resolveGpoLineScope('MSI NEBULA'), 'MSI');
+assert.equal(resolveGpoLineScope('DEEPCOOL CRYO'), 'DEEPCOOL');
+assert.equal(resolveGpoLineScope('DEEPCOOL AURORA'), 'DEEPCOOL');
 assert.equal(resolveGpoLineScope('PC GAMING REX'), null);
 assert.equal(resolveGpoLineScope('MIRAGE'), null);
 assert.equal(resolveGpoLineScope(null), null);
@@ -36,6 +38,10 @@ assert.deepEqual(split('  msi   scheda  madre '), { scope: 'MSI', base: 'SCHEDA 
 assert.deepEqual(split('GPU'), { scope: null, base: 'GPU' });
 // "MSI" da solo non e' uno scope: resta una variabile globale
 assert.deepEqual(split('MSI'), { scope: null, base: 'MSI' });
+assert.deepEqual(split('DEEPCOOL CASE'), { scope: 'DEEPCOOL', base: 'CASE' });
+// "DEEPCOOL" da solo resta una variabile globale, non uno scope vuoto
+assert.deepEqual(split('DEEPCOOL'), { scope: null, base: 'DEEPCOOL' });
+assert.deepEqual(split('DEEPCOOL AURORA::DISSIPATORE'), { scope: 'DEEPCOOL AURORA', base: 'DISSIPATORE' });
 // livello build, separatore "::"
 assert.deepEqual(split('MSI CHIMERA::GPU'), { scope: 'MSI CHIMERA', base: 'GPU' });
 assert.deepEqual(split(' msi chimera :: gpu '), { scope: 'MSI CHIMERA', base: 'GPU' });
@@ -110,4 +116,42 @@ assert.equal(altraBuild.scopeFallback, false);
 // una build Minimal non vede nessuna delle tre righe MSI
 assert.equal(findGpoMapping('GPU', 'RTX 5070 12GB GDDR7 TRIO', 'PC GAMING REX'), null);
 
-console.log('gpo-mapping-scope: scope build/linea/globale, alias variabili, fallback con avviso — PASS');
+// --- isolamento fra le tre linee: Minimal, MSI e DEEPCOOL ---
+// Stesso identico testo di variante, tre pezzi diversi a seconda della linea.
+// Un errore qui farebbe arrivare in officina il case sbagliato.
+__setCache([
+  { id: 20, variable: 'CASE', variant_value: 'CASE DOPPIA CAMERA', ean: 'EAN-CASE-MINIMAL', component_name: 'Minimal case', supplier: 'NOUA', updated_at: '2026-09-01T00:00:00Z' },
+  { id: 21, variable: 'MSI CASE', variant_value: 'CASE DOPPIA CAMERA', ean: 'EAN-CASE-MSI', component_name: 'MSI MAG Forge', supplier: 'ESPRINET', updated_at: '2026-09-19T00:00:00Z' },
+  { id: 22, variable: 'DEEPCOOL CASE', variant_value: 'CASE DOPPIA CAMERA', ean: 'EAN-CASE-DEEPCOOL', component_name: 'DeepCool CL6600', supplier: 'ABACO', updated_at: '2026-09-20T00:00:00Z' },
+  { id: 23, variable: 'DEEPCOOL AURORA::DISSIPATORE', variant_value: 'AIO 360', ean: 'EAN-LT360-VISION', component_name: 'DeepCool LT360 VISION', supplier: 'ABACO', updated_at: '2026-09-20T00:00:00Z' },
+  { id: 24, variable: 'DEEPCOOL DISSIPATORE', variant_value: 'AIO 360', ean: 'EAN-AIO-LINEA', component_name: 'AIO 360 di linea', supplier: 'ABACO', updated_at: '2026-09-20T00:00:00Z' },
+  { id: 25, variable: 'DISSIPATORE', variant_value: 'AIO 360', ean: 'EAN-AIO-GLOBALE', component_name: 'AIO 360 generico', supplier: 'ACTION', updated_at: '2026-09-01T00:00:00Z' }
+]);
+
+// ogni linea pesca il proprio case
+assert.equal(findGpoMapping('CASE', 'CASE DOPPIA CAMERA', 'PC GAMING SINNER').ean, 'EAN-CASE-MINIMAL');
+assert.equal(findGpoMapping('CASE', 'CASE DOPPIA CAMERA', 'MSI CHIMERA').ean, 'EAN-CASE-MSI');
+assert.equal(findGpoMapping('CASE', 'CASE DOPPIA CAMERA', 'DEEPCOOL CRYO').ean, 'EAN-CASE-DEEPCOOL');
+assert.equal(findGpoMapping('CASE', 'CASE DOPPIA CAMERA', 'DEEPCOOL CRYO').scope, 'DEEPCOOL');
+// senza configKey resta il comportamento storico: riga globale
+assert.equal(findGpoMapping('CASE', 'CASE DOPPIA CAMERA').ean, 'EAN-CASE-MINIMAL');
+
+// cascata build -> linea -> globale dentro DEEPCOOL
+const aurora = findGpoMapping('DISSIPATORE', 'AIO 360', 'DEEPCOOL AURORA');
+assert.equal(aurora.ean, 'EAN-LT360-VISION');
+assert.equal(aurora.scope, 'DEEPCOOL AURORA');
+assert.equal(aurora.scopeFallback, false);
+const glacier = findGpoMapping('DISSIPATORE', 'AIO 360', 'DEEPCOOL GLACIER');
+assert.equal(glacier.ean, 'EAN-AIO-LINEA');
+assert.equal(glacier.scope, 'DEEPCOOL');
+assert.equal(glacier.scopeFallback, false);
+// una build MSI non deve mai vedere le righe DEEPCOOL: cade sulla globale con avviso
+warnings.length = 0;
+const msiDiss = findGpoMapping('DISSIPATORE', 'AIO 360', 'MSI ATLAS');
+assert.equal(msiDiss.ean, 'EAN-AIO-GLOBALE');
+assert.equal(msiDiss.scopeFallback, true);
+assert.equal(warnings.length, 1);
+// e una build Minimal nemmeno
+assert.equal(findGpoMapping('DISSIPATORE', 'AIO 360', 'PC GAMING ZEUS').ean, 'EAN-AIO-GLOBALE');
+
+console.log('gpo-mapping-scope: scope build/linea/globale su Minimal, MSI e DEEPCOOL, alias variabili, fallback con avviso — PASS');

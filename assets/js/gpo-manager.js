@@ -1,7 +1,5 @@
 
 
-
-
 const GPO_MAPPING_API_URL_GLOBAL = 'api_gateway/db_bridge/components_service/endpoint/api-gpo-mapping.php';
 
 let gpoMappingsCache = [];
@@ -82,14 +80,34 @@ function normalizeGpoVariableName(value) {
     return normalized;
 }
 
+// Alias storici dei valori di variante (21/09/2026).
+// Su Shopify la parola "HDD" e' stata tolta dalle 201 varianti della sezione
+// ARCHIVIAZIONE AGGIUNTIVA: "HDD 1TB AGGIUNTIVO" e' diventato "1TB AGGIUNTIVO".
+// Gli ordini registrati prima di oggi, e le righe di mappatura gia' presenti
+// nel DB, portano ancora il testo vecchio. Riducendo le due forme alla stessa
+// chiave una sola riga di mappatura continua a servire prima e dopo il rename,
+// senza dover toccare il database ne' perdere lo storico ordini.
+const GPO_LEGACY_VALUE_ALIASES = Object.freeze([
+    { pattern: /^(?:HDD|HARD\s*DISK)\s+(?=\d+\s*TB\b)/, replacement: '' }
+]);
+
+function applyGpoLegacyValueAliases(normalized) {
+    let value = normalized;
+    for (const alias of GPO_LEGACY_VALUE_ALIASES) {
+        value = value.replace(alias.pattern, alias.replacement);
+    }
+    return value;
+}
+
 function normalizeGpoVariantValue(value) {
-    return String(value || '')
+    const normalized = String(value || '')
         .replace(/ /g, ' ')
         .replace(/[‐‑‒–—―]/g, '-')
         .replace(/\s*-\s*/g, ' - ')
         .replace(/\s+/g, ' ')
         .trim()
         .toUpperCase();
+    return applyGpoLegacyValueAliases(normalized);
 }
 
 // configKey = chiave della configurazione dell'ordine (es. "MSI ORION", "REX").
@@ -155,6 +173,7 @@ if (typeof window !== 'undefined') {
     window.resolveGpoLineScope = resolveGpoLineScope;
     window.splitGpoScopedVariable = splitGpoScopedVariable;
     window.normalizeGpoScopeName = normalizeGpoScopeName;
+    window.normalizeGpoVariantValue = normalizeGpoVariantValue;
     window.findGpoMapping = findGpoMapping;
 }
 
@@ -162,7 +181,8 @@ if (typeof window !== 'undefined') {
 // la scelta gratuita che non aggiunge nessun pezzo. Non e' un componente da
 // ordinare, quindi non deve mai sostituire CASE/COOLER/SSD ADDON della distinta.
 // Esempi: "VENTOLE INCLUSE NEL CASE", "SENZA SCATOLE COMPONENTI",
-// "SOLO ETHERNET (SENZA WI-FI)", "NESSUN SOFTWARE AGGIUNTIVO", "NESSUN HDD AGGIUNTIVO".
+// "SOLO ETHERNET (SENZA WI-FI)", "NESSUN SOFTWARE AGGIUNTIVO",
+// "NESSUNA ARCHIVIAZIONE AGGIUNTIVA" (era "NESSUN HDD AGGIUNTIVO").
 const GPO_BASE_NO_COMPONENT_VALUE = /^\s*(NESSUN[AO]?\b|SENZA\b|SOLO\s+ETHERNET|VENTOLE\s+INCLUSE)/i;
 
 function isGpoBaseNoComponentValue(value) {

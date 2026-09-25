@@ -54,6 +54,7 @@ mappatura dedicata, non un errore bloccante.
 ```bash
 node tests/order-config-matcher.test.mjs
 node tests/gpo-mapping-scope.test.mjs
+node tests/config-components.test.mjs
 ```
 
 Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verificano

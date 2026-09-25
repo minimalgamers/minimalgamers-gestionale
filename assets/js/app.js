@@ -1326,6 +1326,11 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
                 ean = modifiedEan;
                 name = modifiedName;
                 supplier = modifiedSupplier;
+            } else if (row.dataset.accAuto === '1') {
+                // riga che mostra l'accoppiamento automatico: nel database resta il pezzo manuale
+                ean = componentSpan?.dataset.manEan || componentSpan?.dataset.originalValue || '';
+                name = componentSpan?.dataset.manName || '';
+                supplier = supplierBadge?.dataset.manSupplier || '';
             } else {
                 
                 ean = componentSpan?.dataset.ean || componentSpan?.dataset.originalValue || '';
@@ -3516,7 +3521,9 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
     
     if (savedComponents.length > 0) {
         
-        renderComponentsFromDatabase(orderId, savedComponents, allItems);
+        await renderComponentsFromDatabase(orderId, savedComponents, allItems);
+        // Accoppiamento automatico (26/09/2026): interruttore Manuale/Automatico e utile della build
+        if (window.AccoppiamentoAuto) window.AccoppiamentoAuto.decora(orderId, { configKey, variants, allItems });
         return;
     }
     
@@ -3954,6 +3961,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
     
     
     await saveAllCurrentComponentsToDB(orderId, null, null, null, null, false);
+    if (window.AccoppiamentoAuto) window.AccoppiamentoAuto.decora(orderId, { configKey, variants, allItems });
 }
 
 
@@ -8008,6 +8016,7 @@ document.getElementById('component-search-results')?.addEventListener('click', a
                 
                 componentSpan.dataset.ean = newEan;
                 componentSpan.dataset.originalValue = newEan;
+                if (window.AccoppiamentoAuto) window.AccoppiamentoAuto.pezzoModificato(orderId, componentType);
                 
                 
                 const savedComponents = processedOrdersCache[orderId]?.components || [];

@@ -55,8 +55,22 @@ mappatura dedicata, non un errore bloccante.
 node tests/order-config-matcher.test.mjs
 node tests/gpo-mapping-scope.test.mjs
 node tests/config-components.test.mjs
+node tests/accoppiamento-auto.test.mjs
 ```
 
 Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verificano
 la mappa dei `product_id` (unicità compresa) e la cascata degli scope GPO.
 Vanno eseguiti prima di ogni merge.
+
+## Accoppiamento automatico
+
+In ogni ordine l'interruttore **Manuale / Automatico** mostra, per ogni pezzo, l'alternativa
+scelta dal motore dei listini (fornitori prioritari al costo più basso, varianti del cliente
+sempre rispettate); il pulsante ↺ riporta il singolo pezzo al manuale. Il database conserva
+sempre il pezzo manuale. Sotto ogni build c'è l'utile stimato: prezzo del PC più le opzioni
+collegate, diviso 1,22, meno il 4,5% di commissioni, meno il costo dei pezzi.
+
+I dati arrivano da `https://minimal-gamers-listini.pages.dev/accoppiamento.bin`, prodotto dal
+Buyer Desk dei listini e cifrato con la password del gestionale: i costi dei fornitori non
+sono mai in chiaro né in questo repository (la fixture dei test usa dati inventati).
+Codice in `assets/js/accoppiamento-auto.js`.

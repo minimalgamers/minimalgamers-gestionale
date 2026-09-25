@@ -555,14 +555,60 @@ async function dbDeleteGpoMapping(id) {
 // ============================================================
 // STANDARD CONFIGS
 // ============================================================
+// v33 (25/09/2026): la distinta base si legge a pagine da 1000 righe.
+//      Supabase restituisce al massimo 1000 righe per richiesta: con 2.312 righe
+//      in standard_config_components 35 configurazioni risultavano VUOTE (tutte
+//      le nuove build Minimal, 13 MSI, i due SETUP, SINNER, MADAME, MIRAGE e il
+//      bundle RTX 5070), quindi gli ordini di quelle build non avevano componenti.
+//      Inoltre il 20/09 ogni distinta e' stata salvata 4 volte (righe anche
+//      mescolate): le copie identiche si contano una volta sola.
+//      Nessuna riga viene cancellata dal database.
+async function dbFetchAllRows(table, columns = '*', orderBy = 'id') {
+    const PAGE_SIZE = 1000;
+    const rows = [];
+    for (let from = 0; from <= 100000; from += PAGE_SIZE) {
+        const { data, error } = await supabase.from(table).select(columns)
+            .order(orderBy, { ascending: true })
+            .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+    }
+    return rows;
+}
+
+// Distinta salvata N volte (anche con le righe mescolate, come il 20/09):
+// ogni riga compare lo stesso numero di volte. Si divide per il massimo comun
+// divisore delle occorrenze e si tengono le righe nell'ordine della prima comparsa.
+// [A,B,A,B,A,B] -> [A,B]; [A,F,F,A,F,F] -> [A,F,F]; [A,B,B] resta com'e'.
+function dbCollapseCopies(list, keyOf) {
+    const counts = new Map();
+    list.forEach(item => counts.set(keyOf(item), (counts.get(keyOf(item)) || 0) + 1));
+    if (counts.size < 2) return list;
+    const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+    const copies = [...counts.values()].reduce(gcd);
+    if (copies < 2) return list;
+    const kept = new Map();
+    return list.filter(item => {
+        const key = keyOf(item);
+        const n = kept.get(key) || 0;
+        if (n >= counts.get(key) / copies) return false;
+        kept.set(key, n + 1);
+        return true;
+    });
+}
+
 async function dbGetConfigs() {
     const { data: configs } = await supabase.from('standard_configs').select('*');
-    const { data: components } = await supabase.from('standard_config_components').select('*');
+    const components = await dbFetchAllRows('standard_config_components');
+    const byConfig = {};
+    components.forEach(c => { (byConfig[c.config_id] = byConfig[c.config_id] || []).push(c); });
+    const rowKey = c => [c.component_type || '', c.ean_value || '', c.supplier || ''].join('\u0001');
     const result = {};
     if (configs) {
         configs.forEach(cfg => {
-            const cfgComponents = (components || [])
-                .filter(c => c.config_id === cfg.id)
+            const cfgComponents = dbCollapseCopies(byConfig[cfg.id] || [], rowKey)
                 .map(c => ({
                     type: c.component_type || '',
                     value: c.ean_value || '',

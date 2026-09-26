@@ -1,16 +1,16 @@
 // ============================================================
-// ACCOPPIAMENTO AUTOMATICO v1 (26/09/2026)
+// ACCOPPIAMENTO AUTOMATICO v2 (26/09/2026)
 // ------------------------------------------------------------
-// Accanto all'accoppiamento manuale (che resta com'e'), ogni ordine elaborato ha
-// l'interruttore «Manuale / Automatico». In automatico ogni pezzo diventa quello che
-// il motore dei listini ha scelto oggi (fornitori con le regole di GPU Watch, scelte
-// del cliente sempre rispettate); ogni pezzo si puo' riportare al manuale con ↺.
-// Sotto la build: prezzo di vendita, costo dei pezzi e utile (verde / rosso).
+// Due pagine separate (Antonio 26/09):
+//   * «Ordini» (manuale): resta com'e'. Sotto ogni build c'e' il riquadro dell'utile con i
+//     costi dei pezzi manuali e gli avvisi quando l'ordine non corrisponde alla distinta.
+//   * «Automatico»: per ogni ordine da spedire tutti i pezzi scelti dal motore dei listini
+//     (fornitori con le regole di GPU Watch, scelte del cliente e titolo del SUO ordine sempre
+//     rispettati, alimentatore deciso dalla scheda video), costi, utile e riepilogo fornitori.
 //
-// I dati arrivano cifrati dal sito dei listini (accoppiamento.bin) e si aprono con la
-// password del gestionale: i costi dei fornitori non stanno mai in chiaro.
-// Il database resta sempre con il pezzo MANUALE: l'automatico cambia solo la vista,
-// il riepilogo fornitori e le esportazioni.
+// I dati arrivano cifrati dal sito dei listini (accoppiamento.bin, ogni 30 minuti con il
+// Buyer Desk) e si aprono con la password del gestionale. Nessuna scrittura nel database:
+// la pagina Automatico non cambia gli ordini e non ordina nulla.
 // ============================================================
 (function () {
     'use strict';
@@ -19,9 +19,10 @@
     const IVA = 1.22;
     const COMMISSIONI = 0.045;
     const QUOTA_SRL = 0.70;
-    const K_MODO = 'accoppiamento_modo';          // { orderId: 'auto' }
-    const K_RIGHE = 'accoppiamento_righe_manuali'; // { orderId: { TIPO: true } }
-    const K_COSTI = 'accoppiamento_costi_manuali'; // { 'TIPO|CODICE': 12.3 }
+    const K_COSTI = 'accoppiamento_costi_manuali'; // { 'TIPO|CODICE': 12.3 } costi netti inseriti a mano
+    const K_FISSI = 'accoppiamento_costi_fissi';   // { id costo fisso | 'TIPO|testo': 12.3 }
+    const K_FILTRO = 'accoppiamento_filtro';
+    const K_ESCLUSI = 'accoppiamento_esclusi_riepilogo';
 
     // Tipi del gestionale -> tipi del motore (stessa tabella di accoppiamento/motore.py)
     const TIPI = {
@@ -38,8 +39,9 @@
     // ---------------------------------------------------------------- utilita'
     const leggiLS = (k, def) => { try { return JSON.parse(localStorage.getItem(k) || '') || def; } catch (e) { return def; } };
     const scriviLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage pieno o bloccato */ } };
-    const eur = (x) => (x == null || isNaN(x)) ? '—' : x.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    const eur = (x) => (x == null || isNaN(x)) ? '—' : Number(x).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const tonda = (x) => Math.round(x * 100) / 100;
 
     function chiave(x) {
         return String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^0+/, '');
@@ -70,7 +72,7 @@
     }
 
     async function carica(forza) {
-        const vecchio = Date.now() - stato.caricatoIl > 30 * 60 * 1000;
+        const vecchio = Date.now() - stato.caricatoIl > 10 * 60 * 1000;
         if (stato.promessa && !forza && !vecchio) return stato.promessa;
         stato.promessa = (async () => {
             const pwd = password();
@@ -90,7 +92,7 @@
         return stato.promessa;
     }
 
-    // ---------------------------------------------------------------- ricerca voce
+    // ---------------------------------------------------------------- ricerca voce (pagina manuale)
     function lineaDi(dati, configKey) {
         if (dati && dati.linee && dati.linee[configKey]) return dati.linee[configKey];
         const s = typeof resolveGpoLineScope === 'function' ? resolveGpoLineScope(configKey) : null;
@@ -167,7 +169,7 @@
     // ---------------------------------------------------------------- vendita e utile
     function utile(prezzo, costo) {
         const lordo = prezzo / IVA - COMMISSIONI * prezzo - costo;
-        return { lordo: Math.round(lordo * 100) / 100, srl: Math.round((lordo > 0 ? QUOTA_SRL * lordo : lordo) * 100) / 100 };
+        return { lordo: tonda(lordo), srl: tonda(lordo > 0 ? QUOTA_SRL * lordo : lordo) };
     }
 
     function proprieta(li) {
@@ -203,155 +205,81 @@
             }
         }
         const base = parseFloat(pc.price) || 0;
-        return { totale: Math.round((base + opzioni) * 100) / 100, pc: base, opzioni: Math.round(opzioni * 100) / 100, righeOpzioni };
+        return { totale: tonda(base + opzioni), pc: base, opzioni: tonda(opzioni), righeOpzioni };
     }
 
-    // ---------------------------------------------------------------- stato interruttori
-    const modoOrdine = (id) => (leggiLS(K_MODO, {})[id] === 'auto' ? 'auto' : 'manuale');
-    function impostaModo(id, modo) {
-        const m = leggiLS(K_MODO, {});
-        if (modo === 'auto') m[id] = 'auto'; else delete m[id];
-        scriviLS(K_MODO, m);
-    }
-    const rigaManuale = (id, tipo) => !!(leggiLS(K_RIGHE, {})[id] || {})[tipo];
-    function impostaRigaManuale(id, tipo, manuale) {
-        const m = leggiLS(K_RIGHE, {});
-        m[id] = m[id] || {};
-        if (manuale) m[id][tipo] = true; else delete m[id][tipo];
-        scriviLS(K_RIGHE, m);
-    }
     const costoManualeSalvato = (tipo, ean) => leggiLS(K_COSTI, {})[`${tipo}|${chiave(ean)}`];
 
-    // ---------------------------------------------------------------- vista
+    // ---------------------------------------------------------------- stile
     const COLORI = { PROKS: '#e74c3c', OMEGA: '#9b59b6', 'TIER ONE': '#3498db', AMAZON: '#f39c12', NOUA: '#2ecc71',
         INTEGRATA: '#7f8c8d', MSI: '#d35400', ACTION: '#1abc9c', ABACO: '#16a085', RUNNER: '#e67e22',
-        CASEKING: '#c0392b', FOCELDA: '#8e44ad', 'NAVY BLUE': '#2c3e50' };
+        CASEKING: '#c0392b', FOCELDA: '#8e44ad', 'NAVY BLUE': '#2c3e50', ESPRINET: '#2980b9', BREVI: '#27ae60',
+        MEEMO: '#f1c40f', ALTRO: '#95a5a6', 'FORNITORE LOCALE': '#bdc3c7' };
 
     function stile() {
         if (document.getElementById('accoppiamento-auto-style')) return;
         const st = document.createElement('style');
         st.id = 'accoppiamento-auto-style';
         st.textContent = `
-.acc-barra{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:.8em}
-.acc-switch{display:inline-flex;border:1px solid rgba(255,255,255,.25);border-radius:6px;overflow:hidden}
-.acc-switch button{background:transparent;border:0;color:rgba(255,255,255,.7);padding:3px 10px;cursor:pointer;font-weight:600;font-size:1em}
-.acc-switch button.attivo{background:rgba(46,204,113,.25);color:#2ecc71}
-.acc-switch button[data-modo="manuale"].attivo{background:rgba(93,173,226,.25);color:#5dade2}
-.acc-stato{color:rgba(255,255,255,.6);text-align:right;flex:1}
-.component-row.acc-auto{box-shadow:inset 3px 0 0 #2ecc71;padding-left:5px}
-.component-row.acc-auto.acc-caro{box-shadow:inset 3px 0 0 #e67e22}
-.acc-riporta{background:none;border:0;color:rgba(255,255,255,.55);cursor:pointer;font-size:.9em;padding:0 4px}
-.acc-riporta:hover{color:#fff}
-.acc-utile{margin-top:10px;padding:8px 10px;border-radius:6px;font-size:.82em;line-height:1.6;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.12)}
+.acc-utile{margin-top:10px;padding:8px 10px;border-radius:6px;font-size:.82em;line-height:1.6;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.12);color:#fff}
 .acc-utile.pos{border-color:rgba(46,204,113,.6);background:rgba(46,204,113,.10)}
 .acc-utile.neg{border-color:rgba(231,76,60,.7);background:rgba(231,76,60,.12)}
 .acc-utile.incompleto{border-color:rgba(241,196,15,.7);background:rgba(241,196,15,.08)}
 .acc-utile .riga{display:flex;justify-content:space-between;gap:8px}
 .acc-utile .forte{font-weight:700;font-size:1.1em}
-.acc-utile .pos-t{color:#2ecc71}.acc-utile .neg-t{color:#e74c3c}
-.acc-utile .mancanti{color:#f1c40f;margin-top:4px}
-.acc-utile .mancanti a{color:#f1c40f;cursor:pointer;text-decoration:underline}`;
+.acc-pos{color:#2ecc71}.acc-neg{color:#e74c3c}
+.acc-utile .mancanti,.acc-avvisi{color:#f1c40f;margin-top:4px}
+.acc-utile .mancanti a,.acc-link{color:#f1c40f;cursor:pointer;text-decoration:underline}
+.acc-avvisi{font-size:.85em;line-height:1.5}
+#automatico-container.tab-content{grid-template-columns:1fr;gap:0;padding:12px 16px}
+#automatico-container.tab-content.active{display:block}
+.acc-pagina{color:#fff;max-width:1500px}
+.acc-testa{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px}
+.acc-testa h2{margin:0;font-size:1.3em}
+.acc-testa .acc-info{color:rgba(255,255,255,.75);font-size:.85em;flex:1;min-width:220px}
+.acc-btn{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600;font-size:.85em}
+.acc-btn.attivo{background:rgba(46,204,113,.3);border-color:rgba(46,204,113,.7)}
+.acc-cerca{background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:8px;padding:6px 10px;font-size:.85em;width:110px}
+.acc-totali{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 14px}
+.acc-totale{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.15);border-radius:10px;padding:8px 14px;min-width:150px}
+.acc-totale small{display:block;color:rgba(255,255,255,.65);font-size:.75em}
+.acc-totale b{font-size:1.15em}
+.acc-ordine{background:rgba(0,0,0,.38);border:1px solid rgba(255,255,255,.15);border-radius:12px;padding:12px 14px;margin-bottom:14px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.acc-ordine-testa{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px}
+.acc-ordine-testa .num{font-weight:700;font-size:1.05em}
+.acc-badge{font-size:.72em;padding:2px 8px;border-radius:10px;border:1px solid rgba(255,255,255,.3)}
+.acc-badge.fatto{background:rgba(52,152,219,.25);border-color:rgba(52,152,219,.6)}
+.acc-badge.da-fare{background:rgba(46,204,113,.2);border-color:rgba(46,204,113,.6)}
+.acc-pc-titolo{color:rgba(255,255,255,.85);font-size:.85em;margin:6px 0}
+.acc-tabella{width:100%;border-collapse:collapse;font-size:.8em}
+.acc-tabella th{text-align:left;color:rgba(255,255,255,.6);font-weight:600;border-bottom:1px solid rgba(255,255,255,.2);padding:4px 6px}
+.acc-tabella td{border-bottom:1px solid rgba(255,255,255,.08);padding:5px 6px;vertical-align:top}
+.acc-tabella td.num{text-align:right;white-space:nowrap}
+.acc-forn{display:inline-block;font-size:.8em;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid}
+.acc-cod{font-family:monospace;font-size:.95em;color:rgba(255,255,255,.8);cursor:copy}
+.acc-descr{color:#fff}
+.acc-nota{color:rgba(255,255,255,.55);font-size:.9em}
+.acc-riga-fisso td{color:rgba(255,255,255,.85)}
+.acc-riga-vuota td{color:#f5b041}
+.acc-disp-ok{color:#2ecc71}.acc-disp-conf{color:#f1c40f}.acc-disp-arr{color:#5dade2}
+.acc-riepilogo{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 14px;margin-top:18px}
+.acc-riepilogo h3{margin:0 0 8px;font-size:1.05em}
+.acc-forn-blocco{margin:10px 0}
+.acc-forn-blocco .testa{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.acc-vuoto{color:rgba(255,255,255,.75);padding:20px;background:rgba(0,0,0,.3);border-radius:10px}
+@media (max-width:760px){.acc-tabella .col-cliente,.acc-tabella .col-disp{display:none}}`;
         document.head.appendChild(st);
     }
 
+    // ================================================================ PAGINA MANUALE
     function righe(orderId) {
         return Array.from(document.querySelectorAll(`.component-row[data-order-id="${orderId}"]`));
     }
 
-    // Mette sulla riga il pezzo automatico (salvando il manuale negli attributi data-man-*)
-    function applicaAuto(row, v) {
-        const span = row.querySelector('.component-name-display');
-        const badge = row.querySelector('.supplier-badge-clickable');
-        if (!span || !badge || !v || !v.auto) return;
-        if (row.dataset.accAuto !== '1') {
-            span.dataset.manEan = span.dataset.ean || '';
-            span.dataset.manName = span.textContent || '';
-            badge.dataset.manSupplier = badge.dataset.supplier || '';
-        }
-        const a = v.auto;
-        row.dataset.accAuto = '1';
-        row.dataset.accAutoEan = a.codice;
-        row.classList.add('acc-auto');
-        const man = v.manuale || {};
-        row.classList.toggle('acc-caro', a.costo != null && man.costo != null && a.costo > man.costo + 0.005);
-        span.dataset.ean = a.codice;
-        span.textContent = a.descrizione;
-        span.title = `AUTOMATICO: ${a.fornitore} ${a.codice} · ${eur(a.costo)} · ${a.disponibilita}\n` +
-            `Manuale: ${badge.dataset.manSupplier || '--'} ${span.dataset.manEan}` +
-            (man.costo != null ? ` · ${eur(man.costo)}` : '') + `\nRequisito: ${v.requisito || ''}` +
-            (v.nota ? `\nNote: ${v.nota}` : '');
-        badge.dataset.supplier = a.fornitore;
-        const col = COLORI[a.fornitore] || '#95a5a6';
-        badge.textContent = typeof getSupplierAbbreviation === 'function' ? getSupplierAbbreviation(a.fornitore) : a.fornitore.slice(0, 2);
-        badge.style.background = col + '33';
-        badge.style.color = col;
-        badge.style.borderColor = col + '66';
-        if (!row.querySelector('.acc-riporta')) {
-            const b = document.createElement('button');
-            b.className = 'acc-riporta';
-            b.title = 'Riporta questo pezzo al manuale';
-            b.textContent = '↺';
-            b.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                impostaRigaManuale(row.dataset.orderId, row.dataset.componentType, true);
-                togliAuto(row);
-                aggiornaOrdine(row.dataset.orderId);
-            });
-            badge.parentNode.insertBefore(b, badge);
-        }
-    }
-
-    function togliAuto(row) {
-        if (row.dataset.accAuto !== '1') return;
-        const span = row.querySelector('.component-name-display');
-        const badge = row.querySelector('.supplier-badge-clickable');
-        span.dataset.ean = span.dataset.manEan || '';
-        span.textContent = span.dataset.manName || span.dataset.manEan || '';
-        span.title = `EAN: ${span.dataset.ean}`;
-        const sup = badge.dataset.manSupplier || '';
-        badge.dataset.supplier = sup;
-        const col = COLORI[sup] || '#95a5a6';
-        badge.textContent = sup ? (typeof getSupplierAbbreviation === 'function' ? getSupplierAbbreviation(sup) : sup.slice(0, 2)) : '--';
-        badge.style.background = sup ? col + '33' : 'rgba(149,165,166,0.2)';
-        badge.style.color = sup ? col : '#95a5a6';
-        badge.style.borderColor = sup ? col + '66' : 'rgba(149,165,166,0.4)';
-        delete row.dataset.accAuto;
-        delete row.dataset.accAutoEan;
-        row.classList.remove('acc-auto', 'acc-caro');
-        const b = row.querySelector('.acc-riporta');
-        if (b) b.remove();
-    }
-
-    // valori manuali della riga (anche quando mostra l'automatico)
     function manualeDellaRiga(row) {
         const span = row.querySelector('.component-name-display');
         const badge = row.querySelector('.supplier-badge-clickable');
-        if (row.dataset.accAuto === '1') return { ean: span.dataset.manEan, fornitore: badge.dataset.manSupplier };
         return { ean: span ? span.dataset.ean : '', fornitore: badge ? badge.dataset.supplier : '' };
-    }
-
-    function barra(orderId) {
-        const cont = document.getElementById(`components-${orderId}`);
-        if (!cont) return null;
-        let b = cont.parentNode.querySelector(`.acc-barra[data-order-id="${orderId}"]`);
-        if (!b) {
-            b = document.createElement('div');
-            b.className = 'acc-barra';
-            b.dataset.orderId = orderId;
-            b.innerHTML = `<span class="acc-switch"><button data-modo="manuale">Manuale</button><button data-modo="auto">Automatico</button></span><span class="acc-stato"></span>`;
-            b.querySelectorAll('.acc-switch button').forEach(btn => btn.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                impostaModo(orderId, btn.dataset.modo);
-                if (btn.dataset.modo === 'auto') {                 // ripartendo dall'automatico valgono tutte le righe
-                    const m = leggiLS(K_RIGHE, {}); delete m[orderId]; scriviLS(K_RIGHE, m);
-                }
-                aggiornaOrdine(orderId);
-            }));
-            cont.parentNode.insertBefore(b, cont);
-        }
-        const modo = modoOrdine(orderId);
-        b.querySelectorAll('.acc-switch button').forEach(btn => btn.classList.toggle('attivo', btn.dataset.modo === modo));
-        return b;
     }
 
     function box(orderId) {
@@ -367,55 +295,38 @@
         return el;
     }
 
-    function costoRiga(v, inAuto, tipo, ean) {
-        if (inAuto && v && v.auto && v.auto.costo != null) return { costo: v.auto.costo, fonte: 'auto' };
-        if (v && v.manuale && v.manuale.costo != null) return { costo: v.manuale.costo, fonte: 'listino' };
-        const salvato = costoManualeSalvato(tipo, ean);
-        if (salvato != null) return { costo: salvato, fonte: 'inserito' };
-        if (v && v.auto && v.auto.costo != null) return { costo: v.auto.costo, fonte: 'stima' };
-        return { costo: null, fonte: null };
+    // PC accoppiato dall'automatico per questo ordine (orderId «123» o «123.2» per il secondo PC)
+    function pcAutomatico(dati, orderId) {
+        if (!dati || !dati.ordini) return null;
+        const [idBase, n] = String(orderId).split('.');
+        const o = dati.ordini[idBase];
+        if (!o || !o.pc) return null;
+        return o.pc[(parseInt(n, 10) || 1) - 1] || null;
     }
 
     async function aggiornaOrdine(orderId) {
         const ctx = contesti[orderId];
         if (!ctx) return;
         stile();
-        const b = barra(orderId);
-        const stato_el = b ? b.querySelector('.acc-stato') : null;
         let dati = null;
-        try {
-            dati = await carica();
-        } catch (e) {
-            if (stato_el) stato_el.textContent = `automatico non disponibile: ${stato.errore}`;
-        }
-        const modo = modoOrdine(orderId);
-        let nAuto = 0, diff = 0, nDiff = 0;
-        const conti = { man: 0, auto: 0, mancantiMan: [], mancantiAuto: [], stime: 0 };
+        try { dati = await carica(); } catch (e) { /* mostrato nel riquadro */ }
+        const conti = { man: 0, mancanti: [], stime: 0 };
         for (const row of righe(orderId)) {
             const tipo = row.dataset.componentType;
             const man = manualeDellaRiga(row);
             const v = dati ? voceAutomatica(dati, ctx, tipo, man.ean, man.fornitore) : null;
-            const usaAuto = !!(v && v.auto && !rigaManuale(orderId, tipo));
-            if (modo === 'auto' && usaAuto) { applicaAuto(row, v); nAuto++; } else togliAuto(row);
-            if (v && v.auto && v.auto.costo != null && v.manuale && v.manuale.costo != null) {
-                diff += v.auto.costo - v.manuale.costo; nDiff++;
-            }
-            const cm = costoRiga(v, false, tipo, man.ean);
-            const ca = usaAuto ? { costo: v.auto.costo, fonte: 'auto' } : cm;
-            if (cm.costo == null) conti.mancantiMan.push({ tipo, ean: man.ean });
-            else { conti.man += cm.costo; if (cm.fonte === 'stima') conti.stime++; }
-            if (ca.costo == null) conti.mancantiAuto.push({ tipo, ean: man.ean });
-            else conti.auto += ca.costo;
+            let costo = null, stima = false;
+            if (v && v.manuale && v.manuale.costo != null) costo = v.manuale.costo;
+            else if (costoManualeSalvato(tipo, man.ean) != null) costo = costoManualeSalvato(tipo, man.ean);
+            else if (v && v.fisso && v.fisso.costo != null) costo = v.fisso.costo;
+            else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; }
+            if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
+            else { conti.man += costo; if (stima) conti.stime++; }
         }
-        if (stato_el && dati) {
-            stato_el.textContent = modo === 'auto'
-                ? `${nAuto} pezzi automatici` + (nDiff ? ` · rispetto al manuale ${diff <= 0 ? '' : '+'}${eur(diff)}` : '')
-                : (nDiff ? `automatico ${diff <= 0 ? '' : '+'}${eur(diff)} sui pezzi confrontabili` : 'listini di oggi caricati');
-        }
-        await mostraUtile(orderId, conti, modo, dati);
+        await mostraUtile(orderId, conti, dati);
     }
 
-    async function mostraUtile(orderId, conti, modo, dati) {
+    async function mostraUtile(orderId, conti, dati) {
         const el = box(orderId);
         if (!el) return;
         let ordini = [];
@@ -429,30 +340,31 @@
                 if (p > 0) extra += p * (parseInt(it.quantity ?? it.quantita, 10) || 1);
             }
         } catch (e) { /* voci personalizzate non leggibili */ }
-        const costoMan = conti.man + extra;
-        const costoAuto = conti.auto + extra;
-        const costo = modo === 'auto' ? costoAuto : costoMan;
+        const costo = conti.man + extra;
+        const auto = pcAutomatico(dati, orderId);
+        const avvisi = auto && auto.avvisi && auto.avvisi.length
+            ? `<div class="acc-avvisi">⚠ ${auto.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'ordine è stato comprato così: controlla la distinta prima di ordinare.</small></div>` : '';
         if (!vendita) {
             el.className = 'acc-utile';
-            el.innerHTML = `<div class="riga"><span>Costo pezzi (${modo === 'auto' ? 'automatico' : 'manuale'})</span><span class="forte">${eur(costo)}</span></div>` +
-                `<div class="mancanti">Prezzo di vendita non trovato per questo ordine: utile non calcolabile.</div>`;
+            el.innerHTML = `<div class="riga"><span>Costo pezzi (manuale)</span><span class="forte">${eur(costo)}</span></div>` +
+                `<div class="mancanti">Prezzo di vendita non trovato per questo ordine: utile non calcolabile.</div>` + avvisi;
             return;
         }
-        const lista = modo === 'auto' ? conti.mancantiAuto : conti.mancantiMan;
+        const lista = conti.mancanti;
         const u = utile(vendita.totale, costo);
-        const uAltro = utile(vendita.totale, modo === 'auto' ? costoMan : costoAuto);
-        // costi mancanti: il riquadro resta giallo anche se l'utile parziale e' positivo
         el.className = 'acc-utile ' + (u.lordo < 0 ? 'neg' : (lista.length ? 'incompleto' : 'pos'));
         const mancanti = lista.length
             ? `<div class="mancanti">Mancano i costi di: ${lista.map((m, i) =>
                 `<a data-i="${i}" title="Inserisci il costo netto di questo pezzo">${esc(m.tipo)}</a>`).join(', ')} — l'utile qui sopra non li conta.</div>`
             : '';
+        const confronto = auto
+            ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(auto.costo)}, utile ${eur(auto.utile.lordo)} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
+            : (stato.errore ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
         el.innerHTML =
             `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(vendita.totale)}${vendita.opzioni ? ` <small>(PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)})</small>` : ''}</span></div>` +
-            `<div class="riga"><span>Costo pezzi ${modo === 'auto' ? 'automatico' : 'manuale'}${extra ? ' + voci personalizzate' : ''}${conti.stime && modo !== 'auto' ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(costo)}</span></div>` +
-            `<div class="riga forte"><span>Utile</span><span class="${u.lordo >= 0 ? 'pos-t' : 'neg-t'}">${eur(u.lordo)} · SRL ${eur(u.srl)}</span></div>` +
-            (dati ? `<div class="riga"><small>Con l'${modo === 'auto' ? 'accoppiamento manuale' : 'accoppiamento automatico'}: utile ${eur(uAltro.lordo)}</small></div>` : '') +
-            mancanti;
+            `<div class="riga"><span>Costo pezzi manuale${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(costo)}</span></div>` +
+            `<div class="riga forte"><span>Utile</span><span class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)} · SRL ${eur(u.srl)}</span></div>` +
+            confronto + mancanti + avvisi;
         el.querySelectorAll('.mancanti a').forEach(a => a.addEventListener('click', (ev) => {
             ev.stopPropagation();
             const m = lista[parseInt(a.dataset.i, 10)];
@@ -465,25 +377,14 @@
                 aggiornaOrdine(orderId);
             }
         }));
+        el.querySelectorAll('[data-vai]').forEach(a => a.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            apriAutomatico(a.dataset.vai);
+        }));
     }
 
-    // Chiamata dopo che l'operatore ha cambiato a mano un pezzo (ricerca dal badge fornitore):
-    // quel pezzo diventa manuale e resta com'e' anche in modalita' automatica.
-    function pezzoModificato(orderId, tipo) {
-        const row = document.querySelector(`.component-row[data-order-id="${orderId}"][data-component-type="${tipo}"]`);
-        if (row && row.dataset.accAuto === '1') {
-            const span = row.querySelector('.component-name-display');
-            const badge = row.querySelector('.supplier-badge-clickable');
-            span.dataset.manEan = span.dataset.ean;
-            span.dataset.manName = span.textContent;
-            badge.dataset.manSupplier = badge.dataset.supplier;
-            delete row.dataset.accAuto;
-            delete row.dataset.accAutoEan;
-            row.classList.remove('acc-auto', 'acc-caro');
-            const b = row.querySelector('.acc-riporta');
-            if (b) b.remove();
-        }
-        impostaRigaManuale(orderId, tipo, true);
+    // Chiamata dopo che l'operatore ha cambiato a mano un pezzo: si ricalcola l'utile
+    function pezzoModificato(orderId) {
         if (contesti[orderId]) aggiornaOrdine(orderId).catch(() => {});
     }
 
@@ -493,7 +394,255 @@
         aggiornaOrdine(orderId).catch(err => console.warn('[ACCOPPIAMENTO] ', err));
     }
 
-    const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave, idMappatura, scelteCliente, stato };
+    // ================================================================ PAGINA AUTOMATICO
+    // costo di un pezzo nella pagina automatica (automatico, fisso, inserito a mano)
+    function chiaveFisso(p) {
+        return p.fisso && p.fisso.id ? p.fisso.id : `${p.tipo}|${chiave((p.fisso && p.fisso.descrizione) || p.cliente || p.manuale.codice)}`;
+    }
+
+    function costoPezzo(p, salvati) {
+        if (p.auto && p.auto.costo != null) return { costo: p.auto.costo, fonte: 'auto' };
+        const k = chiaveFisso(p);
+        if (salvati && salvati[k] != null) return { costo: salvati[k], fonte: 'inserito' };
+        if (p.fisso && p.fisso.costo != null) return { costo: p.fisso.costo, fonte: 'fisso' };
+        if (p.manuale && p.manuale.costo != null) return { costo: p.manuale.costo, fonte: 'manuale' };
+        return { costo: null, fonte: null };
+    }
+
+    function contiPc(pc, salvati) {
+        let costo = 0;
+        const mancanti = [];
+        for (const p of pc.pezzi) {
+            const c = costoPezzo(p, salvati);
+            if (c.costo == null) mancanti.push(p);
+            else costo += c.costo;
+        }
+        costo = tonda(costo);
+        return { costo, mancanti, utile: utile(pc.prezzo.totale, costo) };
+    }
+
+    // Riepilogo per fornitore degli ordini scelti: { FORNITORE: [{codice, descrizione, quantita, costo, ordini}] }
+    // I pezzi senza offerta ordinabile oggi finiscono sotto «DA DECIDERE».
+    function riepilogoFornitori(dati, idOrdini, salvati) {
+        const out = {};
+        for (const id of idOrdini) {
+            const o = dati.ordini[id];
+            if (!o) continue;
+            for (const pc of o.pc) {
+                for (const p of pc.pezzi) {
+                    let forn, codice, descr, q, costo;
+                    if (p.auto) {
+                        forn = p.auto.fornitore; codice = p.auto.codice; descr = p.auto.descrizione;
+                        q = p.auto.quantita || 1; costo = p.auto.costo;
+                    } else if (p.fisso) {
+                        if (p.fisso.costo === 0) continue;                 // incluso o servizio senza costo
+                        forn = p.fisso.fornitore || 'FUORI LISTINO'; codice = ''; descr = p.fisso.descrizione;
+                        q = 1; costo = costoPezzo(p, salvati).costo;
+                    } else {
+                        forn = 'DA DECIDERE'; codice = p.manuale.codice || ''; descr = `${p.nome_tipo}: ${p.cliente || p.manuale.descrizione || ''}`;
+                        q = 1; costo = costoPezzo(p, salvati).costo;
+                    }
+                    const lista = out[forn] = out[forn] || [];
+                    const k = `${chiave(codice)}|${codice ? '' : descr}`;
+                    let r = lista.find(x => x.k === k);
+                    if (!r) { r = { k, codice, descrizione: descr, quantita: 0, costo: 0, ordini: [], senzaCosto: false }; lista.push(r); }
+                    r.quantita += q;
+                    if (costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + costo);
+                    if (!r.ordini.includes(o.nome)) r.ordini.push(o.nome);
+                }
+            }
+        }
+        return out;
+    }
+
+    function disponibilita(a) {
+        const t = String(a.disponibilita || '');
+        const cls = a.da_confermare ? 'acc-disp-conf' : (/arriv/i.test(t) ? 'acc-disp-arr' : 'acc-disp-ok');
+        return `<span class="${cls}">${esc(t)}${a.da_confermare && !/confermare/i.test(t) ? ' · da confermare' : ''}</span>`;
+    }
+
+    function badgeFornitore(f) {
+        const col = COLORI[f] || '#95a5a6';
+        return `<span class="acc-forn" style="color:#fff;border-color:${col};background:${col}cc">${esc(f || '—')}</span>`;
+    }
+
+    function rigaPezzo(p, salvati) {
+        const c = costoPezzo(p, salvati);
+        const cliente = p.cliente ? esc(p.cliente) : `<span class="acc-nota">${esc(p.origine === 'distinta' ? 'di serie' : p.origine)}</span>`;
+        const note = [p.requisito ? `Requisito: ${p.requisito}` : '', p.regola, p.nota].filter(Boolean).join(' · ');
+        const man = p.manuale && p.manuale.codice
+            ? `Manuale: ${p.manuale.fornitore || '—'} ${p.manuale.codice}${p.manuale.costo != null ? ' · ' + eur(p.manuale.costo) : ''}` : '';
+        const titolo = esc([note, man].filter(Boolean).join('\n'));
+        if (p.auto) {
+            const a = p.auto;
+            return `<tr title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
+                `<td>${badgeFornitore(a.fornitore)} <span class="acc-cod" data-copia="${esc(a.codice)}" title="Copia il codice">${esc(a.codice)}</span>` +
+                `${a.quantita > 1 ? ` <b>×${a.quantita}</b>` : ''}<br><span class="acc-descr">${esc(a.descrizione)}</span>` +
+                `${p.nota ? `<br><span class="acc-nota">${esc(p.nota)}</span>` : ''}</td>` +
+                `<td class="num">${eur(c.costo)}</td><td class="col-disp">${disponibilita(a)}</td></tr>`;
+        }
+        if (p.fisso) {
+            const f = p.fisso;
+            const costo = c.costo != null ? eur(c.costo) + (c.fonte === 'inserito' ? ' <small>(inserito)</small>' : '')
+                : `<a class="acc-link" data-costo="${esc(chiaveFisso(p))}" data-nome="${esc(f.descrizione)}">inserisci costo</a>`;
+            return `<tr class="acc-riga-fisso" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
+                `<td>${badgeFornitore(f.fornitore || 'FUORI LISTINO')} ${esc(f.descrizione)}<br><span class="acc-nota">${esc(p.nota || 'fuori dai listini')}</span></td>` +
+                `<td class="num">${costo}</td><td class="col-disp"></td></tr>`;
+        }
+        const costo = c.costo != null ? eur(c.costo) + ' <small>(manuale)</small>'
+            : `<a class="acc-link" data-costo="${esc(chiaveFisso(p))}" data-nome="${esc(p.nome_tipo)}">inserisci costo</a>`;
+        return `<tr class="acc-riga-vuota" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
+            `<td>Nessun pezzo ordinabile oggi nei listini<br><span class="acc-nota">${esc(p.nota || '')}${man ? ' · ' + esc(man) : ''}</span></td>` +
+            `<td class="num">${costo}</td><td class="col-disp"></td></tr>`;
+    }
+
+    function schedaOrdine(id, o, salvati, esclusi) {
+        const fatto = o.elaborato && o.elaborato.stato;
+        const badge = fatto
+            ? `<span class="acc-badge fatto">elaborato${o.elaborato.foglio ? ' E' + esc(o.elaborato.foglio) : ''}${o.elaborato.stato === 'finalizzati' ? ' · finalizzato' : ''}</span>`
+            : `<span class="acc-badge da-fare">da elaborare</span>`;
+        let html = `<div class="acc-ordine" data-ordine="${esc(id)}"><div class="acc-ordine-testa">` +
+            `<span class="num">${esc(o.nome)}</span><span class="acc-nota">${esc(o.data)}</span>${badge}` +
+            `<label class="acc-nota" style="margin-left:auto;cursor:pointer"><input type="checkbox" data-riepilogo="${esc(id)}" ${esclusi[id] ? '' : 'checked'}> nel riepilogo fornitori</label></div>`;
+        for (const pc of o.pc) {
+            const c = contiPc(pc, salvati);
+            const cls = c.utile.lordo < 0 ? 'neg' : (c.mancanti.length ? 'incompleto' : 'pos');
+            html += `<div class="acc-pc-titolo"><b>${esc(pc.build)}</b> · ${esc(pc.titolo)}${pc.gpu ? ` · alimentatore per ${esc(pc.gpu)}` : ''}</div>`;
+            if (pc.avvisi && pc.avvisi.length) {
+                html += `<div class="acc-avvisi">⚠ ${pc.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'automatico segue quello che il cliente ha comprato.</small></div>`;
+            }
+            html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
+                pc.pezzi.map(p => rigaPezzo(p, salvati)).join('') + `</tbody></table>`;
+            html += `<div class="acc-utile ${cls}">` +
+                `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(pc.prezzo.totale)}${pc.prezzo.opzioni ? ` <small>(PC ${eur(pc.prezzo.pc)} + opzioni ${eur(pc.prezzo.opzioni)})</small>` : ''}</span></div>` +
+                `<div class="riga"><span>Costo pezzi automatico</span><span>${eur(c.costo)}</span></div>` +
+                `<div class="riga forte"><span>Utile</span><span class="${c.utile.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(c.utile.lordo)} · SRL ${eur(c.utile.srl)}</span></div>` +
+                (c.mancanti.length ? `<div class="mancanti">Mancano i costi di: ${c.mancanti.map(p => esc(p.nome_tipo)).join(', ')} — l'utile non li conta.</div>` : '') +
+                `</div>`;
+        }
+        return html + '</div>';
+    }
+
+    function renderRiepilogo(dati, ids, salvati) {
+        const r = riepilogoFornitori(dati, ids, salvati);
+        const fornitori = Object.keys(r).sort((a, b) => a.localeCompare(b));
+        if (!fornitori.length) return `<div class="acc-riepilogo"><h3>Riepilogo fornitori</h3><div class="acc-nota">Nessun ordine selezionato.</div></div>`;
+        let html = `<div class="acc-riepilogo"><h3>Riepilogo fornitori <small class="acc-nota">(${ids.length} ordini selezionati; solo consultazione, non ordina nulla)</small></h3>`;
+        for (const f of fornitori) {
+            const righe = r[f];
+            const tot = tonda(righe.reduce((s, x) => s + x.costo, 0));
+            html += `<div class="acc-forn-blocco"><div class="testa">${badgeFornitore(f)} <b>${eur(tot)}</b>` +
+                `${righe.some(x => x.senzaCosto) ? ' <small class="acc-nota">+ pezzi senza costo</small>' : ''}` +
+                ` <button class="acc-btn" data-copia-forn="${esc(f)}">Copia elenco</button></div>` +
+                `<table class="acc-tabella"><thead><tr><th>Codice</th><th>Prodotto</th><th class="num">Q.tà</th><th class="num">Costo</th><th>Ordini</th></tr></thead><tbody>` +
+                righe.map(x => `<tr><td><span class="acc-cod" data-copia="${esc(x.codice)}">${esc(x.codice || '—')}</span></td><td>${esc(x.descrizione)}</td>` +
+                    `<td class="num">${x.quantita}</td><td class="num">${x.senzaCosto && !x.costo ? '—' : eur(x.costo)}</td><td class="acc-nota">${esc(x.ordini.join(', '))}</td></tr>`).join('') +
+                `</tbody></table></div>`;
+        }
+        return html + '</div>';
+    }
+
+    function copia(testo) {
+        try { navigator.clipboard.writeText(testo); } catch (e) { /* appunti non disponibili */ }
+        if (typeof showNotification === 'function') showNotification('Copiato negli appunti', 'success');
+    }
+
+    async function renderPagina(forza) {
+        const cont = document.getElementById('automatico-container');
+        if (!cont) return;
+        stile();
+        cont.innerHTML = `<div class="acc-pagina"><div class="acc-vuoto">Carico l'accoppiamento automatico…</div></div>`;
+        let dati;
+        try {
+            dati = await carica(forza);
+        } catch (e) {
+            cont.innerHTML = `<div class="acc-pagina"><div class="acc-testa"><h2>Accoppiamento automatico</h2></div>` +
+                `<div class="acc-vuoto">Automatico non disponibile: ${esc(stato.errore)}.<br><small>I dati si preparano con l'aggiornamento dei listini, ogni 30 minuti.</small></div></div>`;
+            return;
+        }
+        const filtro = leggiLS(K_FILTRO, 'da-fare');
+        const esclusi = leggiLS(K_ESCLUSI, {});
+        const salvati = leggiLS(K_FISSI, {});
+        const cerca = String((document.getElementById('acc-cerca') || {}).value || '').replace(/\D/g, '');
+        const tutti = Object.entries(dati.ordini || {}).sort((a, b) =>
+            String(b[1].data).localeCompare(String(a[1].data)) || String(b[1].nome).localeCompare(String(a[1].nome)));
+        const visibili = tutti.filter(([, o]) => (filtro === 'tutti' || !(o.elaborato && o.elaborato.stato))
+            && (!cerca || String(o.nome).replace(/\D/g, '').includes(cerca)));
+        let venduto = 0, costo = 0, mancanti = 0, perdita = 0;
+        for (const [, o] of visibili) for (const pc of o.pc) {
+            const c = contiPc(pc, salvati);
+            venduto += pc.prezzo.totale; costo += c.costo; mancanti += c.mancanti.length;
+            if (c.utile.lordo < 0) perdita++;
+        }
+        const u = utile(venduto, costo);
+        const quando = (x) => { try { return new Date(x).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return x; } };
+        const selezionati = visibili.map(([id]) => id).filter(id => !esclusi[id]);
+        cont.innerHTML = `<div class="acc-pagina">` +
+            `<div class="acc-testa"><h2>Accoppiamento automatico</h2>` +
+            `<span class="acc-info">Listini del ${esc(quando(dati.listini))} · preparato il ${esc(quando(dati.generato))} · ordini da spedire: ${tutti.length}</span>` +
+            `<button class="acc-btn ${filtro !== 'tutti' ? 'attivo' : ''}" data-filtro="da-fare">Da elaborare</button>` +
+            `<button class="acc-btn ${filtro === 'tutti' ? 'attivo' : ''}" data-filtro="tutti">Tutti da spedire</button>` +
+            `<input id="acc-cerca" class="acc-cerca" placeholder="# ordine" value="${esc(cerca)}">` +
+            `<button class="acc-btn" data-aggiorna="1">Aggiorna</button></div>` +
+            `<div class="acc-totali">` +
+            `<div class="acc-totale"><small>Ordini mostrati</small><b>${visibili.length}</b></div>` +
+            `<div class="acc-totale"><small>Venduto (IVA incl.)</small><b>${eur(venduto)}</b></div>` +
+            `<div class="acc-totale"><small>Costo pezzi automatico</small><b>${eur(costo)}</b></div>` +
+            `<div class="acc-totale"><small>Utile totale</small><b class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)}</b></div>` +
+            `<div class="acc-totale"><small>PC in perdita / costi mancanti</small><b>${perdita} / ${mancanti}</b></div></div>` +
+            (visibili.length ? visibili.map(([id, o]) => schedaOrdine(id, o, salvati, esclusi)).join('')
+                : `<div class="acc-vuoto">Nessun ordine ${filtro === 'tutti' ? 'da spedire' : 'da elaborare'}${cerca ? ' con questo numero' : ''}.</div>`) +
+            renderRiepilogo(dati, selezionati, salvati) + `</div>`;
+
+        cont.querySelectorAll('[data-filtro]').forEach(b => b.addEventListener('click', () => { scriviLS(K_FILTRO, b.dataset.filtro); renderPagina(); }));
+        cont.querySelectorAll('[data-aggiorna]').forEach(b => b.addEventListener('click', () => renderPagina(true)));
+        const campo = cont.querySelector('#acc-cerca');
+        if (campo) campo.addEventListener('change', () => renderPagina());
+        cont.querySelectorAll('[data-riepilogo]').forEach(ch => ch.addEventListener('change', () => {
+            const e = leggiLS(K_ESCLUSI, {});
+            if (ch.checked) delete e[ch.dataset.riepilogo]; else e[ch.dataset.riepilogo] = true;
+            scriviLS(K_ESCLUSI, e);
+            renderPagina();
+        }));
+        cont.querySelectorAll('[data-costo]').forEach(a => a.addEventListener('click', () => {
+            const val = prompt(`Costo netto (IVA esclusa) di ${a.dataset.nome}:\n(vale per tutti gli ordini con questo pezzo)`);
+            const num = parseFloat(String(val || '').replace(',', '.'));
+            if (!isNaN(num) && num >= 0) {
+                const s = leggiLS(K_FISSI, {});
+                s[a.dataset.costo] = num;
+                scriviLS(K_FISSI, s);
+                renderPagina();
+            }
+        }));
+        cont.querySelectorAll('[data-copia]').forEach(el => el.addEventListener('click', () => { if (el.dataset.copia) copia(el.dataset.copia); }));
+        cont.querySelectorAll('[data-copia-forn]').forEach(b => b.addEventListener('click', () => {
+            const righe = riepilogoFornitori(dati, selezionati, salvati)[b.dataset.copiaForn] || [];
+            copia(righe.map(x => `${x.codice || x.descrizione} x${x.quantita}`).join('\n'));
+        }));
+    }
+
+    function apriAutomatico(idOrdine) {
+        const btn = document.querySelector('.tab-button[data-tab="automatico"]');
+        if (btn) btn.click();
+        setTimeout(() => {
+            const el = document.querySelector(`.acc-ordine[data-ordine="${CSS.escape(String(idOrdine))}"]`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 600);
+    }
+
+    function collegaTab() {
+        const btn = document.querySelector('.tab-button[data-tab="automatico"]');
+        if (!btn || btn.dataset.accCollegato) return;
+        btn.dataset.accCollegato = '1';
+        btn.addEventListener('click', () => setTimeout(() => renderPagina(), 0));
+    }
+    if (typeof document !== 'undefined' && document.addEventListener) {
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', collegaTab);
+        else collegaTab();
+    }
+
+    const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
+        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

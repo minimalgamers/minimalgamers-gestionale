@@ -77,4 +77,31 @@ assert.equal(u.lordo, 145.1);
 assert.equal(u.srl, Math.round(0.7 * u.lordo * 100) / 100);
 assert.equal(A.utile(1000, 900).srl, A.utile(1000, 900).lordo);  // in perdita: nessuno sconto
 
+// --- pagina Automatico: ordini accoppiati, costi, riepilogo fornitori ---
+assert.equal(Object.keys(dati.ordini).length, 2);
+const pc = A.pcAutomatico(dati, '555');
+assert.equal(pc.build, 'PC GAMING PROVA');
+assert.equal(A.pcAutomatico(dati, '555.2'), null);                 // un solo PC in quell'ordine
+assert.equal(A.pcAutomatico(dati, '999'), null);
+// costi: automatico, fisso, servizio a costo zero, mancanti (case senza costo, scheda madre senza offerta)
+let c = A.contiPc(pc, {});
+assert.equal(c.costo, 348.61);
+assert.deepEqual(Array.from(c.mancanti, p => p.tipo), ['CASE', 'MOBO']);
+assert.equal(c.utile.lordo, Math.round((1069.9 / 1.22 - 0.045 * 1069.9 - 348.61) * 100) / 100);
+// costo inserito a mano per il case (chiave = id del costo fisso): vale per tutti gli ordini
+c = A.contiPc(pc, { case_atx: 50 });
+assert.equal(c.costo, 398.61);
+assert.deepEqual(Array.from(c.mancanti, p => p.tipo), ['MOBO']);
+assert.equal(JSON.stringify(A.costoPezzo(pc.pezzi[2], { case_atx: 50 })), JSON.stringify({ costo: 50, fonte: 'inserito' }));
+// riepilogo fornitori: somma le quantita' tra ordini, esclude i servizi a costo zero
+const r = A.riepilogoFornitori(dati, ['555', '556'], {});
+assert.equal(r.ACTION.find(x => x.codice === 'GPU-1').quantita, 2);
+assert.deepEqual(Array.from(r.ACTION.find(x => x.codice === 'GPU-1').ordini), ['#9001', '#9002']);
+assert.equal(r.ACTION.find(x => x.codice === 'RAM-8').quantita, 2);
+assert.equal(r['FORNITORE LOCALE'][0].costo, 8.61);
+assert.equal(r.ALTRO[0].senzaCosto, true);
+assert.ok(r['DA DECIDERE'][0].descrizione.startsWith('Scheda madre'));
+assert.ok(!Object.values(r).flat().some(x => x.descrizione === 'Scatole'));
+assert.deepEqual(Array.from(Object.keys(A.riepilogoFornitori(dati, ['556'], {}))), ['ACTION']);
+
 console.log('accoppiamento-auto: tutti i test passati');

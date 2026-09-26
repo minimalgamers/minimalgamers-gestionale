@@ -641,6 +641,11 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
             }
         } catch (e) { console.warn('SINNER-GPU v35 split fail:', e); }
         try {
+            if (typeof window.applyGpuPsuRule === 'function') {
+                window.applyGpuPsuRule(finalComponents, config.configKey, targetPcItem);
+            }
+        } catch (e) { console.warn('GPU-PSU 26/09 split fail:', e); }
+        try {
             if (typeof window.applyDeepcoolPsuMapping === 'function') {
                 window.applyDeepcoolPsuMapping(finalComponents, config.configKey);
             }
@@ -899,6 +904,11 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     window.applySinnerGpuPsuRule(finalComponents, config.configKey);
                 }
             } catch (e) { console.warn('SINNER-GPU v35 split-multi fail:', e); }
+            try {
+                if (typeof window.applyGpuPsuRule === 'function') {
+                    window.applyGpuPsuRule(finalComponents, config.configKey, pcItem);
+                }
+            } catch (e) { console.warn('GPU-PSU 26/09 split-multi fail:', e); }
             try {
                 if (typeof window.applyDeepcoolPsuMapping === 'function') {
                     window.applyDeepcoolPsuMapping(finalComponents, config.configKey);

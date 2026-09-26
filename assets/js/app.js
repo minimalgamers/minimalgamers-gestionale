@@ -232,6 +232,89 @@ window.applySinnerGpuPsuRule = function(finalComponents, configKey) {
 console.log('✅ SINNER-GPU PSU v35 registrato');
 
 /* =========================================================================
+   ALIMENTATORE DECISO DALLA SCHEDA VIDEO (26/09/2026, Antonio)
+   -------------------------------------------------------------------------
+   Conta la scheda video FINALE dell'ordine (variante del cliente, altrimenti il
+   titolo del prodotto nel suo ordine, altrimenti il pezzo GPU):
+     - fino alla RX 9060 XT (5060 Ti, B580, 7600, 3050, integrata...) -> PF-600X 600W BRONZE
+     - RX 7800 XT, RX 9070 / 9070 XT, RTX 5070 / 5070 Ti, RTX 5080     -> PN850-D 850W GOLD
+     - RTX 5090                                                        -> PQ1000-G 1000W GOLD
+   Linea MINIMAL: sempre cosi'. Linea DEEPCOOL: resta il suo alimentatore se basta.
+   Linea MSI: resta il suo MSI; con la 5090 un MSI da 1000W (MPG A1000G, RUNNER),
+   con una scheda da 850W e un alimentatore piu' piccolo il MAG A850GL (RUNNER).
+   Se il cliente ha scelto lui l'alimentatore (opzione PSU) non si tocca.
+   ========================================================================= */
+window.GPU_PSU_RULE_ACTIVE = true;
+
+function gpuTierFromText(text) {
+    const t = String(text || '').toUpperCase().replace(/\s+/g, ' ');
+    if (/RTX\s*5090/.test(t)) return 3;
+    if (/RTX\s*50(70|80)|RX\s*9070|RX\s*7800\s*XT/.test(t)) return 2;
+    if (/\bRTX\b|\bGTX\b|\bRX\s*\d|\bARC\b|RADEON|VEGA|INTEGRATA/.test(t)) return 1;
+    return 0;
+}
+
+function detectOrderGpuTier(finalComponents, pcItem) {
+    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
+    for (const [k, v] of Object.entries(props)) {
+        if (/^\s*(GPU|SCHEDA\s*VIDEO)\s*$/i.test(k) && v) {
+            const t = gpuTierFromText(v);
+            if (t) return { tier: t, from: v };
+        }
+    }
+    const title = String(pcItem?.name || pcItem?.title || '').toUpperCase();
+    const m = title.match(/RTX\s*\d{4}(\s*TI)?|RX\s*\d{4}(\s*XT)?|ARC\s*[AB]\d{3}/);
+    if (m) return { tier: gpuTierFromText(m[0]), from: m[0] };
+    const gpu = (finalComponents || []).find(c => String(c.type || '').toUpperCase() === 'GPU');
+    if (gpu) {
+        const t = gpuTierFromText(gpu.value);
+        if (t) return { tier: t, from: gpu.value };
+        if (typeof isHighGpu === 'function' && isHighGpu(gpu.value)) return { tier: 2, from: gpu.value };
+    }
+    return { tier: 0, from: '' };
+}
+
+function psuWatts(value) {
+    const v = String(value || '').toUpperCase();
+    let m = v.match(/(\d{3,4})\s*W\b/);
+    if (m) return parseInt(m[1], 10);
+    m = v.match(/(?:PF|PN|PQ|PL|PM|A|MAG\s*A|MPG\s*A)-?(\d{3,4})/);
+    return m ? parseInt(m[1], 10) : 0;
+}
+
+window.applyGpuPsuRule = function(finalComponents, configKey, pcItem) {
+    if (!Array.isArray(finalComponents) || window.GPU_PSU_RULE_ACTIVE === false) return;
+    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
+    if (Object.keys(props).some(k => /^\s*(PSU|ALIMENTATORE)\s*$/i.test(k) && props[k])) return; // scelta del cliente
+    const { tier, from } = detectOrderGpuTier(finalComponents, pcItem);
+    if (!tier) return;
+    const key = String(configKey || '').toUpperCase().trim();
+    const line = key.startsWith('MSI') ? 'MSI' : (key.startsWith('DEEPCOOL') ? 'DEEPCOOL' : 'MINIMAL');
+    const idx = finalComponents.findIndex(c => ['PSU', 'ALIMENTATORE'].includes(String(c.type || '').toUpperCase()));
+    const current = idx === -1 ? null : finalComponents[idx];
+    const watts = psuWatts(current && current.value);
+    let target = null;
+    if (line === 'MINIMAL') {
+        target = { 1: PSU_DEEPCOOL.BRONZE, 2: PSU_DEEPCOOL.GOLD, 3: PSU_DEEPCOOL.PQ1000 }[tier];
+    } else if (line === 'DEEPCOOL') {
+        if (tier === 3 && watts < 1000) target = PSU_DEEPCOOL.PQ1000;
+        else if (tier === 2 && watts < 850) target = PSU_DEEPCOOL.GOLD;
+    } else if (line === 'MSI') {
+        if (tier === 3 && watts < 1000) target = { value: 'MPG A1000G', supplier: 'RUNNER' };
+        else if (tier >= 2 && watts < 850) target = { value: 'MAG A850GL', supplier: 'RUNNER' };
+    }
+    if (!target) return;
+    if (idx === -1) {
+        finalComponents.push({ type: 'PSU', value: target.value, supplier: target.supplier });
+    } else if (String(current.value || '') !== target.value) {
+        console.log(`⚡ [GPU-PSU 26/09] ${configKey} scheda "${from}" (fascia ${tier}) → PSU: "${current.value}" → "${target.value}"`);
+        current.value = target.value;
+        current.supplier = target.supplier;
+    }
+};
+console.log('✅ Alimentatore per scheda video (26/09) registrato');
+
+/* =========================================================================
    NORMALIZZAZIONE NOME VISUALIZZATO v35  (generici + colore + MOBO)
    -------------------------------------------------------------------------
    Funzione UNICA usata ovunque si mostri il nome di un componente (card,
@@ -484,6 +567,9 @@ window.MOBO_PSU_RULES = [
 ];
 
 window.applyMoboPsuRules = function(finalComponents, pcItem, fullOrder) {
+    // 26/09/2026 (Antonio): l'alimentatore non dipende piu' dalla scheda madre (il DeepCool 600W
+    // ha il doppio attacco CPU), lo decide la scheda video: vedi applyGpuPsuRule. Regola spenta.
+    if (window.GPU_PSU_RULE_ACTIVE !== false) return;
     if (!Array.isArray(finalComponents)) return;
     const props = pcItem?.custom_properties || pcItem?.customProperties || {};
     let moboValue = props['SCHEDA MADRE'] || props['MOBO'] || props['MOTHERBOARD'] || props.scheda_madre || '';
@@ -538,6 +624,8 @@ window.CONFIG_PSU_TARGETS = new Set([
 ]);
 
 window.applyConfigPsuOverride = function(finalComponents, configKey, pcItem) {
+    // 26/09/2026: sostituita dalla regola per scheda video (applyGpuPsuRule). Regola spenta.
+    if (window.GPU_PSU_RULE_ACTIVE !== false) return;
     if (!Array.isArray(finalComponents) || !configKey) return;
     if (!window.CONFIG_PSU_TARGETS.has(configKey)) return;
     
@@ -5214,6 +5302,13 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     }
                 } catch (e) {
                     console.warn('SINNER-GPU-PSU v35 fallito (non bloccante):', e);
+                }
+                try {
+                    if (typeof window.applyGpuPsuRule === 'function') {
+                        window.applyGpuPsuRule(finalComponents, config.configKey, pcItem);
+                    }
+                } catch (e) {
+                    console.warn('GPU-PSU 26/09 fallito (non bloccante):', e);
                 }
                 try {
                     if (typeof window.applyDeepcoolPsuMapping === 'function') {

@@ -96,7 +96,8 @@
             <button id="hide-selected-btn" class="auth-required" title="Nascondi ordini selezionati" style="display: none; margin-right: 8px; width: auto; height: auto; background: rgba(231, 76, 60, 0.3); border: 1px solid rgba(231, 76, 60, 0.5); color: #e74c3c; font-size: 0.9em; font-weight: 600; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">👁️ Nascondi</button>
             <div id="status-box" class="status" style="display:none; margin-right: 8px; border: 1px solid rgba(255,255,255,0.35); border-radius: 8px; padding: 8px 12px; font-size: 0.9em; color: white; white-space: nowrap; max-width: 380px; overflow: hidden; text-overflow: ellipsis;"></div>
             <div id="tabs-buttons-container" style="display: flex; gap: 8px; transition: all 0.4s ease; flex: 1;">
-                <button class="tab-button active" data-tab="orders" title="Visualizza ordini da processare">Ordini</button>
+                <button class="tab-button active" data-tab="orders" title="Visualizza ordini da processare (accoppiamento manuale)">Ordini</button>
+                <button class="tab-button" data-tab="automatico" title="Accoppiamento automatico dai listini di oggi: pezzi, costi, utile e riepilogo fornitori">Automatico</button>
                 <button class="tab-button" data-tab="processed" title="Visualizza ordini elaborati - Foglio E1">E1</button>
                 <button class="tab-button" data-tab="processed-e2" title="Visualizza ordini elaborati - Foglio E2">E2</button>
                 <button class="tab-button" data-tab="processed-e3" title="Visualizza ordini elaborati - Foglio E3">E3</button>
@@ -837,6 +838,7 @@
         </div>
     </div>
     <div id="hidden-container" class="tab-content" data-content="hidden"></div>
+    <div id="automatico-container" class="tab-content" data-content="automatico"></div>
     <div id="suppliers-container" class="tab-content" data-content="suppliers">
         <div id="suppliers-header" class="suppliers-section-header">
             <h1>Riepilogo Fornitori</h1>
@@ -862,15 +864,15 @@
     <!-- Script originali -->
     <script src="assets/js/order-config-matcher.js?v=37"></script>
     <script src="assets/js/pc-config-parser.js?v=33"></script>
-    <script src="assets/js/multi-order-handler.js?v=36"></script>
+    <script src="assets/js/multi-order-handler.js?v=37"></script>
     <script src="assets/js/excel-export.js?v=37"></script>
     <script src="assets/js/gpo-manager.js?v=36"></script>
     <script src="assets/js/gpo-page-manager.js?v=33"></script>
     <script src="assets/js/amazon-products-manager.js?v=32"></script>
     <script src="assets/js/message-template-engine.js?v=35"></script>
     <script src="assets/js/message-templates-page.js?v=32"></script>
-    <script src="assets/js/app.js?v=54"></script>
-    <script src="assets/js/accoppiamento-auto.js?v=1"></script>
+    <script src="assets/js/app.js?v=55"></script>
+    <script src="assets/js/accoppiamento-auto.js?v=2"></script>
     <script src="assets/js/supplier-summary.js?v=33"></script>
     <script src="assets/js/category-summary.js?v=7"></script>
 </body>

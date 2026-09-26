@@ -56,6 +56,7 @@ node tests/order-config-matcher.test.mjs
 node tests/gpo-mapping-scope.test.mjs
 node tests/config-components.test.mjs
 node tests/accoppiamento-auto.test.mjs
+node tests/gpu-psu.test.mjs
 ```
 
 Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verificano
@@ -64,13 +65,21 @@ Vanno eseguiti prima di ogni merge.
 
 ## Accoppiamento automatico
 
-In ogni ordine l'interruttore **Manuale / Automatico** mostra, per ogni pezzo, l'alternativa
-scelta dal motore dei listini (fornitori prioritari al costo più basso, varianti del cliente
-sempre rispettate); il pulsante ↺ riporta il singolo pezzo al manuale. Il database conserva
-sempre il pezzo manuale. Sotto ogni build c'è l'utile stimato: prezzo del PC più le opzioni
-collegate, diviso 1,22, meno il 4,5% di commissioni, meno il costo dei pezzi.
+La pagina **Automatico** (accanto a «Ordini») mostra, per ogni ordine ancora da spedire, i pezzi
+scelti dal motore dei listini: fornitori prioritari al costo più basso, e ogni pezzo segue quello
+che quel cliente ha comprato (opzioni scelte e titolo del prodotto nel suo ordine, anche se nel
+frattempo il titolo è cambiato). Per ogni PC riporta costo, utile (prezzo del PC più le opzioni
+collegate, diviso 1,22, meno il 4,5% di commissioni, meno il costo dei pezzi) e gli avvisi quando
+l'ordine non corrisponde alla distinta. In fondo c'è il riepilogo per fornitore. La pagina è in
+sola consultazione: non scrive nel database e non ordina nulla. La pagina «Ordini» resta manuale,
+con il riquadro dell'utile sotto ogni build.
 
 I dati arrivano da `https://minimal-gamers-listini.pages.dev/accoppiamento.bin`, prodotto dal
-Buyer Desk dei listini e cifrato con la password del gestionale: i costi dei fornitori non
-sono mai in chiaro né in questo repository (la fixture dei test usa dati inventati).
+Buyer Desk dei listini ogni 30 minuti e cifrato con la password del gestionale: i costi dei
+fornitori non sono mai in chiaro né in questo repository (la fixture dei test usa dati inventati).
 Codice in `assets/js/accoppiamento-auto.js`.
+
+L'alimentatore lo decide la scheda video finale (`applyGpuPsuRule` in `app.js`, 26/09/2026):
+fino alla RX 9060 XT il DeepCool PF-600X 600W, dalla RX 7800 XT / 9070 / RTX 5070 alla RTX 5080
+il DeepCool 850W Gold, con la RTX 5090 il PQ1000. Le build DeepCool e MSI tengono il loro
+alimentatore se basta. Le vecchie regole scheda madre → alimentatore sono spente.

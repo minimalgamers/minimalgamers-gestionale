@@ -10919,7 +10919,8 @@ async function loadInventory() {
         if (response.ok) {
             const data = await response.json();
             if (data.success && data.inventory) {
-                inventoryData = data.inventory;
+                // MAG-USO-...: pezzi presi dal magazzino per un ordine (pagina Automatico), non sono articoli
+                inventoryData = data.inventory.filter(x => !String(x.ean || '').startsWith('MAG-USO-'));
             }
         }
     } catch (error) {

@@ -1,5 +1,5 @@
 // ============================================================
-// ACCOPPIAMENTO AUTOMATICO v2 (26/09/2026)
+// ACCOPPIAMENTO AUTOMATICO v4 (26/09/2026)
 // ------------------------------------------------------------
 // Due pagine separate (Antonio 26/09):
 //   * «Ordini» (manuale): resta com'e'. Sotto ogni build c'e' il riquadro dell'utile con i
@@ -9,8 +9,9 @@
 //     rispettati, alimentatore deciso dalla scheda video), costi, utile e riepilogo fornitori.
 //
 // I dati arrivano cifrati dal sito dei listini (accoppiamento.bin, ogni 30 minuti con il
-// Buyer Desk) e si aprono con la password del gestionale. Nessuna scrittura nel database:
-// la pagina Automatico non cambia gli ordini e non ordina nulla.
+// Buyer Desk) e si aprono con la password del gestionale. La pagina Automatico non cambia gli
+// ordini e non ordina nulla. L'unica scrittura e' il magazzino (tabella dell'Inventario), e solo
+// quando Antonio conferma «Prendi dal magazzino», «Annulla» o la quantita' dei pezzi a terra.
 // ============================================================
 (function () {
     'use strict';
@@ -79,7 +80,7 @@
             if (!pwd) throw new Error('accedi al gestionale per vedere l\'automatico');
             const r = await fetch(URL_DATI, { cache: 'no-store' });
             if (!r.ok) throw new Error(r.status === 404 ? 'dati automatici non ancora pubblicati' : `errore ${r.status}`);
-            const dati = await decifra(await r.json(), pwd);
+            const dati = annota(await decifra(await r.json(), pwd));
             stato.dati = dati;
             stato.errore = null;
             stato.caricatoIl = Date.now();
@@ -90,6 +91,135 @@
             throw err;
         });
         return stato.promessa;
+    }
+
+    // ---------------------------------------------------------------- magazzino (Antonio 26/09)
+    // Le quantita' dei pezzi a terra stanno nella tabella dell'Inventario, alla riga con il codice
+    // della giacenza (es. MAG-DARKCAVE-NERO). Si scalano solo quando Antonio conferma «Prendi dal
+    // magazzino»: un pezzo in meno e una riga MAG-USO-<ordine>-<pc>-<giacenza> che ricorda per quale
+    // ordine (la pagina Inventario non la mostra). «Annulla» fa il contrario. Nei conti dell'utile
+    // il pezzo preso costa quanto e' stato pagato (o il prezzo di oggi, se non e' stato inserito).
+    const URL_INV = 'api_gateway/db_bridge/inventory_service/endpoint/api-inventory.php';
+    const PREFISSO_USO = 'MAG-USO-';
+    const inv = { righe: null, errore: null };
+
+    const chiaveUso = (idOrdine, nPc, idGiacenza) => `${PREFISSO_USO}${idOrdine}-${nPc}-${idGiacenza}`;
+
+    // Collega ogni pezzo con giacenza alla sua riga d'uso e alla definizione del magazzino
+    function annota(dati) {
+        const defs = {};
+        for (const g of (dati && dati.magazzino) || []) defs[g.id] = g;
+        for (const [id, o] of Object.entries((dati && dati.ordini) || {})) {
+            (o.pc || []).forEach((pc, i) => {
+                for (const p of pc.pezzi || []) {
+                    if (p.giacenza && defs[p.giacenza] && defs[p.giacenza].codice) {
+                        Object.defineProperty(p, 'mag', { value: { def: defs[p.giacenza], uso: chiaveUso(id, i + 1, p.giacenza), ordine: o.nome }, enumerable: false, configurable: true });
+                    }
+                }
+            });
+        }
+        return dati;
+    }
+
+    async function rispostaInv(r) {
+        const d = r && r.ok ? await r.json() : null;
+        if (!d || !d.success) throw new Error((d && d.error) || 'inventario non raggiungibile');
+        return d;
+    }
+
+    async function leggiInventario() {
+        try {
+            const d = await rispostaInv(await fetch(URL_INV, { cache: 'no-store' }));
+            const righe = {};
+            for (const x of d.inventory || []) righe[x.ean] = x;
+            inv.righe = righe;
+            inv.errore = null;
+        } catch (e) {
+            inv.errore = e && e.message ? e.message : String(e);
+            throw e;
+        }
+        return inv.righe;
+    }
+
+    const scriviRiga = async (ean, name, quantity) => rispostaInv(await fetch(URL_INV, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ean, name, quantity })
+    }));
+    const cancellaRiga = async (ean) => rispostaInv(await fetch(`${URL_INV}?ean=${encodeURIComponent(ean)}`, { method: 'DELETE' }));
+
+    // pezzi a terra di quella giacenza: numero, oppure null se Antonio non l'ha ancora inserito
+    function quantitaMagazzino(def) {
+        const r = inv.righe && def ? inv.righe[def.codice] : null;
+        return r ? (parseInt(r.quantity, 10) || 0) : null;
+    }
+
+    const pezzoPreso = (p) => !!(p && p.mag && inv.righe && inv.righe[p.mag.uso]);
+
+    function avvisa(testo, tipo) {
+        if (typeof showNotification === 'function') showNotification(testo, tipo || 'info');
+        else console.log('[ACCOPPIAMENTO] ' + testo);
+    }
+
+    function pezzoDaUso(dati, uso) {
+        for (const o of Object.values((dati && dati.ordini) || {})) {
+            for (const pc of o.pc || []) for (const p of pc.pezzi || []) if (p.mag && p.mag.uso === uso) return p;
+        }
+        return null;
+    }
+
+    // «Prendi dal magazzino»: chiede conferma, poi un pezzo in meno e la riga d'uso per l'ordine.
+    // Ritorna true se il magazzino e' cambiato.
+    async function prendiDalMagazzino(dati, uso, conferma) {
+        const p = pezzoDaUso(dati, uso);
+        if (!p) return false;
+        const { def, ordine } = p.mag;
+        await leggiInventario();
+        if (inv.righe[uso]) { avvisa(`${def.descrizione}: già preso dal magazzino per ${ordine}.`); return false; }
+        const n = quantitaMagazzino(def);
+        if (!n) {
+            avvisa(`Nel magazzino non risultano pezzi di ${def.descrizione}: inserisci la quantità in alto nella pagina.`, 'warning');
+            return false;
+        }
+        const ok = (conferma || confirm)(`Prendere 1 × ${def.descrizione} dal magazzino per l'ordine ${ordine}?\n\n` +
+            `Nel magazzino restano ${n - 1} pezzi. Nell'utile resta il prezzo pagato.`);
+        if (!ok) return false;
+        await scriviRiga(uso, `Magazzino → ordine ${ordine}: ${def.descrizione}`, 1);
+        try {
+            await scriviRiga(def.codice, inv.righe[def.codice].name || def.descrizione, n - 1);
+        } catch (e) {
+            await cancellaRiga(uso).catch(() => {});
+            throw e;
+        }
+        await leggiInventario();
+        if (!inv.righe[uso] || quantitaMagazzino(def) !== n - 1) throw new Error('il magazzino non si è aggiornato: ricarica la pagina e controlla l\'Inventario');
+        avvisa(`${def.descrizione} preso dal magazzino per ${ordine}: ne restano ${n - 1}.`, 'success');
+        return true;
+    }
+
+    // «Annulla»: il pezzo torna nel magazzino e l'ordine torna al fornitore
+    async function annullaDalMagazzino(dati, uso, conferma) {
+        const p = pezzoDaUso(dati, uso);
+        if (!p) return false;
+        const { def, ordine } = p.mag;
+        await leggiInventario();
+        if (!inv.righe[uso]) return false;
+        const n = quantitaMagazzino(def) || 0;
+        const ok = (conferma || confirm)(`Annullare? ${def.descrizione} torna nel magazzino (${n + 1} pezzi) ` +
+            `e per l'ordine ${ordine} si torna al fornitore.`);
+        if (!ok) return false;
+        await scriviRiga(def.codice, (inv.righe[def.codice] && inv.righe[def.codice].name) || def.descrizione, n + 1);
+        await cancellaRiga(uso);
+        await leggiInventario();
+        avvisa(`${def.descrizione} rimesso nel magazzino: ora sono ${quantitaMagazzino(def)}.`, 'success');
+        return true;
+    }
+
+    // Quantita' dei pezzi a terra, inserita da Antonio (vale come la pagina Inventario)
+    async function impostaQuantita(def, quantita) {
+        const n = parseInt(quantita, 10);
+        if (!def || isNaN(n) || n < 0) return false;
+        await scriviRiga(def.codice, def.descrizione, n);
+        await leggiInventario();
+        return true;
     }
 
     // ---------------------------------------------------------------- ricerca voce (pagina manuale)
@@ -262,6 +392,9 @@
 .acc-riga-fisso td{color:rgba(255,255,255,.85)}
 .acc-riga-vuota td{color:#f5b041}
 .acc-riga-magazzino td{color:#d5f5e3}
+.acc-mag{margin-top:4px;color:rgba(255,255,255,.6);font-size:.95em}
+.acc-mag.si{color:#abebc6}
+.acc-btn.acc-btn-mini{padding:2px 8px;font-size:.85em;border-radius:6px}
 .acc-disp-ok{color:#2ecc71}.acc-disp-conf{color:#f1c40f}.acc-disp-arr{color:#5dade2}
 .acc-riepilogo{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 14px;margin-top:18px}
 .acc-riepilogo h3{margin:0 0 8px;font-size:1.05em}
@@ -358,8 +491,9 @@
             ? `<div class="mancanti">Mancano i costi di: ${lista.map((m, i) =>
                 `<a data-i="${i}" title="Inserisci il costo netto di questo pezzo">${esc(m.tipo)}</a>`).join(', ')} — l'utile qui sopra non li conta.</div>`
             : '';
+        const ca = auto ? contiPc(auto, leggiLS(K_FISSI, {})) : null;
         const confronto = auto
-            ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(auto.costo)}, utile ${eur(auto.utile.lordo)} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
+            ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(ca.costo)}, utile ${eur(ca.utile.lordo)} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
             : (stato.errore ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
         el.innerHTML =
             `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(vendita.totale)}${vendita.opzioni ? ` <small>(PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)})</small>` : ''}</span></div>` +
@@ -402,7 +536,12 @@
     }
 
     function costoPezzo(p, salvati) {
-        if (p.magazzino && p.magazzino.costo != null) return { costo: p.magazzino.costo, fonte: 'magazzino' };
+        if (pezzoPreso(p)) {                         // preso dal magazzino: il prezzo pagato resta nei conti
+            const pagato = p.mag.def.costo;
+            const oggi = p.auto && p.auto.costo != null ? p.auto.costo : (p.fisso ? p.fisso.costo : null);
+            const costo = pagato != null ? pagato : oggi;
+            return { costo: costo != null ? costo : null, fonte: 'magazzino' };
+        }
         if (p.auto && p.auto.costo != null) return { costo: p.auto.costo, fonte: 'auto' };
         const k = chiaveFisso(p);
         if (salvati && salvati[k] != null) return { costo: salvati[k], fonte: 'inserito' };
@@ -433,8 +572,8 @@
             for (const pc of o.pc) {
                 for (const p of pc.pezzi) {
                     let forn, codice, descr, q, costo;
-                    if (p.magazzino) {                                    // gia' a terra: non si ordina
-                        forn = 'MAGAZZINO'; codice = ''; descr = p.magazzino.descrizione;
+                    if (pezzoPreso(p)) {                                  // preso dal magazzino: non si ordina
+                        forn = 'MAGAZZINO'; codice = ''; descr = p.mag.def.descrizione;
                         q = 1; costo = costoPezzo(p, salvati).costo;
                     } else if (p.auto) {
                         forn = p.auto.fornitore; codice = p.auto.codice; descr = p.auto.descrizione;
@@ -478,20 +617,23 @@
         const man = p.manuale && p.manuale.codice
             ? `Manuale: ${p.manuale.fornitore || '—'} ${p.manuale.codice}${p.manuale.costo != null ? ' · ' + eur(p.manuale.costo) : ''}` : '';
         const titolo = esc([note, man].filter(Boolean).join('\n'));
-        if (p.magazzino) {
-            const m = p.magazzino;
-            const poi = p.auto ? `finito il magazzino: ${p.auto.fornitore} ${p.auto.codice} · ${eur(p.auto.costo)}` : '';
+        if (pezzoPreso(p)) {
+            const d = p.mag.def;
+            const poi = p.auto ? `se annulli: ${p.auto.fornitore} ${p.auto.codice} · ${eur(p.auto.costo)}` : '';
+            const prezzo = d.costo != null ? 'prezzo pagato' : 'prezzo pagato non inserito: vale quello di oggi';
             return `<tr class="acc-riga-magazzino" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
-                `<td>${badgeFornitore('MAGAZZINO')} ${esc(m.descrizione)} <span class="acc-nota">(${m.stato === 'usato' ? 'già preso' : 'da prendere a terra'})</span>` +
+                `<td>${badgeFornitore('MAGAZZINO')} ${esc(d.descrizione)} <span class="acc-nota">(preso dal magazzino · ${esc(prezzo)})</span>` +
+                ` <button class="acc-btn acc-btn-mini" data-annulla="${esc(p.mag.uso)}">Annulla</button>` +
                 `${poi ? `<br><span class="acc-nota">${esc(poi)}</span>` : ''}</td>` +
                 `<td class="num">${eur(c.costo)}</td><td class="col-disp"><span class="acc-disp-ok">a terra</span></td></tr>`;
         }
+        const mag = lineaMagazzino(p);
         if (p.auto) {
             const a = p.auto;
             return `<tr title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
                 `<td>${badgeFornitore(a.fornitore)} <span class="acc-cod" data-copia="${esc(a.codice)}" title="Copia il codice">${esc(a.codice)}</span>` +
                 `${a.quantita > 1 ? ` <b>×${a.quantita}</b>` : ''}<br><span class="acc-descr">${esc(a.descrizione)}</span>` +
-                `${p.nota ? `<br><span class="acc-nota">${esc(p.nota)}</span>` : ''}</td>` +
+                `${p.nota ? `<br><span class="acc-nota">${esc(p.nota)}</span>` : ''}${mag}</td>` +
                 `<td class="num">${eur(c.costo)}</td><td class="col-disp">${disponibilita(a)}</td></tr>`;
         }
         if (p.fisso) {
@@ -499,14 +641,26 @@
             const costo = c.costo != null ? eur(c.costo) + (c.fonte === 'inserito' ? ' <small>(inserito)</small>' : '')
                 : `<a class="acc-link" data-costo="${esc(chiaveFisso(p))}" data-nome="${esc(f.descrizione)}">inserisci costo</a>`;
             return `<tr class="acc-riga-fisso" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
-                `<td>${badgeFornitore(f.fornitore || 'FUORI LISTINO')} ${esc(f.descrizione)}<br><span class="acc-nota">${esc(p.nota || 'fuori dai listini')}</span></td>` +
+                `<td>${badgeFornitore(f.fornitore || 'FUORI LISTINO')} ${esc(f.descrizione)}<br><span class="acc-nota">${esc(p.nota || 'fuori dai listini')}</span>${mag}</td>` +
                 `<td class="num">${costo}</td><td class="col-disp"></td></tr>`;
         }
         const costo = c.costo != null ? eur(c.costo) + ' <small>(manuale)</small>'
             : `<a class="acc-link" data-costo="${esc(chiaveFisso(p))}" data-nome="${esc(p.nome_tipo)}">inserisci costo</a>`;
         return `<tr class="acc-riga-vuota" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
-            `<td>Nessun pezzo ordinabile oggi nei listini<br><span class="acc-nota">${esc(p.nota || '')}${man ? ' · ' + esc(man) : ''}</span></td>` +
+            `<td>Nessun pezzo ordinabile oggi nei listini<br><span class="acc-nota">${esc(p.nota || '')}${man ? ' · ' + esc(man) : ''}</span>${mag}</td>` +
             `<td class="num">${costo}</td><td class="col-disp"></td></tr>`;
+    }
+
+    // sotto un pezzo che potrebbe uscire dal magazzino: quanti ce ne sono e il pulsante per prenderlo
+    function lineaMagazzino(p) {
+        if (!p.mag) return '';
+        const d = p.mag.def;
+        if (inv.errore || !inv.righe) return `<div class="acc-mag">Magazzino (${esc(d.descrizione)}) non leggibile ora${inv.errore ? ': ' + esc(inv.errore) : ''}</div>`;
+        const n = quantitaMagazzino(d);
+        if (n == null) return `<div class="acc-mag">Magazzino: quantità di ${esc(d.descrizione)} non ancora inserita (in alto nella pagina)</div>`;
+        if (n <= 0) return `<div class="acc-mag">Magazzino: 0 pezzi di ${esc(d.descrizione)}</div>`;
+        return `<div class="acc-mag si">In magazzino: <b>${n}</b> ${n === 1 ? 'pezzo' : 'pezzi'} · ` +
+            `<button class="acc-btn acc-btn-mini" data-prendi="${esc(p.mag.uso)}">Prendi dal magazzino</button></div>`;
     }
 
     function schedaOrdine(id, o, salvati, esclusi) {
@@ -556,6 +710,28 @@
         return html + '</div>';
     }
 
+    // riquadro in alto: pezzi a terra, quanti sono gia' presi per gli ordini da spedire, quantita' da inserire
+    function boxMagazzino(dati) {
+        const defs = dati.magazzino || [];
+        if (!defs.length) return '';
+        const presi = {}, possibili = {};
+        for (const o of Object.values(dati.ordini || {})) for (const pc of o.pc) for (const p of pc.pezzi) {
+            if (!p.mag) continue;
+            const k = p.mag.def.id;
+            if (pezzoPreso(p)) presi[k] = (presi[k] || 0) + 1; else possibili[k] = (possibili[k] || 0) + 1;
+        }
+        const nota = `<div class="acc-nota" style="margin:-6px 0 6px">Magazzino: si scala solo quando premi «Prendi dal magazzino» e confermi. ` +
+            `Le quantità sono le stesse della pagina Inventario.${inv.errore ? ` <b class="acc-neg">Inventario non leggibile: ${esc(inv.errore)}</b>` : ''}</div>`;
+        return nota + `<div class="acc-totali">` + defs.map(d => {
+            const n = quantitaMagazzino(d);
+            const prezzo = d.costo != null ? `costo netto pagato ${eur(d.costo)}` : 'prezzo pagato da inserire: intanto vale quello di oggi';
+            return `<div class="acc-totale"><small>Magazzino · ${esc(d.descrizione)}</small>` +
+                `<b>${n == null ? 'quantità da inserire' : `${n} ${n === 1 ? 'pezzo' : 'pezzi'}`}</b> ` +
+                `<button class="acc-btn acc-btn-mini" data-quantita="${esc(d.id)}" ${inv.righe ? '' : 'disabled'}>${n == null ? 'Inserisci' : 'Cambia'}</button>` +
+                `<small>presi per ordini da spedire: ${presi[d.id] || 0} · possibili: ${possibili[d.id] || 0}<br>${esc(prezzo)}</small></div>`;
+        }).join('') + `</div>`;
+    }
+
     function copia(testo) {
         try { navigator.clipboard.writeText(testo); } catch (e) { /* appunti non disponibili */ }
         if (typeof showNotification === 'function') showNotification('Copiato negli appunti', 'success');
@@ -565,7 +741,7 @@
         const cont = document.getElementById('automatico-container');
         if (!cont) return;
         stile();
-        cont.innerHTML = `<div class="acc-pagina"><div class="acc-vuoto">Carico l'accoppiamento automatico…</div></div>`;
+        if (forza || !stato.dati) cont.innerHTML = `<div class="acc-pagina"><div class="acc-vuoto">Carico l'accoppiamento automatico…</div></div>`;
         let dati;
         try {
             dati = await carica(forza);
@@ -573,6 +749,9 @@
             cont.innerHTML = `<div class="acc-pagina"><div class="acc-testa"><h2>Accoppiamento automatico</h2></div>` +
                 `<div class="acc-vuoto">Automatico non disponibile: ${esc(stato.errore)}.<br><small>I dati si preparano con l'aggiornamento dei listini, ogni 30 minuti.</small></div></div>`;
             return;
+        }
+        if ((dati.magazzino || []).length) {
+            try { await leggiInventario(); } catch (e) { /* mostrato accanto ai pezzi */ }
         }
         const filtro = leggiLS(K_FILTRO, 'da-fare');
         const esclusi = leggiLS(K_ESCLUSI, {});
@@ -591,10 +770,7 @@
         const u = utile(venduto, costo);
         const quando = (x) => { try { return new Date(x).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return x; } };
         const selezionati = visibili.map(([id]) => id).filter(id => !esclusi[id]);
-        const magazzino = (dati.magazzino || []).length
-            ? `<div class="acc-totali">${dati.magazzino.map(m => `<div class="acc-totale"><small>Magazzino · ${esc(m.descrizione)}</small>` +
-                `<b>${m.liberi} liberi</b> <small>${m.quantita} contati il ${esc(quando(m.dal))} · ${m.usati} usati · ${m.prenotati} prenotati</small></div>`).join('')}</div>`
-            : '';
+        const magazzino = boxMagazzino(dati);
         cont.innerHTML = `<div class="acc-pagina">` +
             `<div class="acc-testa"><h2>Accoppiamento automatico</h2>` +
             `<span class="acc-info">Listini del ${esc(quando(dati.listini))} · preparato il ${esc(quando(dati.generato))} · ordini da spedire: ${tutti.length}</span>` +
@@ -633,6 +809,24 @@
                 renderPagina();
             }
         }));
+        // magazzino: ogni scrittura parte solo da un clic di Antonio, con conferma
+        const agisci = async (fn, bottone) => {
+            if (bottone) bottone.disabled = true;
+            let cambiato = false;
+            try { cambiato = await fn(); } catch (e) { avvisa('Magazzino: ' + (e && e.message ? e.message : e), 'error'); cambiato = true; }
+            if (cambiato) renderPagina(); else if (bottone) bottone.disabled = false;
+        };
+        cont.querySelectorAll('[data-prendi]').forEach(b => b.addEventListener('click', () => agisci(() => prendiDalMagazzino(dati, b.dataset.prendi), b)));
+        cont.querySelectorAll('[data-annulla]').forEach(b => b.addEventListener('click', () => agisci(() => annullaDalMagazzino(dati, b.dataset.annulla), b)));
+        cont.querySelectorAll('[data-quantita]').forEach(b => b.addEventListener('click', () => {
+            const d = (dati.magazzino || []).find(x => x.id === b.dataset.quantita);
+            if (!d) return;
+            const attuale = quantitaMagazzino(d);
+            const val = prompt(`Quanti pezzi di ${d.descrizione} hai a terra adesso?`, attuale == null ? '' : String(attuale));
+            if (val == null || String(val).trim() === '') return;
+            if (!/^\d+$/.test(String(val).trim())) { avvisa('Scrivi un numero intero, per esempio 5.', 'warning'); return; }
+            agisci(() => impostaQuantita(d, String(val).trim()), b);
+        }));
         cont.querySelectorAll('[data-copia]').forEach(el => el.addEventListener('click', () => { if (el.dataset.copia) copia(el.dataset.copia); }));
         cont.querySelectorAll('[data-copia-forn]').forEach(b => b.addEventListener('click', () => {
             const righe = riepilogoFornitori(dati, selezionati, salvati)[b.dataset.copiaForn] || [];
@@ -661,7 +855,9 @@
     }
 
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
-        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico };
+        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico,
+        annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
+        impostaQuantita, boxMagazzino, rigaPezzo };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

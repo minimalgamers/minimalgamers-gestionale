@@ -295,6 +295,13 @@ window.fetch = async function(url, options = {}) {
         if (urlStr.includes('api-inventory')) {
             if (method === 'GET') return ok({ success: true, inventory: await DB.getInventory() });
             if (method === 'DELETE') { await DB.deleteInventoryItem(params.ean); return ok({ success: true }); }
+            // pulsanti +/- dell'Inventario: arriva {ean, delta}, non la quantita' (prima non si salvava nulla)
+            if (method === 'PUT' && body && body.delta != null && body.quantity == null) {
+                const riga = (await DB.getInventory()).find(x => x.ean === body.ean);
+                if (!riga) return ok({ success: false, error: 'articolo non trovato' });
+                await DB.saveInventoryItem(riga.ean, riga.name, Math.max(0, (Number(riga.quantity) || 0) + Number(body.delta)));
+                return ok({ success: true });
+            }
             await DB.saveInventoryItem(body.ean, body.name, body.quantity);
             return ok({ success: true });
         }

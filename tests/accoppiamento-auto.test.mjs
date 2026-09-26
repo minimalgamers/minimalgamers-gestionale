@@ -102,14 +102,91 @@ assert.equal(r['FORNITORE LOCALE'][0].costo, 8.61);
 assert.equal(r.ALTRO[0].senzaCosto, true);
 assert.ok(r['DA DECIDERE'][0].descrizione.startsWith('Scheda madre'));
 assert.ok(!Object.values(r).flat().some(x => x.descrizione === 'Scatole'));
-// pezzo gia' a terra: costo nei conti, nel riepilogo sotto MAGAZZINO e non dal fornitore
+// --- magazzino (26/09): si scala solo con la conferma di Antonio, il prezzo pagato resta nei conti ---
+// Il modulo scrive nella tabella dell'Inventario passando dall'adapter vero (api-adapter.js),
+// qui collegato a un finto database in memoria.
+const adapter = readFileSync(new URL('../assets/js/api-adapter.js', import.meta.url), 'utf8');
+const tabella = [];
+sandbox.window.SupabaseDB = {
+  _ready: true,
+  async getInventory() { return tabella.map(x => ({ ...x })); },
+  async saveInventoryItem(ean, name, quantity) {
+    const r = tabella.find(x => x.ean === ean);
+    if (r) { if (name !== undefined) r.name = name; if (quantity !== undefined) r.quantity = quantity; }
+    else tabella.push({ ean, name, quantity });
+  },
+  async deleteInventoryItem(ean) { const i = tabella.findIndex(x => x.ean === ean); if (i >= 0) tabella.splice(i, 1); }
+};
+sandbox.window.fetch = () => { throw new Error('niente rete nel test'); };
+sandbox.location = { href: 'https://gestionale.test/' };
+sandbox.Response = Response;
+sandbox.URL = URL;
+vm.runInContext(adapter, sandbox);
+sandbox.fetch = (...a) => sandbox.window.fetch(...a);
+const riga = (ean) => tabella.find(x => x.ean === ean);
+const si = () => true, no = () => false;
+
+A.annota(dati);
 const pc2 = A.pcAutomatico(dati, '556');
-assert.equal(JSON.stringify(A.costoPezzo(pc2.pezzi[1], {})), JSON.stringify({ costo: 25, fonte: 'magazzino' }));
+const psu = pc2.pezzi[1];
+assert.equal(psu.mag.uso, 'MAG-USO-556-1-psu_600');
+assert.ok(!('mag' in JSON.parse(JSON.stringify(psu))));            // non finisce nei dati salvati
+// prima di leggere il magazzino, e finche' non si prende: fornitore e prezzo di oggi
+assert.equal(A.pezzoPreso(psu), false);
+assert.equal(A.contiPc(pc2, {}).costo, 328);
+assert.deepEqual(Array.from(Object.keys(A.riepilogoFornitori(dati, ['556'], {}))), ['ACTION']);
+await A.leggiInventario();
+assert.equal(A.quantitaMagazzino(dati.magazzino[0]), null);         // quantita' non ancora inserita
+assert.match(A.rigaPezzo(psu, {}), /non ancora inserita/);
+assert.equal(await A.prendiDalMagazzino(dati, psu.mag.uso, si), false);   // niente a terra: non si prende
+assert.equal(tabella.length, 0);
+// quantita' inserita da Antonio (come nella pagina Inventario)
+assert.equal(await A.impostaQuantita(dati.magazzino[0], '3'), true);
+assert.equal(riga('MAG-PSU-600W').quantity, 3);
+assert.match(A.rigaPezzo(psu, {}), /data-prendi="MAG-USO-556-1-psu_600"/);
+assert.match(A.boxMagazzino(dati), /3 pezzi/);
+// senza conferma non cambia nulla
+assert.equal(await A.prendiDalMagazzino(dati, psu.mag.uso, no), false);
+assert.equal(riga('MAG-PSU-600W').quantity, 3);
+assert.equal(riga(psu.mag.uso), undefined);
+// con la conferma: un pezzo in meno, riga d'uso per l'ordine, costo pagato nei conti, riepilogo MAGAZZINO
+let domanda = '';
+assert.equal(await A.prendiDalMagazzino(dati, psu.mag.uso, (t) => { domanda = t; return true; }), true);
+assert.match(domanda, /#9002/);
+assert.match(domanda, /restano 2 pezzi/);
+assert.equal(riga('MAG-PSU-600W').quantity, 2);
+assert.equal(riga('MAG-USO-556-1-psu_600').quantity, 1);
+assert.equal(A.pezzoPreso(psu), true);
+assert.equal(JSON.stringify(A.costoPezzo(psu, {})), JSON.stringify({ costo: 25, fonte: 'magazzino' }));
 assert.equal(A.contiPc(pc2, {}).costo, 325);
 const r2 = A.riepilogoFornitori(dati, ['556'], {});
 assert.deepEqual(Array.from(Object.keys(r2)).sort(), ['ACTION', 'MAGAZZINO']);
 assert.equal(r2.ACTION.length, 1);                                  // l'alimentatore non va ordinato
 assert.equal(r2.MAGAZZINO[0].costo, 25);
-assert.equal(dati.magazzino[0].liberi, 1);
+assert.match(A.rigaPezzo(psu, {}), /data-annulla=/);
+assert.match(A.boxMagazzino(dati), /presi per ordini da spedire: 1/);
+// due volte lo stesso pezzo per lo stesso ordine: no
+assert.equal(await A.prendiDalMagazzino(dati, psu.mag.uso, si), false);
+assert.equal(riga('MAG-PSU-600W').quantity, 2);
+// Annulla: il pezzo torna in magazzino e l'ordine torna al fornitore
+assert.equal(await A.annullaDalMagazzino(dati, psu.mag.uso, no), false);
+assert.equal(riga('MAG-PSU-600W').quantity, 2);
+assert.equal(await A.annullaDalMagazzino(dati, psu.mag.uso, si), true);
+assert.equal(riga('MAG-PSU-600W').quantity, 3);
+assert.equal(riga(psu.mag.uso), undefined);
+assert.equal(A.contiPc(pc2, {}).costo, 328);
+// prezzo pagato non inserito: nei conti resta il prezzo di oggi
+dati.magazzino[0].costo = null;
+await A.prendiDalMagazzino(dati, psu.mag.uso, si);
+assert.equal(JSON.stringify(A.costoPezzo(psu, {})), JSON.stringify({ costo: 28, fonte: 'magazzino' }));
+// pulsanti +/- della pagina Inventario: arriva solo «delta» (prima non si salvava)
+let res = await sandbox.fetch('api_gateway/db_bridge/inventory_service/endpoint/api-inventory.php',
+  { method: 'PUT', body: JSON.stringify({ ean: 'MAG-PSU-600W', delta: -1 }) });
+assert.equal((await res.json()).success, true);
+assert.equal(riga('MAG-PSU-600W').quantity, 1);
+res = await sandbox.fetch('api_gateway/db_bridge/inventory_service/endpoint/api-inventory.php',
+  { method: 'PUT', body: JSON.stringify({ ean: 'MAG-PSU-600W', delta: -5 }) });
+assert.equal(riga('MAG-PSU-600W').quantity, 0);                    // mai sotto zero
+assert.equal(riga('MAG-PSU-600W').name, 'Alimentatore DeepCool PF-600X');
 
 console.log('accoppiamento-auto: tutti i test passati');

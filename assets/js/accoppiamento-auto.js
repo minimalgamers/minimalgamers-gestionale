@@ -214,7 +214,7 @@
     const COLORI = { PROKS: '#e74c3c', OMEGA: '#9b59b6', 'TIER ONE': '#3498db', AMAZON: '#f39c12', NOUA: '#2ecc71',
         INTEGRATA: '#7f8c8d', MSI: '#d35400', ACTION: '#1abc9c', ABACO: '#16a085', RUNNER: '#e67e22',
         CASEKING: '#c0392b', FOCELDA: '#8e44ad', 'NAVY BLUE': '#2c3e50', ESPRINET: '#2980b9', BREVI: '#27ae60',
-        MEEMO: '#f1c40f', ALTRO: '#95a5a6', 'FORNITORE LOCALE': '#bdc3c7' };
+        MEEMO: '#f1c40f', ALTRO: '#95a5a6', 'FORNITORE LOCALE': '#bdc3c7', MAGAZZINO: '#27ae60' };
 
     function stile() {
         if (document.getElementById('accoppiamento-auto-style')) return;
@@ -261,6 +261,7 @@
 .acc-nota{color:rgba(255,255,255,.55);font-size:.9em}
 .acc-riga-fisso td{color:rgba(255,255,255,.85)}
 .acc-riga-vuota td{color:#f5b041}
+.acc-riga-magazzino td{color:#d5f5e3}
 .acc-disp-ok{color:#2ecc71}.acc-disp-conf{color:#f1c40f}.acc-disp-arr{color:#5dade2}
 .acc-riepilogo{background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:12px 14px;margin-top:18px}
 .acc-riepilogo h3{margin:0 0 8px;font-size:1.05em}
@@ -401,6 +402,7 @@
     }
 
     function costoPezzo(p, salvati) {
+        if (p.magazzino && p.magazzino.costo != null) return { costo: p.magazzino.costo, fonte: 'magazzino' };
         if (p.auto && p.auto.costo != null) return { costo: p.auto.costo, fonte: 'auto' };
         const k = chiaveFisso(p);
         if (salvati && salvati[k] != null) return { costo: salvati[k], fonte: 'inserito' };
@@ -431,7 +433,10 @@
             for (const pc of o.pc) {
                 for (const p of pc.pezzi) {
                     let forn, codice, descr, q, costo;
-                    if (p.auto) {
+                    if (p.magazzino) {                                    // gia' a terra: non si ordina
+                        forn = 'MAGAZZINO'; codice = ''; descr = p.magazzino.descrizione;
+                        q = 1; costo = costoPezzo(p, salvati).costo;
+                    } else if (p.auto) {
                         forn = p.auto.fornitore; codice = p.auto.codice; descr = p.auto.descrizione;
                         q = p.auto.quantita || 1; costo = p.auto.costo;
                     } else if (p.fisso) {
@@ -473,6 +478,14 @@
         const man = p.manuale && p.manuale.codice
             ? `Manuale: ${p.manuale.fornitore || '—'} ${p.manuale.codice}${p.manuale.costo != null ? ' · ' + eur(p.manuale.costo) : ''}` : '';
         const titolo = esc([note, man].filter(Boolean).join('\n'));
+        if (p.magazzino) {
+            const m = p.magazzino;
+            const poi = p.auto ? `finito il magazzino: ${p.auto.fornitore} ${p.auto.codice} · ${eur(p.auto.costo)}` : '';
+            return `<tr class="acc-riga-magazzino" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
+                `<td>${badgeFornitore('MAGAZZINO')} ${esc(m.descrizione)} <span class="acc-nota">(${m.stato === 'usato' ? 'già preso' : 'da prendere a terra'})</span>` +
+                `${poi ? `<br><span class="acc-nota">${esc(poi)}</span>` : ''}</td>` +
+                `<td class="num">${eur(c.costo)}</td><td class="col-disp"><span class="acc-disp-ok">a terra</span></td></tr>`;
+        }
         if (p.auto) {
             const a = p.auto;
             return `<tr title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
@@ -532,6 +545,7 @@
             const righe = r[f];
             const tot = tonda(righe.reduce((s, x) => s + x.costo, 0));
             html += `<div class="acc-forn-blocco"><div class="testa">${badgeFornitore(f)} <b>${eur(tot)}</b>` +
+                (f === 'MAGAZZINO' ? ' <small class="acc-nota">già a terra: da non ordinare (il costo resta nei conti)</small>' : '') +
                 `${righe.some(x => x.senzaCosto) ? ' <small class="acc-nota">+ pezzi senza costo</small>' : ''}` +
                 ` <button class="acc-btn" data-copia-forn="${esc(f)}">Copia elenco</button></div>` +
                 `<table class="acc-tabella"><thead><tr><th>Codice</th><th>Prodotto</th><th class="num">Q.tà</th><th class="num">Costo</th><th>Ordini</th></tr></thead><tbody>` +
@@ -577,6 +591,10 @@
         const u = utile(venduto, costo);
         const quando = (x) => { try { return new Date(x).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { return x; } };
         const selezionati = visibili.map(([id]) => id).filter(id => !esclusi[id]);
+        const magazzino = (dati.magazzino || []).length
+            ? `<div class="acc-totali">${dati.magazzino.map(m => `<div class="acc-totale"><small>Magazzino · ${esc(m.descrizione)}</small>` +
+                `<b>${m.liberi} liberi</b> <small>${m.quantita} contati il ${esc(quando(m.dal))} · ${m.usati} usati · ${m.prenotati} prenotati</small></div>`).join('')}</div>`
+            : '';
         cont.innerHTML = `<div class="acc-pagina">` +
             `<div class="acc-testa"><h2>Accoppiamento automatico</h2>` +
             `<span class="acc-info">Listini del ${esc(quando(dati.listini))} · preparato il ${esc(quando(dati.generato))} · ordini da spedire: ${tutti.length}</span>` +
@@ -590,6 +608,7 @@
             `<div class="acc-totale"><small>Costo pezzi automatico</small><b>${eur(costo)}</b></div>` +
             `<div class="acc-totale"><small>Utile totale</small><b class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)}</b></div>` +
             `<div class="acc-totale"><small>PC in perdita / costi mancanti</small><b>${perdita} / ${mancanti}</b></div></div>` +
+            magazzino +
             (visibili.length ? visibili.map(([id, o]) => schedaOrdine(id, o, salvati, esclusi)).join('')
                 : `<div class="acc-vuoto">Nessun ordine ${filtro === 'tutti' ? 'da spedire' : 'da elaborare'}${cerca ? ' con questo numero' : ''}.</div>`) +
             renderRiepilogo(dati, selezionati, salvati) + `</div>`;

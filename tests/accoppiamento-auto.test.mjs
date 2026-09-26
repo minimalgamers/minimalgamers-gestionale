@@ -102,6 +102,14 @@ assert.equal(r['FORNITORE LOCALE'][0].costo, 8.61);
 assert.equal(r.ALTRO[0].senzaCosto, true);
 assert.ok(r['DA DECIDERE'][0].descrizione.startsWith('Scheda madre'));
 assert.ok(!Object.values(r).flat().some(x => x.descrizione === 'Scatole'));
-assert.deepEqual(Array.from(Object.keys(A.riepilogoFornitori(dati, ['556'], {}))), ['ACTION']);
+// pezzo gia' a terra: costo nei conti, nel riepilogo sotto MAGAZZINO e non dal fornitore
+const pc2 = A.pcAutomatico(dati, '556');
+assert.equal(JSON.stringify(A.costoPezzo(pc2.pezzi[1], {})), JSON.stringify({ costo: 25, fonte: 'magazzino' }));
+assert.equal(A.contiPc(pc2, {}).costo, 325);
+const r2 = A.riepilogoFornitori(dati, ['556'], {});
+assert.deepEqual(Array.from(Object.keys(r2)).sort(), ['ACTION', 'MAGAZZINO']);
+assert.equal(r2.ACTION.length, 1);                                  // l'alimentatore non va ordinato
+assert.equal(r2.MAGAZZINO[0].costo, 25);
+assert.equal(dati.magazzino[0].liberi, 1);
 
 console.log('accoppiamento-auto: tutti i test passati');

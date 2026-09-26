@@ -505,9 +505,13 @@ const CASE_ECONOMY_CONFIGS = new Set([
     '[PC+MONITOR+KIT]', '[PC+MONITOR+KIT] PC GAMING', '[PC+MONITOR+KIT] PC GAMING ARC A770',
 ]);
 
-// mobo "maggiorata" (fa scattare CASE ATX sulle economiche)
+// mobo "maggiorata" (fa scattare CASE ATX sulle economiche).
+// Antonio 26/09: se il cliente cambia la scheda madre serve il CASE ATX (la NOUA Vitra e' M-ATX):
+// vale qualunque scelta diversa da quella di serie, che e' la multimarca «... [ASROCK - GIGABYTE - MSI]».
 function isUpgradedMobo(moboChoice) {
-    const u = String(moboChoice || '').toUpperCase();
+    const u = String(moboChoice || '').toUpperCase().trim();
+    if (!u || /^(NESSUN|NO\b|BASE\b|STANDARD\b)/.test(u)) return false;
+    if (!/\[/.test(u)) return true;
     return /B850\s*TOMAHAWK/.test(u) || /ROG\s*STRIX\s*B850/.test(u) || /X870/.test(u) ||
            /TOMAHAWK/.test(u) || /Z790/.test(u);
 }

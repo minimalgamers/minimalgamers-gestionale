@@ -483,26 +483,29 @@ function getMonitorDisplayValue(monitorItem) {
 }
 
 // ============================================================================
-// REGOLE CASE v36 — logica unica e completa
+// REGOLE CASE v36 — logica unica e completa (set allineati all'Excel delle build, Antonio 26/09/2026)
 // ----------------------------------------------------------------------------
 // Scatta SOLO se il cliente sceglie MINIMAL CASE. Colore dalla scelta.
-//   - Config TOP                -> CASE ATX (sempre)
-//   - Config ECONOMICHE         -> NOUA VITRA se mobo basica, CASE ATX se maggiorata
-//   - Bundle [PC+MONITOR+KIT]   -> come economiche (tranne quello RTX 5070 = TOP)
-//   - Config non classificate (MSI, CUSTOM) -> NON toccate
+//   - Config TOP                -> CASE ATX (sempre): tutte le build tranne le economiche
+//   - Config ECONOMICHE         -> NOUA VITRA se mobo di serie, CASE ATX se il cliente la cambia
+//                                  (VOLT, SETUP VOLT, CRIMSON, BUNDLE CRIMSON, VORTEX, VEGA, STRIKE, STREAM)
+//   - Config non classificate (MSI, DEEPCOOL, ammiraglie con case XL, CUSTOM) -> NON toccate
 // ============================================================================
 const CASE_TOP_CONFIGS = new Set([
     'PC GAMING BLACKNOVA', 'PC GAMING DOMINATOR V.1', 'PC GAMING DOMINATOR V.2',
     'PC GAMING INFERNUS', 'PC GAMING NEMESIS', 'PC GAMING PERFY', 'PC GAMING PREDATOR',
     'PC GAMING RAGNAROK', 'PC GAMING SINNER', 'PC GAMING STERMINATOR',
     'PC GAMING TERMINATOR', 'PC GAMING TITAN', 'PC GAMING VANGUARD', 'PC GAMING ZEUS',
-    '[PC+MONITOR+KIT] PC GAMING RTX 5070',
+    'PC GAMING REX', 'PC GAMING HECTORE', 'PC GAMING HELLFIRE', 'PC GAMING HELLSTORM', 'PC GAMING MADAME',
+    'PC GAMING VALHALLA', 'PC GAMING ALCARAZ', 'PC GAMING RAPTOR', 'PC GAMING CENTURION',
+    'PC GAMING BERSERKER', 'PC GAMING SPARTAN', 'PC GAMING NEUTRON', 'PC GAMING ARES',
+    'PC GAMING ACHILLES', 'PC GAMING APOCALYPSE', 'SETUP SINNER',
+    '[PC+MONITOR+KIT] PC GAMING', '[PC+MONITOR+KIT] PC GAMING ARC A770', '[PC+MONITOR+KIT] PC GAMING RTX 5070',
 ]);
 const CASE_ECONOMY_CONFIGS = new Set([
-    'PC GAMING CRIMSON', 'PC GAMING HECTORE', 'PC GAMING HELLFIRE', 'PC GAMING HELLSTORM',
-    'PC GAMING MADAME', 'PC GAMING REX', 'PC GAMING STREAM', 'PC GAMING STRIKE',
-    'PC GAMING VEGA', 'PC GAMING VORTEX',
-    '[PC+MONITOR+KIT]', '[PC+MONITOR+KIT] PC GAMING', '[PC+MONITOR+KIT] PC GAMING ARC A770',
+    'PC GAMING VOLT', 'SETUP VOLT', 'PC GAMING CRIMSON', 'PC GAMING VORTEX',
+    'PC GAMING VEGA', 'PC GAMING STRIKE', 'PC GAMING STREAM',
+    '[PC+MONITOR+KIT]',
 ]);
 
 // mobo "maggiorata" (fa scattare CASE ATX sulle economiche).

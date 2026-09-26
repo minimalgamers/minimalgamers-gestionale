@@ -401,7 +401,10 @@
 .acc-forn-blocco{margin:10px 0}
 .acc-forn-blocco .testa{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .acc-vuoto{color:rgba(255,255,255,.75);padding:20px;background:rgba(0,0,0,.3);border-radius:10px}
-@media (max-width:760px){.acc-tabella .col-cliente,.acc-tabella .col-disp{display:none}}`;
+.acc-tabella td.acc-sopra{color:#ff8a80;font-weight:700}.acc-tabella td.acc-sotto{color:#82e0aa}
+.acc-tabella td.col-excel{white-space:normal;min-width:64px}.acc-tabella td.col-excel small{font-weight:400;display:block}
+.acc-excel-sopra{color:#ff8a80;font-weight:700}.acc-excel-ok{color:#82e0aa}
+@media (max-width:760px){.acc-tabella .col-cliente,.acc-tabella .col-disp{display:none}.acc-tabella td.col-excel,.acc-tabella th.col-excel{font-size:.9em;max-width:78px}}`;
         document.head.appendChild(st);
     }
 
@@ -474,8 +477,9 @@
                 if (p > 0) extra += p * (parseInt(it.quantity ?? it.quantita, 10) || 1);
             }
         } catch (e) { /* voci personalizzate non leggibili */ }
-        const costo = conti.man + extra;
         const auto = pcAutomatico(dati, orderId);
+        const servizi = tonda(serviziPc(auto).reduce((t, x) => t + (x.costo || 0), 0));
+        const costo = conti.man + extra + servizi;
         const avvisi = auto && auto.avvisi && auto.avvisi.length
             ? `<div class="acc-avvisi">⚠ ${auto.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'ordine è stato comprato così: controlla la distinta prima di ordinare.</small></div>` : '';
         if (!vendita) {
@@ -493,11 +497,12 @@
             : '';
         const ca = auto ? contiPc(auto, leggiLS(K_FISSI, {})) : null;
         const confronto = auto
-            ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(ca.costo)}, utile ${eur(ca.utile.lordo)} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
+            ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(ca.costo)}, utile ${eur(ca.utile.lordo)} · nei conti dell'Excel ${eur(ca.excel.costo)}${ca.costo > ca.excel.costo + TOLLERANZA_EXCEL ? ' <b class="acc-neg">▲ oggi costa di più</b>' : ''} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
             : (stato.errore ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
         el.innerHTML =
             `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(vendita.totale)}${vendita.opzioni ? ` <small>(PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)})</small>` : ''}</span></div>` +
-            `<div class="riga"><span>Costo pezzi manuale${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(costo)}</span></div>` +
+            `<div class="riga"><span>Costo pezzi manuale${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(conti.man + extra)}</span></div>` +
+            `<div class="riga"><span>Montaggio e spedizione <small>(come nei conti dell'Excel)</small></span><span>${eur(servizi)}</span></div>` +
             `<div class="riga forte"><span>Utile</span><span class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)} · SRL ${eur(u.srl)}</span></div>` +
             confronto + mancanti + avvisi;
         el.querySelectorAll('.mancanti a').forEach(a => a.addEventListener('click', (ev) => {
@@ -550,16 +555,42 @@
         return { costo: null, fonte: null };
     }
 
+    // montaggio e spedizione che l'Excel delle build conta in ogni PC
+    const SERVIZI_BASE = [{ nome: 'Montaggio e collaudo', costo: 32.79 }, { nome: 'Spedizione BRT', costo: 11 }];
+    const serviziPc = (pc) => (pc && Array.isArray(pc.servizi) ? pc.servizi : SERVIZI_BASE);
+    const TOLLERANZA_EXCEL = 1;                     // sotto 1 € di differenza il pezzo e' «in linea» con l'Excel
+
     function contiPc(pc, salvati) {
-        let costo = 0;
-        const mancanti = [];
+        let costo = 0, excel = 0;
+        const mancanti = [], senzaExcel = [], sopra = [];
         for (const p of pc.pezzi) {
             const c = costoPezzo(p, salvati);
             if (c.costo == null) mancanti.push(p);
             else costo += c.costo;
+            if (p.excel && p.excel.costo != null) {
+                excel += p.excel.costo;
+                if (c.costo != null && c.costo > p.excel.costo + TOLLERANZA_EXCEL) sopra.push(p);
+            } else if (!p.senza_costo) senzaExcel.push(p);
         }
-        costo = tonda(costo);
-        return { costo, mancanti, utile: utile(pc.prezzo.totale, costo) };
+        const servizi = serviziPc(pc).reduce((t, x) => t + (x.costo || 0), 0);
+        costo = tonda(costo + servizi);
+        excel = tonda(excel + servizi);
+        return { costo, mancanti, utile: utile(pc.prezzo.totale, costo),
+            excel: { costo: excel, utile: utile(pc.prezzo.totale, excel), senza: senzaExcel, sopra } };
+    }
+
+    // cella «nei conti dell'Excel» accanto al costo del pezzo: rossa se oggi costa di piu'
+    function cellaExcel(p, costo) {
+        if (!p.excel || p.excel.costo == null) return `<td class="num col-excel"><span class="acc-nota" title="L'Excel non ha il costo di questa scelta">—</span></td>`;
+        const e = p.excel.costo;
+        const d = costo == null ? null : tonda(costo - e);
+        const titolo = esc(`Nei conti dell'Excel: ${eur(e)} (${p.excel.fonte || ''})`);
+        if (d != null && d > TOLLERANZA_EXCEL) {
+            const mag = p.mag && !pezzoPreso(p) ? ' · a magazzino costa meno' : '';
+            return `<td class="num col-excel acc-sopra" title="${titolo}">${eur(e)}<br><small>▲ +${eur(d)}${esc(mag)}</small></td>`;
+        }
+        if (d != null && d < -TOLLERANZA_EXCEL) return `<td class="num col-excel acc-sotto" title="${titolo}">${eur(e)}<br><small>▼ ${eur(d)}</small></td>`;
+        return `<td class="num col-excel" title="${titolo}">${eur(e)}</td>`;
     }
 
     // Riepilogo per fornitore degli ordini scelti: { FORNITORE: [{codice, descrizione, quantita, costo, ordini}] }
@@ -625,7 +656,7 @@
                 `<td>${badgeFornitore('MAGAZZINO')} ${esc(d.descrizione)} <span class="acc-nota">(preso dal magazzino · ${esc(prezzo)})</span>` +
                 ` <button class="acc-btn acc-btn-mini" data-annulla="${esc(p.mag.uso)}">Annulla</button>` +
                 `${poi ? `<br><span class="acc-nota">${esc(poi)}</span>` : ''}</td>` +
-                `<td class="num">${eur(c.costo)}</td><td class="col-disp"><span class="acc-disp-ok">a terra</span></td></tr>`;
+                `<td class="num">${eur(c.costo)}</td>${cellaExcel(p, c.costo)}<td class="col-disp"><span class="acc-disp-ok">a terra</span></td></tr>`;
         }
         const mag = lineaMagazzino(p);
         if (p.auto) {
@@ -634,7 +665,7 @@
                 `<td>${badgeFornitore(a.fornitore)} <span class="acc-cod" data-copia="${esc(a.codice)}" title="Copia il codice">${esc(a.codice)}</span>` +
                 `${a.quantita > 1 ? ` <b>×${a.quantita}</b>` : ''}<br><span class="acc-descr">${esc(a.descrizione)}</span>` +
                 `${p.nota ? `<br><span class="acc-nota">${esc(p.nota)}</span>` : ''}${mag}</td>` +
-                `<td class="num">${eur(c.costo)}</td><td class="col-disp">${disponibilita(a)}</td></tr>`;
+                `<td class="num">${eur(c.costo)}</td>${cellaExcel(p, c.costo)}<td class="col-disp">${disponibilita(a)}</td></tr>`;
         }
         if (p.fisso) {
             const f = p.fisso;
@@ -642,13 +673,19 @@
                 : `<a class="acc-link" data-costo="${esc(chiaveFisso(p))}" data-nome="${esc(f.descrizione)}">inserisci costo</a>`;
             return `<tr class="acc-riga-fisso" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
                 `<td>${badgeFornitore(f.fornitore || 'FUORI LISTINO')} ${esc(f.descrizione)}<br><span class="acc-nota">${esc(p.nota || 'fuori dai listini')}</span>${mag}</td>` +
-                `<td class="num">${costo}</td><td class="col-disp"></td></tr>`;
+                `<td class="num">${costo}</td>${cellaExcel(p, c.costo)}<td class="col-disp"></td></tr>`;
         }
         const costo = c.costo != null ? eur(c.costo) + ' <small>(manuale)</small>'
             : `<a class="acc-link" data-costo="${esc(chiaveFisso(p))}" data-nome="${esc(p.nome_tipo)}">inserisci costo</a>`;
         return `<tr class="acc-riga-vuota" title="${titolo}"><td>${esc(p.nome_tipo)}</td><td class="col-cliente">${cliente}</td>` +
             `<td>Nessun pezzo ordinabile oggi nei listini<br><span class="acc-nota">${esc(p.nota || '')}${man ? ' · ' + esc(man) : ''}</span>${mag}</td>` +
-            `<td class="num">${costo}</td><td class="col-disp"></td></tr>`;
+            `<td class="num">${costo}</td>${cellaExcel(p, c.costo)}<td class="col-disp"></td></tr>`;
+    }
+
+    function righeServizi(pc) {
+        return serviziPc(pc).map(x => `<tr class="acc-riga-fisso"><td>Servizio</td><td class="col-cliente"></td>` +
+            `<td>${esc(x.nome)} <span class="acc-nota">(come nei conti dell'Excel)</span></td>` +
+            `<td class="num">${eur(x.costo)}</td><td class="num col-excel">${eur(x.costo)}</td><td class="col-disp"></td></tr>`).join('');
     }
 
     // sotto un pezzo che potrebbe uscire dal magazzino: quanti ce ne sono e il pulsante per prenderlo
@@ -678,16 +715,29 @@
             if (pc.avvisi && pc.avvisi.length) {
                 html += `<div class="acc-avvisi">⚠ ${pc.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'automatico segue quello che il cliente ha comprato.</small></div>`;
             }
-            html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
-                pc.pezzi.map(p => rigaPezzo(p, salvati)).join('') + `</tbody></table>`;
+            html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="num col-excel">Nei conti Excel</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
+                pc.pezzi.map(p => rigaPezzo(p, salvati)).join('') + righeServizi(pc) + `</tbody></table>`;
             html += `<div class="acc-utile ${cls}">` +
                 `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(pc.prezzo.totale)}${pc.prezzo.opzioni ? ` <small>(PC ${eur(pc.prezzo.pc)} + opzioni ${eur(pc.prezzo.opzioni)})</small>` : ''}</span></div>` +
-                `<div class="riga"><span>Costo pezzi automatico</span><span>${eur(c.costo)}</span></div>` +
+                `<div class="riga"><span>Costo automatico (pezzi + montaggio e spedizione)</span><span>${eur(c.costo)}</span></div>` +
                 `<div class="riga forte"><span>Utile</span><span class="${c.utile.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(c.utile.lordo)} · SRL ${eur(c.utile.srl)}</span></div>` +
+                rigaConfrontoExcel(c) +
                 (c.mancanti.length ? `<div class="mancanti">Mancano i costi di: ${c.mancanti.map(p => esc(p.nome_tipo)).join(', ')} — l'utile non li conta.</div>` : '') +
                 `</div>`;
         }
         return html + '</div>';
+    }
+
+    // confronto con i conti dell'Excel delle build (stessi pezzi, costo che l'Excel mette in conto)
+    function rigaConfrontoExcel(c) {
+        const e = c.excel;
+        if (!e) return '';
+        const d = tonda(c.costo - e.costo);
+        const senza = e.senza.length ? ` <small class="acc-nota">(senza ${e.senza.map(p => esc(p.nome_tipo)).join(', ')}: l'Excel non ne ha il costo)</small>` : '';
+        const esito = d > TOLLERANZA_EXCEL
+            ? `<div class="riga acc-excel-sopra"><span>▲ Oggi costa ${eur(d)} più dei conti dell'Excel${e.sopra.length ? ` (${e.sopra.map(p => esc(p.nome_tipo)).join(', ')})` : ''}</span></div>`
+            : `<div class="riga acc-excel-ok"><span>✓ In linea con i conti dell'Excel${d < -TOLLERANZA_EXCEL ? ` (${eur(-d)} in meno)` : ''}</span></div>`;
+        return `<div class="riga"><span>Nei conti dell'Excel${senza}</span><span>${eur(e.costo)} · utile ${eur(e.utile.lordo)} · SRL ${eur(e.utile.srl)}</span></div>` + esito;
     }
 
     function renderRiepilogo(dati, ids, salvati) {
@@ -761,10 +811,12 @@
             String(b[1].data).localeCompare(String(a[1].data)) || String(b[1].nome).localeCompare(String(a[1].nome)));
         const visibili = tutti.filter(([, o]) => (filtro === 'tutti' || !(o.elaborato && o.elaborato.stato))
             && (!cerca || String(o.nome).replace(/\D/g, '').includes(cerca)));
-        let venduto = 0, costo = 0, mancanti = 0, perdita = 0;
+        let venduto = 0, costo = 0, mancanti = 0, perdita = 0, sopraExcel = 0, costoExcel = 0;
         for (const [, o] of visibili) for (const pc of o.pc) {
             const c = contiPc(pc, salvati);
             venduto += pc.prezzo.totale; costo += c.costo; mancanti += c.mancanti.length;
+            costoExcel += c.excel.costo;
+            if (c.costo > c.excel.costo + TOLLERANZA_EXCEL) sopraExcel++;
             if (c.utile.lordo < 0) perdita++;
         }
         const u = utile(venduto, costo);
@@ -781,7 +833,8 @@
             `<div class="acc-totali">` +
             `<div class="acc-totale"><small>Ordini mostrati</small><b>${visibili.length}</b></div>` +
             `<div class="acc-totale"><small>Venduto (IVA incl.)</small><b>${eur(venduto)}</b></div>` +
-            `<div class="acc-totale"><small>Costo pezzi automatico</small><b>${eur(costo)}</b></div>` +
+            `<div class="acc-totale"><small>Costo automatico (con montaggio e spedizione)</small><b>${eur(costo)}</b></div>` +
+            `<div class="acc-totale"><small>Nei conti dell'Excel</small><b>${eur(costoExcel)}</b><small>PC che oggi costano di più: <b class="${sopraExcel ? 'acc-neg' : 'acc-pos'}">${sopraExcel}</b></small></div>` +
             `<div class="acc-totale"><small>Utile totale</small><b class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)}</b></div>` +
             `<div class="acc-totale"><small>PC in perdita / costi mancanti</small><b>${perdita} / ${mancanti}</b></div></div>` +
             magazzino +
@@ -857,7 +910,7 @@
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
         idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
-        impostaQuantita, boxMagazzino, rigaPezzo };
+        impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

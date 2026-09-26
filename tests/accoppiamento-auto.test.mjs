@@ -84,15 +84,30 @@ assert.equal(pc.build, 'PC GAMING PROVA');
 assert.equal(A.pcAutomatico(dati, '555.2'), null);                 // un solo PC in quell'ordine
 assert.equal(A.pcAutomatico(dati, '999'), null);
 // costi: automatico, fisso, servizio a costo zero, mancanti (case senza costo, scheda madre senza offerta)
+// + montaggio (32,79) e spedizione BRT (11) come nei conti dell'Excel (26/09)
 let c = A.contiPc(pc, {});
-assert.equal(c.costo, 348.61);
+assert.equal(c.costo, 392.4);
 assert.deepEqual(Array.from(c.mancanti, p => p.tipo), ['CASE', 'MOBO']);
-assert.equal(c.utile.lordo, Math.round((1069.9 / 1.22 - 0.045 * 1069.9 - 348.61) * 100) / 100);
+assert.equal(c.utile.lordo, Math.round((1069.9 / 1.22 - 0.045 * 1069.9 - 392.4) * 100) / 100);
 // costo inserito a mano per il case (chiave = id del costo fisso): vale per tutti gli ordini
 c = A.contiPc(pc, { case_atx: 50 });
-assert.equal(c.costo, 398.61);
+assert.equal(c.costo, 442.4);
 assert.deepEqual(Array.from(c.mancanti, p => p.tipo), ['MOBO']);
 assert.equal(JSON.stringify(A.costoPezzo(pc.pezzi[2], { case_atx: 50 })), JSON.stringify({ costo: 50, fonte: 'inserito' }));
+// conti dell'Excel (26/09): costo di ogni pezzo nei conti, rosso se oggi costa piu' di 1 € in piu'
+const conExcel = JSON.parse(JSON.stringify(pc));
+conExcel.pezzi.forEach((p, i) => { p.excel = i === 0 ? { costo: (A.costoPezzo(p, {}).costo || 0) - 20, fonte: 'distinta' } : null; });
+conExcel.servizi = [{ nome: 'Montaggio e collaudo', costo: 32.79 }, { nome: 'Spedizione BRT', costo: 11 }];
+const ce = A.contiPc(conExcel, {});
+assert.equal(ce.excel.sopra.length, 1);
+assert.equal(ce.excel.senza.length, conExcel.pezzi.filter((p, i) => i > 0 && !p.senza_costo).length);
+assert.equal(ce.excel.costo, Math.round(((A.costoPezzo(conExcel.pezzi[0], {}).costo - 20) + 43.79) * 100) / 100);
+assert.match(A.cellaExcel(conExcel.pezzi[0], A.costoPezzo(conExcel.pezzi[0], {}).costo), /acc-sopra/);
+assert.match(A.cellaExcel(conExcel.pezzi[0], A.costoPezzo(conExcel.pezzi[0], {}).costo), /\+20,00/);
+assert.match(A.cellaExcel({ excel: { costo: 100 } }, 100.5), /^<td class="num col-excel" /);   // entro 1 €: in linea
+assert.match(A.cellaExcel({ excel: null }, 10), /—/);
+assert.match(A.rigaConfrontoExcel(ce), /oggi costa/i);
+assert.match(A.rigaConfrontoExcel({ costo: 100, excel: { costo: 120, utile: A.utile(500, 120), senza: [], sopra: [] } }), /In linea/);
 // riepilogo fornitori: somma le quantita' tra ordini, esclude i servizi a costo zero
 const r = A.riepilogoFornitori(dati, ['555', '556'], {});
 assert.equal(r.ACTION.find(x => x.codice === 'GPU-1').quantita, 2);
@@ -133,7 +148,7 @@ assert.equal(psu.mag.uso, 'MAG-USO-556-1-psu_600');
 assert.ok(!('mag' in JSON.parse(JSON.stringify(psu))));            // non finisce nei dati salvati
 // prima di leggere il magazzino, e finche' non si prende: fornitore e prezzo di oggi
 assert.equal(A.pezzoPreso(psu), false);
-assert.equal(A.contiPc(pc2, {}).costo, 328);
+assert.equal(A.contiPc(pc2, {}).costo, 371.79);
 assert.deepEqual(Array.from(Object.keys(A.riepilogoFornitori(dati, ['556'], {}))), ['ACTION']);
 await A.leggiInventario();
 assert.equal(A.quantitaMagazzino(dati.magazzino[0]), null);         // quantita' non ancora inserita
@@ -158,7 +173,7 @@ assert.equal(riga('MAG-PSU-600W').quantity, 2);
 assert.equal(riga('MAG-USO-556-1-psu_600').quantity, 1);
 assert.equal(A.pezzoPreso(psu), true);
 assert.equal(JSON.stringify(A.costoPezzo(psu, {})), JSON.stringify({ costo: 25, fonte: 'magazzino' }));
-assert.equal(A.contiPc(pc2, {}).costo, 325);
+assert.equal(A.contiPc(pc2, {}).costo, 368.79);
 const r2 = A.riepilogoFornitori(dati, ['556'], {});
 assert.deepEqual(Array.from(Object.keys(r2)).sort(), ['ACTION', 'MAGAZZINO']);
 assert.equal(r2.ACTION.length, 1);                                  // l'alimentatore non va ordinato
@@ -174,7 +189,7 @@ assert.equal(riga('MAG-PSU-600W').quantity, 2);
 assert.equal(await A.annullaDalMagazzino(dati, psu.mag.uso, si), true);
 assert.equal(riga('MAG-PSU-600W').quantity, 3);
 assert.equal(riga(psu.mag.uso), undefined);
-assert.equal(A.contiPc(pc2, {}).costo, 328);
+assert.equal(A.contiPc(pc2, {}).costo, 371.79);
 // prezzo pagato non inserito: nei conti resta il prezzo di oggi
 dati.magazzino[0].costo = null;
 await A.prendiDalMagazzino(dati, psu.mag.uso, si);

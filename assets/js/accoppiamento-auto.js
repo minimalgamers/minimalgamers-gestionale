@@ -302,6 +302,53 @@
         return { lordo: tonda(lordo), srl: tonda(lordo > 0 ? QUOTA_SRL * lordo : lordo) };
     }
 
+    // ---------------------------------------------------------------- obiettivo e prezzo (Antonio 29/09)
+    // «L'utile va calcolato in base a quanto lo abbiamo venduto … e capire se quel PC è in target con l'utile in
+    // base ai costi d'acquisto dei componenti». L'obiettivo è la colonna «Target utile» dell'Excel (utile SRL),
+    // lo stesso del GPU Watch; arriva con i dati automatici. Entro 5 € dall'obiettivo l'ordine è in target.
+    const TOLLERANZA_OBIETTIVO = 5;
+
+    function valutaObiettivo(srl, obiettivo) {
+        if (obiettivo == null || srl == null || isNaN(Number(obiettivo)) || isNaN(Number(srl))) return null;
+        const scarto = tonda(Number(srl) - Number(obiettivo));
+        return { obiettivo: Number(obiettivo), scarto, inTarget: scarto >= -TOLLERANZA_OBIETTIVO };
+    }
+
+    function rigaObiettivo(srl, obiettivo) {
+        const v = valutaObiettivo(srl, obiettivo);
+        if (!v) return '';
+        return v.inTarget
+            ? `<div class="riga acc-excel-ok"><span>🎯 Obiettivo utile SRL ${eur(v.obiettivo)}</span><span>✅ in target${v.scarto >= 1 ? ` (+${eur(v.scarto)})` : ''}</span></div>`
+            : `<div class="riga acc-excel-sopra"><span>🎯 Obiettivo utile SRL ${eur(v.obiettivo)}</span><span>🔻 sotto di ${eur(-v.scarto)}</span></div>`;
+    }
+
+    const dataBreve = (x) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(x || ''));
+        return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+    };
+
+    // «Venduto il 27/09/2026 a …» e, se oggi la build ha un altro prezzo sul sito, di quanto
+    function righeVendita(vendita, data, listinoOggi) {
+        const quando = dataBreve(data);
+        let html = `<div class="riga"><span>Venduto${quando ? ` il ${quando}` : ''} a (IVA incl.)</span><span>${eur(vendita.totale)}` +
+            `${vendita.opzioni ? ` <small>(PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)})</small>` : ''}</span></div>`;
+        if (listinoOggi != null && !isNaN(Number(listinoOggi)) && Math.abs(Number(listinoOggi) - vendita.pc) >= 1) {
+            const d = tonda(Number(listinoOggi) - vendita.pc);
+            html += `<div class="riga"><small>Oggi la build è a ${eur(Number(listinoOggi))} sul sito ` +
+                `(${d > 0 ? '+' : ''}${eur(d)} rispetto al prezzo di questo ordine)</small></div>`;
+        }
+        return html;
+    }
+
+    // L'utile si scrive solo se ci sono i costi di tutti i pezzi: con costi mancanti sarebbe gonfiato (29/09)
+    function rigaUtile(u, nMancanti) {
+        if (nMancanti > 0) {
+            return `<div class="riga forte"><span>Utile</span><span class="acc-incompleto">da calcolare: ` +
+                `${nMancanti === 1 ? 'manca 1 costo' : `mancano ${nMancanti} costi`}</span></div>`;
+        }
+        return `<div class="riga forte"><span>Utile</span><span class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)} · SRL ${eur(u.srl)}</span></div>`;
+    }
+
     function proprieta(li) {
         const out = {};
         for (const p of (Array.isArray(li.properties) ? li.properties : [])) out[p.name] = p.value;
@@ -335,7 +382,7 @@
             }
         }
         const base = parseFloat(pc.price) || 0;
-        return { totale: tonda(base + opzioni), pc: base, opzioni: tonda(opzioni), righeOpzioni };
+        return { totale: tonda(base + opzioni), pc: base, opzioni: tonda(opzioni), righeOpzioni, data: ord.created_at || '' };
     }
 
     const costoManualeSalvato = (tipo, ean) => leggiLS(K_COSTI, {})[`${tipo}|${chiave(ean)}`];
@@ -355,6 +402,7 @@
 .acc-utile.pos{border-color:rgba(46,204,113,.6);background:rgba(46,204,113,.10)}
 .acc-utile.neg{border-color:rgba(231,76,60,.7);background:rgba(231,76,60,.12)}
 .acc-utile.incompleto{border-color:rgba(241,196,15,.7);background:rgba(241,196,15,.08)}
+.acc-incompleto{color:#f5b041;font-weight:700}
 .acc-utile .riga{display:flex;justify-content:space-between;gap:8px}
 .acc-utile .forte{font-weight:700;font-size:1.1em}
 .acc-pos{color:#2ecc71}.acc-neg{color:#e74c3c}
@@ -490,20 +538,24 @@
         }
         const lista = conti.mancanti;
         const u = utile(vendita.totale, costo);
-        el.className = 'acc-utile ' + (u.lordo < 0 ? 'neg' : (lista.length ? 'incompleto' : 'pos'));
+        el.className = 'acc-utile ' + (lista.length ? 'incompleto' : (u.lordo < 0 ? 'neg' : 'pos'));
+        const perche = !auto && stato.errore
+            ? ` I costi dei pezzi arrivano dai dati automatici (${esc(stato.errore)}): appena ci sono l'utile si calcola da solo.`
+            : '';
         const mancanti = lista.length
             ? `<div class="mancanti">Mancano i costi di: ${lista.map((m, i) =>
-                `<a data-i="${i}" title="Inserisci il costo netto di questo pezzo">${esc(m.tipo)}</a>`).join(', ')} — l'utile qui sopra non li conta.</div>`
+                `<a data-i="${i}" title="Inserisci il costo netto di questo pezzo">${esc(m.tipo)}</a>`).join(', ')} <small>(clic sul nome per inserire il costo netto)</small>.${perche}</div>`
             : '';
         const ca = auto ? contiPc(auto, leggiLS(K_FISSI, {})) : null;
         const confronto = auto
             ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(ca.costo)}, utile ${eur(ca.utile.lordo)} · nei conti dell'Excel ${eur(ca.excel.costo)}${ca.costo > ca.excel.costo + TOLLERANZA_EXCEL ? ' <b class="acc-neg">▲ oggi costa di più</b>' : ''} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
-            : (stato.errore ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
+            : (stato.errore && !conti.mancanti.length ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
         el.innerHTML =
-            `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(vendita.totale)}${vendita.opzioni ? ` <small>(PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)})</small>` : ''}</span></div>` +
-            `<div class="riga"><span>Costo pezzi manuale${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(conti.man + extra)}</span></div>` +
+            righeVendita(vendita, vendita.data || (auto && auto.data), auto ? auto.listino_oggi : null) +
+            `<div class="riga"><span>Costo pezzi${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(conti.man + extra)}</span></div>` +
             `<div class="riga"><span>Montaggio e spedizione <small>(come nei conti dell'Excel)</small></span><span>${eur(servizi)}</span></div>` +
-            `<div class="riga forte"><span>Utile</span><span class="${u.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.lordo)} · SRL ${eur(u.srl)}</span></div>` +
+            rigaUtile(u, lista.length) +
+            (lista.length ? '' : rigaObiettivo(u.srl, auto ? auto.obiettivo : null)) +
             confronto + mancanti + avvisi;
         el.querySelectorAll('.mancanti a').forEach(a => a.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -710,7 +762,7 @@
             `<label class="acc-nota" style="margin-left:auto;cursor:pointer"><input type="checkbox" data-riepilogo="${esc(id)}" ${esclusi[id] ? '' : 'checked'}> nel riepilogo fornitori</label></div>`;
         for (const pc of o.pc) {
             const c = contiPc(pc, salvati);
-            const cls = c.utile.lordo < 0 ? 'neg' : (c.mancanti.length ? 'incompleto' : 'pos');
+            const cls = c.mancanti.length ? 'incompleto' : (c.utile.lordo < 0 ? 'neg' : 'pos');
             html += `<div class="acc-pc-titolo"><b>${esc(pc.build)}</b> · ${esc(pc.titolo)}${pc.gpu ? ` · alimentatore per ${esc(pc.gpu)}` : ''}</div>`;
             if (pc.avvisi && pc.avvisi.length) {
                 html += `<div class="acc-avvisi">⚠ ${pc.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'automatico segue quello che il cliente ha comprato.</small></div>`;
@@ -718,11 +770,12 @@
             html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="num col-excel">Nei conti Excel</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
                 pc.pezzi.map(p => rigaPezzo(p, salvati)).join('') + righeServizi(pc) + `</tbody></table>`;
             html += `<div class="acc-utile ${cls}">` +
-                `<div class="riga"><span>Venduto a (IVA incl.)</span><span>${eur(pc.prezzo.totale)}${pc.prezzo.opzioni ? ` <small>(PC ${eur(pc.prezzo.pc)} + opzioni ${eur(pc.prezzo.opzioni)})</small>` : ''}</span></div>` +
+                righeVendita(pc.prezzo, o.data, pc.listino_oggi) +
                 `<div class="riga"><span>Costo automatico (pezzi + montaggio e spedizione)</span><span>${eur(c.costo)}</span></div>` +
-                `<div class="riga forte"><span>Utile</span><span class="${c.utile.lordo >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(c.utile.lordo)} · SRL ${eur(c.utile.srl)}</span></div>` +
+                rigaUtile(c.utile, c.mancanti.length) +
+                (c.mancanti.length ? '' : rigaObiettivo(c.utile.srl, pc.obiettivo)) +
                 rigaConfrontoExcel(c) +
-                (c.mancanti.length ? `<div class="mancanti">Mancano i costi di: ${c.mancanti.map(p => esc(p.nome_tipo)).join(', ')} — l'utile non li conta.</div>` : '') +
+                (c.mancanti.length ? `<div class="mancanti">Mancano i costi di: ${c.mancanti.map(p => esc(p.nome_tipo)).join(', ')}: inseriscili qui sopra e l'utile si calcola.</div>` : '') +
                 `</div>`;
         }
         return html + '</div>';
@@ -910,7 +963,8 @@
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
         idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
-        impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc };
+        impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,
+        valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

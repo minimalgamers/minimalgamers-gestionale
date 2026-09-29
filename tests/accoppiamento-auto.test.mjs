@@ -394,4 +394,128 @@ assert.match(A.URL_AGGIORNA_LISTINI, /^https:\/\/minimal-gamers-listini-schedule
 assert.match(A.dettaglioPezzi([{ tipo: 'CPU', fornitore: 'TIER ONE', nome: 'X', ean: '1', costo: 200, fonte: 'acquistato', consigliato: { costo: 100, fornitore: 'A', descrizione: 'B' } }]),
   /prezzo pagato \(acquisto confermato\)/);
 
+
+// --- pezzi migliori all'elaborazione (Antonio 30/09): i pezzi piu' convenienti di oggi con le regole di sempre ---
+sandbox.setTimeout = setTimeout;
+sandbox.clearTimeout = clearTimeout;
+// senza dati automatici (niente password/rete) la scheda resta com'e'
+const schedaFerma = [{ type: 'CPU', ean: '9019', supplier: 'TIER ONE', name: null, quantity: 1 }];
+assert.equal((await A.pezziMigliori(schedaFerma, { configKey: 'PC MINIMAL', variants: {} }, '999')).length, 0);
+assert.equal(schedaFerma[0].ean, '9019');
+const datiM = {
+  generato: 'prova',
+  voci: [
+    { manuale: { codice: '9019', fornitore: 'TIER ONE', quantita: 1, descrizione: 'AMD Ryzen 7 7800X3D Box', costo: 250 },
+      auto: { fornitore: 'TIER ONE', codice: '2520', mpn: '', descrizione: 'AMD Ryzen 7 7800X3D Tray', quantita: 1, costo: 205 }, fisso: null },
+    { manuale: { codice: 'GPU-MSI-OLD', fornitore: 'ABACO', quantita: 1, descrizione: 'MSI RTX 5070 VENTUS', costo: 600 },
+      auto: { fornitore: 'ACTION', codice: 'GPU-ASUS', mpn: '', descrizione: 'ASUS Dual RTX 5070', quantita: 1, costo: 560 }, fisso: null },
+    { manuale: { codice: 'COOL-BIANCO', fornitore: 'ACTION', quantita: 1, descrizione: 'AIO 240 WHITE', costo: 70 },
+      auto: { fornitore: 'ACTION', codice: 'COOL-NERO', mpn: '', descrizione: 'AIO 240 nero', quantita: 1, costo: 55 }, fisso: null },
+    { manuale: { codice: 'RAM-KIT', fornitore: 'ACTION', quantita: 1, descrizione: 'RAM 16GB kit 2x8', costo: 60 },
+      auto: { fornitore: 'ACTION', codice: 'RAM-8', mpn: '', descrizione: 'RAM 8GB', quantita: 2, costo: 40 }, fisso: null },
+    { manuale: { codice: 'SSD-1TB', fornitore: 'OMEGA', quantita: 1, descrizione: 'SSD 1TB NVMe', costo: 60 },
+      auto: { fornitore: 'ACTION', codice: 'SSD-A', mpn: '', descrizione: 'Crucial P3 1TB NVMe', quantita: 1, costo: 52 }, fisso: null }
+  ],
+  distinte: { 'PC MINIMAL': { CPU: 0, COOLER: 2, RAM: 3, SSD: 4 }, 'MSI BUILD': { GPU: 1 } },
+  linee: { 'PC MINIMAL': 'MINIMAL', 'MSI BUILD': 'MSI' },
+  varianti: {},
+  per_valore: { 'MINIMAL|CPU|9019|TIER ONE': 0, 'MINIMAL|GPU|GPUMSIOLD|ABACO': 1, 'MINIMAL|COOLER|COOLBIANCO|ACTION': 2,
+    'MINIMAL|RAM|RAMKIT|ACTION': 3, 'MINIMAL|SSD|SSD1TB|OMEGA': 4 },
+  ordini: {
+    '700': { nome: '#9700', pc: [
+      { build: 'PC MINIMAL', linea: 'MINIMAL', quantita: 2, pezzi: [
+        { tipo: 'CPU', cliente: '', manuale: { codice: '9019', descrizione: 'AMD Ryzen 7 7800X3D Box' },
+          auto: { codice: '2520', fornitore: 'TIER ONE', descrizione: 'AMD Ryzen 7 7800X3D Tray', quantita: 1, costo: 205 }, fisso: null },
+        { tipo: 'COOLER', cliente: '', manuale: { codice: 'COOL-BIANCO', descrizione: 'AIO 240 WHITE' },
+          auto: { codice: 'COOL-NERO', fornitore: 'ACTION', descrizione: 'AIO 240 nero', quantita: 1, costo: 55 }, fisso: null }] },
+      { build: 'MSI BUILD', linea: 'MSI', quantita: 1, pezzi: [
+        { tipo: 'GPU', cliente: 'RTX 5070', manuale: { codice: 'GPU-MSI-OLD', descrizione: 'MSI RTX 5070 VENTUS' },
+          auto: { codice: 'GPU-MSI-NEW', fornitore: 'ABACO', descrizione: 'GeForce RTX 5070 12G SHADOW 2X OC', quantita: 1, costo: 590 }, fisso: null },
+        { tipo: 'PSU', cliente: '', manuale: { codice: 'MSI MAG A850GL', descrizione: 'MSI MAG A850GL 850W' },
+          auto: { codice: 'MSI-A650', fornitore: 'ABACO', descrizione: 'MSI MAG A650BN 650W', quantita: 1, costo: 50 }, fisso: null }] }] }
+  }
+};
+// il gestionale fa un PC per unita' (quantita' 2 -> .1 e .2), l'automatico una voce per riga
+assert.equal(A.pcAutomatico(datiM, '700').build, 'PC MINIMAL');
+assert.equal(A.pcAutomatico(datiM, '700.2').build, 'PC MINIMAL');
+assert.equal(A.pcAutomatico(datiM, '700.3').build, 'MSI BUILD');
+assert.equal(A.pcAutomatico(datiM, '700.4'), null);
+// regole della scheda
+assert.equal(A.marcaRispettata('MINIMAL', 'GPU', 'MSI RTX 5070', 'ASUS Dual RTX 5070'), true);     // Minimal: solo il chipset
+assert.equal(A.marcaRispettata('MSI', 'GPU', 'RTX 5070', 'ASUS Dual RTX 5070'), false);           // MSI: sempre MSI
+assert.equal(A.marcaRispettata('MSI', 'GPU', 'RTX 5070', 'GeForce RTX 5070 12G VENTUS 2X OC'), true);
+assert.equal(A.marcaRispettata('MSI', 'MOBO', '4719072', 'ASRock B650M-H'), false);               // marca non nota: MSI
+assert.equal(A.marcaRispettata('MSI', 'MOBO', 'ASUS PRIME B650M-A', 'ASRock B650M-H'), true);
+assert.equal(A.marcaRispettata('MSI', 'PSU', 'MAG A850GL', 'MSI MAG A850GL PCIE5'), true);
+assert.equal(A.marcaRispettata('DEEPCOOL', 'COOLER', 'DEEPCOOL AK400', 'ARCTIC Freezer 36'), false);
+assert.equal(A.marcaRispettata('DEEPCOOL', 'COOLER', 'DEEPCOOL AK400', 'DeepCool AK400 Digital'), true);
+assert.equal(A.marcaRispettata('DEEPCOOL', 'GPU', 'RTX 5060', 'ASUS RTX 5060'), true);
+assert.equal(A.coloreRispettato('DISSIPATORE 240MM BIANCO', 'AIO 240 WHITE'), true);
+assert.equal(A.coloreRispettato('DISSIPATORE 240MM BIANCO', 'AIO 240 nero'), false);
+assert.equal(A.coloreRispettato('RAM 16GB', 'RAM 16GB Snow'), false);
+assert.equal(A.coloreRispettato('RAM 16GB', 'RAM 16GB black'), true);
+assert.equal(A.rispettaScheda('MINIMAL', 'PSU', 'DEEPCOOL PN850-D 850W', { descrizione: 'DeepCool PN650 650W', codice: 'X', quantita: 1 }, 1), false);
+assert.equal(A.rispettaScheda('MINIMAL', 'RAM', 'RAM 16GB', { descrizione: 'RAM 8GB', codice: 'R', quantita: 2 }, 1), false);
+// dati automatici pronti per le prove seguenti (stessa promessa che usa carica())
+A.stato.promessa = Promise.resolve(datiM);
+A.stato.caricatoIl = Date.now();
+// ordine non ancora nei dati automatici: voci di distinta. Processore -> 2520 Tray; dissipatore bianco resta
+// (l'automatico ne sceglie uno nero), RAM resta (2 moduli al posto del kit), case e alimentatore non si toccano
+const schedaMin = [
+  { type: 'CPU', ean: '9019', supplier: 'TIER ONE', name: null, quantity: 1 },
+  { type: 'COOLER', ean: 'COOL-BIANCO', supplier: 'ACTION', name: null, quantity: 1 },
+  { type: 'RAM', ean: 'RAM-KIT', supplier: 'ACTION', name: null, quantity: 1 },
+  { type: 'SSD', ean: 'SSD-1TB', supplier: 'OMEGA', name: null, quantity: 1 },
+  { type: 'PSU', ean: 'PSU-X', supplier: 'ACTION', name: null, quantity: 1 },
+  { type: 'CASE', ean: 'CASE-X', supplier: 'NOUA', name: null, quantity: 1 }];
+let cambi = await A.pezziMigliori(schedaMin, { configKey: 'PC MINIMAL', variants: {} }, '999');
+assert.deepEqual(cambi.map(c => c.tipo).join(','), 'CPU,SSD');
+assert.equal(schedaMin[0].ean, '2520');
+assert.equal(schedaMin[0].supplier, 'TIER ONE');
+assert.equal(schedaMin[0].name, 'AMD Ryzen 7 7800X3D Tray');
+assert.equal(schedaMin[1].ean, 'COOL-BIANCO');
+assert.equal(schedaMin[2].ean, 'RAM-KIT');
+assert.equal(schedaMin[3].ean, 'SSD-A');
+assert.equal(schedaMin[4].ean, 'PSU-X');
+// gia' il pezzo migliore: la voce si ritrova anche dal codice scelto e il costo e' quello di oggi
+v = A.voceAutomatica(datiM, { configKey: 'PC MINIMAL', variants: {} }, 'CPU', '2520', 'TIER ONE');
+assert.equal(v.origine, 'distinta');
+assert.equal(A.sceltaUguale(v, null, 'CPU', '2520'), 205);
+assert.equal(A.voceAutomatica(datiM, { configKey: 'ALTRA', variants: {} }, 'CPU', '2520', 'TIER ONE').origine, 'scelta');
+assert.equal((await A.pezziMigliori(schedaMin, { configKey: 'PC MINIMAL', variants: {} }, '999')).length, 0);
+// build MSI senza dati dell'ordine: la voce trovata sceglie una scheda video ASUS -> resta la MSI
+const schedaMsi = [{ type: 'GPU', ean: 'GPU-MSI-OLD', supplier: 'ABACO', name: null, quantity: 1 }];
+assert.equal((await A.pezziMigliori(schedaMsi, { configKey: 'MSI BUILD', variants: {} }, '999')).length, 0);
+assert.equal(schedaMsi[0].ean, 'GPU-MSI-OLD');
+// ordine gia' nei dati automatici (terzo PC dell'ordine 700): scheda video MSI migliore si', alimentatore da 650W no
+const schedaMsi3 = [
+  { type: 'GPU', ean: 'GPU-MSI-OLD', supplier: 'ABACO', name: null, quantity: 1 },
+  { type: 'PSU', ean: 'MSI MAG A850GL', supplier: 'ABACO', name: null, quantity: 1 }];
+cambi = await A.pezziMigliori(schedaMsi3, { configKey: 'MSI BUILD', variants: {} }, '700.3');
+assert.equal(cambi.length, 1);
+assert.equal(schedaMsi3[0].ean, 'GPU-MSI-NEW');
+assert.equal(schedaMsi3[1].ean, 'MSI MAG A850GL');
+// PC dell'ordine con un'altra build: non si usa, si torna alle voci (scheda video ASUS rifiutata)
+const schedaAltra = [{ type: 'GPU', ean: 'GPU-MSI-OLD', supplier: 'ABACO', name: null, quantity: 1 }];
+assert.equal((await A.pezziMigliori(schedaAltra, { configKey: 'MSI BUILD', variants: {} }, '700.1')).length, 0);
+// all'elaborazione si cambia solo il pezzo che l'automatico ha valutato (non quello messo dalle regole del gestionale)
+const schedaDiversa = [{ type: 'CPU', ean: '3257', supplier: 'TIER ONE', name: null, quantity: 1 }];
+assert.equal((await A.pezziMigliori(schedaDiversa, { configKey: 'PC MINIMAL', variants: {} }, '700.2')).length, 0);
+const schedaPc2 = [{ type: 'CPU', ean: '9019', supplier: 'TIER ONE', name: null, quantity: 1 },
+  { type: 'COOLER', ean: 'COOL-BIANCO', supplier: 'ACTION', name: null, quantity: 1 }];
+cambi = await A.pezziMigliori(schedaPc2, { configKey: 'PC MINIMAL', variants: {} }, '700.2');
+assert.equal(cambi.length, 1);
+assert.equal(schedaPc2[0].ean, '2520');
+assert.equal(schedaPc2[1].ean, 'COOL-BIANCO');
+// AGGIORNA PREZZI PRODOTTO: stesse regole (qui il dissipatore bianco non diventa nero)
+vm.runInContext(`processedOrdersCache['700.1'] = { components: [
+  { type: 'CPU', ean: '3257', supplier: 'TIER ONE', name: '', price: null, quantity: 1 },
+  { type: 'COOLER', ean: 'DISSIPATORE 240MM BIANCO', supplier: '', name: '', price: null, quantity: 1 } ] };`, sandbox);
+prop = A.proposteOrdine(datiM, '700.1', [
+  { tipo: 'CPU', ean: '3257', fornitore: 'TIER ONE', nome: 'Ryzen 7 5700X', costo: 150, fonte: 'listino' },
+  { tipo: 'COOLER', ean: 'DISSIPATORE 240MM BIANCO', fornitore: '', nome: '', costo: 70, fonte: 'stima' }]);
+assert.equal(prop.length, 1);                                       // il vecchio codice Tier One si cambia
+assert.equal(prop[0].a.codice, '2520');
+A.stato.promessa = null;
+
 console.log('accoppiamento-auto: tutti i test passati');

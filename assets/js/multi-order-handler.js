@@ -685,6 +685,11 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
         }
     }
     
+    // Antonio 30/09: pezzi piu' convenienti di oggi con le regole di sempre (app.js, applicaPezziMigliori)
+    if (typeof window.applicaPezziMigliori === 'function') {
+        await window.applicaPezziMigliori(componentsToSave, configName, targetPcItem, orderId);
+    }
+    
     const success = await saveProcessedOrderToDB(orderId, {
         orderIdFlip: fullOrder?.name || fullOrder?.order_number || null,
         operator: assignedOperator,
@@ -952,6 +957,11 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
             }
         }
         
+        
+        // Antonio 30/09: pezzi piu' convenienti di oggi con le regole di sempre (app.js, applicaPezziMigliori)
+        if (typeof window.applicaPezziMigliori === 'function') {
+            await window.applicaPezziMigliori(componentsToSave, configName, pcItem, orderIdWithSuffix);
+        }
         
         const success = await saveProcessedOrderToDB(orderIdWithSuffix, {
             orderIdFlip: fullOrder?.name || fullOrder?.order_number || null,

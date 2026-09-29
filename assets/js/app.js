@@ -4424,6 +4424,17 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
                                 }
                             }
                         } catch (e2) {}
+                        // 30/09: pezzo scelto dall'automatico (codice del fornitore non in catalogo): nome salvato
+                        if (!risolto) {
+                            const salvato = ((processedOrdersCache[orderId] && processedOrdersCache[orderId].components) || [])
+                                .find(c => String(c.type || '').toUpperCase() === String(componentType || '').toUpperCase()
+                                    && String(c.ean || '').trim() === displayEan && c.name);
+                            if (salvato) {
+                                display.textContent = salvato.name;
+                                display.title = `EAN: ${displayEan}`;
+                                risolto = true;
+                            }
+                        }
                         if (!risolto) {
                             display.textContent = displayEan;
                             display.title = `EAN: ${displayEan}`;
@@ -5513,7 +5524,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     componentsToSave.push({
                         type: comp.type,
                         ean: ean,
-                        name: null, 
+                        name: null,
                         supplier: supplier || null,
                         price: null,
                         quantity: Math.max(1, parseInt(comp.quantity, 10) || 1)
@@ -5521,8 +5532,11 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                 }
             }
         }
-        
-        
+
+        // Antonio 30/09: nella scheda i pezzi piu' convenienti di oggi con le regole di sempre (Minimal: stesso
+        // chipset di qualunque marca; MSI e DeepCool: la loro marca). All'assemblatore resta il chipset.
+        await applicaPezziMigliori(componentsToSave, configName, pcItem, orderId);
+
         const success = await saveProcessedOrderToDB(orderId, {
             orderIdFlip: fullOrder?.name || fullOrder?.order_number || null,
             operator: assignedOperator,
@@ -5552,6 +5566,24 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
 }
 
 
+
+
+// Pezzi migliori all'elaborazione (accoppiamento-auto.js): cambia sul posto i pezzi di componentsToSave.
+// Non blocca mai l'elaborazione: se l'automatico non risponde la scheda resta quella di distinta e opzioni.
+async function applicaPezziMigliori(componentsToSave, configName, pcItem, orderId) {
+    try {
+        if (!configName || !Array.isArray(componentsToSave) || !componentsToSave.length) return [];
+        if (!window.AccoppiamentoAuto || typeof window.AccoppiamentoAuto.pezziMigliori !== 'function') return [];
+        const variants = (pcItem && (pcItem.custom_properties || pcItem.customProperties)) || {};
+        const cambi = await window.AccoppiamentoAuto.pezziMigliori(componentsToSave, { configKey: configName, variants }, orderId);
+        if (cambi.length) console.log(`🧩 [PEZZI MIGLIORI] ${orderId}: ` + cambi.map(c => `${c.tipo} ${c.da.ean} (${c.da.fornitore}) → ${c.a.codice} (${c.a.fornitore})`).join(' · '));
+        return cambi;
+    } catch (e) {
+        console.warn('Pezzi migliori non applicati (non bloccante):', e);
+        return [];
+    }
+}
+window.applicaPezziMigliori = applicaPezziMigliori;
 
 
 async function restoreProcessedOrder(orderId) {

@@ -278,4 +278,45 @@ assert.equal(v.auto.codice, 'PLYASRAM50021');                       // stesso co
 assert.equal(A.cercaPerCodice(dati, 'MOBO', 'NIENTE', 'OMEGA'), null);
 assert.equal(A.cercaPerCodice(dati, 'MOBO', '', 'OMEGA'), null);
 
+// --- opzioni GPO nuove fuori scheda (Antonio 29/09: Wi-Fi, ventole, scatole, Office) ---
+const pcExtra = { pezzi: [
+  { tipo: 'WIFI', nome_tipo: 'Connettività', cliente: 'WI-FI + BLUETOOTH — ADATTATORE PCIE', manuale: { codice: 'WI-FI' },
+    auto: null, fisso: { id: 'wifi_pcie', descrizione: 'Scheda WiFi + Bluetooth PCIe', fornitore: 'FORNITORE LOCALE', costo: 8 } },
+  { tipo: 'SERVIZIO', nome_tipo: 'Servizio', cliente: 'CONSEGNA SCATOLE', manuale: { codice: 'SCATOLE' },
+    auto: null, fisso: { id: 'scatole', descrizione: 'Consegna scatole originali', fornitore: '', costo: 0 } },
+  { tipo: 'SOFTWARE', nome_tipo: 'Software', cliente: 'MICROSOFT OFFICE', manuale: { codice: 'OFFICE' },
+    auto: null, fisso: { id: 'office', descrizione: 'Microsoft Office', fornitore: '', costo: null } },
+  { tipo: 'ACCESSORIO', nome_tipo: 'Accessori', cliente: 'KIT', manuale: { codice: 'KIT' },
+    auto: null, fisso: { id: 'kit_gaming', descrizione: 'Kit gaming', fornitore: 'AMAZON', costo: 40 } },
+  { tipo: 'GPU', nome_tipo: 'Scheda video', manuale: { codice: 'X' }, auto: { costo: 300, fornitore: 'ACTION' }, fisso: null }
+] };
+let ex = A.extraOrdine(pcExtra, ['GPU', 'KIT GAMING'], [{ name: 'WIFI PCI', value: 'WIFI PCI' }], {});
+assert.deepEqual(Array.from(ex, x => x.tipo), ['WIFI', 'SERVIZIO', 'SOFTWARE']);   // il kit e' gia' una riga della scheda
+assert.equal(ex[0].costo, 8);
+assert.equal(ex[0].personalizzata, true);                            // gia' aggiunta a mano come voce personalizzata
+assert.equal(ex[1].costo, 0);
+assert.equal(ex[2].costo, null);
+assert.equal(ex[2].chiave, 'office');
+ex = A.extraOrdine(pcExtra, ['GPU'], [], { office: 55 });             // costo di Office inserito da Antonio
+assert.equal(ex.find(x => x.tipo === 'SOFTWARE').costo, 55);
+assert.equal(ex.find(x => x.tipo === 'ACCESSORIO').costo, 40);
+assert.equal(A.extraOrdine(null, [], [], {}).length, 0);
+const hx = A.righeExtra(A.extraOrdine(pcExtra, ['KIT'], [], {}));
+assert.match(hx, /Opzioni del cliente fuori scheda/);
+assert.match(hx, /📶 <b>Connettività<\/b>: Scheda WiFi \+ Bluetooth PCIe <small>· FORNITORE LOCALE<\/small>/);
+assert.match(hx, /8,00 €/);
+assert.match(hx, /nessun costo/);
+assert.match(hx, /data-extra="2"[^>]*>costo da inserire/);
+assert.equal(A.righeExtra([]), '');
+
+// --- costo del pezzo scritto nella scheda (per_codice) e stima col pezzo equivalente di oggi ---
+const conCodici = { per_codice: { 'TIER ONE|3103': { costo: 250, fonte: 'listino' }, 'OMEGA|90GA5QZZ00UANF': { costo: 400, fonte: 'listino ACTION' } } };
+assert.equal(A.costoScheda(conCodici, '3103', 'tier one').costo, 250);
+assert.equal(A.costoScheda(conCodici, '90-GA5QZZ-00UANF', 'OMEGA').fonte, 'listino ACTION');
+assert.equal(A.costoScheda(conCodici, '9999', 'TIER ONE'), null);
+assert.equal(A.costoScheda({}, '3103', 'TIER ONE'), null);
+assert.equal(A.costoEquivalente(pcExtra, 'GPU', {}), 300);
+assert.equal(A.costoEquivalente(pcExtra, 'CPU', {}), null);
+assert.equal(A.costoEquivalente(null, 'GPU', {}), null);
+
 console.log('accoppiamento-auto: tutti i test passati');

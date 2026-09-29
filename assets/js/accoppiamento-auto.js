@@ -432,6 +432,58 @@
             `<br><small>Se non è ancora stato comprato, cambialo nella scheda.</small></div>`;
     }
 
+    // Costo di oggi del pezzo com'e' scritto nella scheda (dati automatici «per_codice», 29/09): serve per i
+    // pezzi presi fuori da distinte e mappature, per esempio il processore di TIER ONE col suo codice.
+    function costoScheda(dati, ean, fornitore) {
+        const c = chiave(ean);
+        if (!dati || !dati.per_codice || !c) return null;
+        return dati.per_codice[`${String(fornitore || '').toUpperCase().trim()}|${c}`] || null;
+    }
+
+    // Ultima stima: il pezzo dello stesso tipo che l'automatico sceglie oggi per quest'ordine (stesso chip)
+    function costoEquivalente(auto, tipo, salvati) {
+        if (!auto || !Array.isArray(auto.pezzi)) return null;
+        const t = TIPI[tipo] || tipo;
+        const p = auto.pezzi.find(x => x.tipo === t);
+        return p ? costoPezzo(p, salvati || {}).costo : null;
+    }
+
+    // Antonio 29/09: «le nuovissime varianti GPO che ci stanno sull'Excel non ci sono sul gestionale?». Le
+    // opzioni nuove (connettivita' Wi-Fi, ventole RGB, scatole, Office…) non hanno una riga nella scheda:
+    // l'automatico le conosce (pezzi fissi con il loro costo). Si mostrano sotto la scheda come pezzi da
+    // comprare o preparare e il loro costo entra nell'utile dell'ordine.
+    const TIPI_EXTRA = ['WIFI', 'VENTOLE', 'SERVIZIO', 'SOFTWARE', 'ACCESSORIO'];
+    const TIPO_SCHEDA_EXTRA = { 'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO' };
+    const VOCE_PERSONALIZZATA = { WIFI: /WI-?FI|BLUETOOTH/i, VENTOLE: /VENTOL/i, SERVIZIO: /SCATOL/i,
+        SOFTWARE: /OFFICE|SOFTWARE|WINDOWS/i, ACCESSORIO: /KIT|SEDIA|SCRIVANIA|MOUSE|TASTIERA/i };
+    const ICONA_EXTRA = { WIFI: '📶', VENTOLE: '🌀', SERVIZIO: '📦', SOFTWARE: '💿', ACCESSORIO: '🎮' };
+
+    function extraOrdine(auto, tipiScheda, vociPersonalizzate, salvati) {
+        if (!auto || !Array.isArray(auto.pezzi)) return [];
+        const presenti = new Set((tipiScheda || []).map(t => TIPO_SCHEDA_EXTRA[t] || TIPI[t] || t));
+        return auto.pezzi.filter(p => TIPI_EXTRA.includes(p.tipo) && !presenti.has(p.tipo)).map(p => {
+            const re = VOCE_PERSONALIZZATA[p.tipo];
+            const f = p.fisso || {};
+            return {
+                tipo: p.tipo, nome: p.nome_tipo || p.tipo,
+                descrizione: f.descrizione || p.cliente || (p.manuale && p.manuale.codice) || '',
+                fornitore: f.fornitore || (p.auto && p.auto.fornitore) || '',
+                costo: costoPezzo(p, salvati || {}).costo, chiave: chiaveFisso(p),
+                personalizzata: Boolean(re) && (vociPersonalizzate || []).some(v => re.test(`${v.name || ''} ${v.value || ''}`))
+            };
+        });
+    }
+
+    function righeExtra(lista) {
+        if (!lista.length) return '';
+        return `<div class="acc-extra"><div><b>➕ Opzioni del cliente fuori scheda</b> <small>(da comprare o preparare)</small></div>` +
+            lista.map((x, i) => `<div class="riga"><span>${ICONA_EXTRA[x.tipo] || '•'} <b>${esc(x.nome)}</b>: ${esc(x.descrizione)}` +
+                `${x.fornitore ? ` <small>· ${esc(x.fornitore)}</small>` : ''}` +
+                `${x.personalizzata ? ' <small>· già tra le voci personalizzate</small>' : ''}</span><span>` +
+                (x.costo == null ? `<a data-extra="${i}" class="acc-incompleto" title="Inserisci il costo netto (vale per tutti gli ordini)">costo da inserire</a>`
+                    : (x.costo === 0 ? 'nessun costo' : eur(x.costo))) + `</span></div>`).join('') + `</div>`;
+    }
+
     // L'utile si scrive solo se ci sono i costi di tutti i pezzi: con costi mancanti sarebbe gonfiato (29/09)
     function rigaUtile(u, nMancanti) {
         if (nMancanti > 0) {
@@ -500,6 +552,7 @@
 .acc-esito.basso{background:rgba(241,196,15,.18);color:#f9e79f}
 .acc-esito.neg{background:rgba(231,76,60,.25);color:#f5b7b1}
 .acc-esito.incompleto{background:rgba(245,176,65,.18);color:#f5b041}
+.acc-extra{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(52,152,219,.14);border:1px solid rgba(52,152,219,.35)}
 .acc-utile .riga{display:flex;justify-content:space-between;gap:8px}
 .acc-utile .forte{font-weight:700;font-size:1.1em}
 .acc-pos{color:#2ecc71}.acc-neg{color:#e74c3c}
@@ -593,15 +646,20 @@
         let dati = null;
         try { dati = await carica(); } catch (e) { /* mostrato nel riquadro */ }
         const conti = { man: 0, mancanti: [], stime: 0, righe: [] };
+        const auto = pcAutomatico(dati, orderId);
+        const salvati = leggiLS(K_FISSI, {});
         for (const row of righe(orderId)) {
             const tipo = row.dataset.componentType;
             const man = manualeDellaRiga(row);
             const v = dati ? voceAutomatica(dati, ctx, tipo, man.ean, man.fornitore) : null;
+            const sch = costoScheda(dati, man.ean, man.fornitore);
             let costo = null, stima = false;
             if (v && v.manuale && v.manuale.costo != null) costo = v.manuale.costo;
             else if (costoManualeSalvato(tipo, man.ean) != null) costo = costoManualeSalvato(tipo, man.ean);
             else if (v && v.fisso && v.fisso.costo != null) costo = v.fisso.costo;
+            else if (sch && sch.costo != null) { costo = sch.costo; stima = sch.fonte !== 'listino'; }
             else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; }
+            else if (costoEquivalente(auto, tipo, salvati) != null) { costo = costoEquivalente(auto, tipo, salvati); stima = true; }
             conti.righe.push({ tipo, ean: man.ean, costo });
             if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
             else { conti.man += costo; if (stima) conti.stime++; }
@@ -615,9 +673,10 @@
         let ordini = [];
         try { ordini = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]'); } catch (e) { ordini = []; }
         const vendita = prezzoVendita(orderId, ordini);
-        let extra = 0;
+        let extra = 0, vociPers = [];
         try {
             const voci = typeof loadCustomItemsFromDB === 'function' ? await loadCustomItemsFromDB(orderId) : [];
+            vociPers = voci || [];
             for (const it of voci || []) {
                 const p = parseFloat(it.price ?? it.prezzo);
                 if (p > 0) extra += p * (parseInt(it.quantity ?? it.quantita, 10) || 1);
@@ -625,7 +684,10 @@
         } catch (e) { /* voci personalizzate non leggibili */ }
         const auto = pcAutomatico(dati, orderId);
         const servizi = tonda(serviziPc(auto).reduce((t, x) => t + (x.costo || 0), 0));
-        const costo = conti.man + extra + servizi;
+        const extraLista = extraOrdine(auto, righe(orderId).map(row => row.dataset.componentType), vociPers, leggiLS(K_FISSI, {}));
+        const costoExtra = tonda(extraLista.reduce((t, x) => t + (x.costo || 0), 0));
+        const extraMancanti = extraLista.filter(x => x.costo == null).length;
+        const costo = conti.man + extra + servizi + costoExtra;
         const avvisi = auto && auto.avvisi && auto.avvisi.length
             ? `<div class="acc-avvisi">⚠ ${auto.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'ordine è stato comprato così: controlla la distinta prima di ordinare.</small></div>` : '';
         if (!vendita) {
@@ -635,8 +697,9 @@
             return;
         }
         const lista = conti.mancanti;
+        const nMancanti = lista.length + extraMancanti;
         const u = utile(vendita.totale, costo);
-        el.className = 'acc-utile ' + (lista.length ? 'incompleto' : (u.lordo < 0 ? 'neg' : 'pos'));
+        el.className = 'acc-utile ' + (nMancanti ? 'incompleto' : (u.lordo < 0 ? 'neg' : 'pos'));
         const perche = !auto && stato.errore
             ? ` I costi dei pezzi arrivano dai dati automatici (${esc(stato.errore)}): appena ci sono l'utile si calcola da solo.`
             : '';
@@ -650,14 +713,15 @@
             : (stato.errore && !conti.mancanti.length ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
         const diversi = pezziDiversi(righe(orderId).map(row => ({ tipo: row.dataset.componentType, ean: manualeDellaRiga(row).ean })), auto);
         el.innerHTML =
-            rigaEsito(u, lista.length, auto ? auto.obiettivo : null) +
+            rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) +
             righeVendita(vendita, vendita.data || (auto && auto.data), auto ? auto.listino_oggi : null) +
             `<div class="riga"><span>Costo pezzi${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(conti.man + extra)}</span></div>` +
+            (extraLista.length ? `<div class="riga"><span>Opzioni fuori scheda <small>(${esc(extraLista.map(x => x.nome).join(', '))})</small></span><span>${eur(costoExtra)}</span></div>` : '') +
             `<div class="riga"><span>Montaggio e spedizione <small>(come nei conti dell'Excel)</small></span><span>${eur(servizi)}</span></div>` +
-            rigaUtile(u, lista.length) +
-            (lista.length ? '' : rigaObiettivo(u.srl, auto ? auto.obiettivo : null)) +
-            confronto + mancanti +
-            righePezziDiversi(diversi, lista.length ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi;
+            rigaUtile(u, nMancanti) +
+            (nMancanti ? '' : rigaObiettivo(u.srl, auto ? auto.obiettivo : null)) +
+            righeExtra(extraLista) + confronto + mancanti +
+            righePezziDiversi(diversi, nMancanti ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi;
         el.querySelectorAll('.mancanti a').forEach(a => a.addEventListener('click', (ev) => {
             ev.stopPropagation();
             const m = lista[parseInt(a.dataset.i, 10)];
@@ -667,6 +731,18 @@
                 const c = leggiLS(K_COSTI, {});
                 c[`${m.tipo}|${chiave(m.ean)}`] = num;
                 scriviLS(K_COSTI, c);
+                aggiornaOrdine(orderId);
+            }
+        }));
+        el.querySelectorAll('[data-extra]').forEach(a => a.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const x = extraLista[parseInt(a.dataset.extra, 10)];
+            const val = prompt(`Costo netto (IVA esclusa) di ${x.nome}: ${x.descrizione}\n(vale per tutti gli ordini con questa opzione)`);
+            const num = parseFloat(String(val || '').replace(',', '.'));
+            if (!isNaN(num) && num >= 0) {
+                const s = leggiLS(K_FISSI, {});
+                s[x.chiave] = num;
+                scriviLS(K_FISSI, s);
                 aggiornaOrdine(orderId);
             }
         }));
@@ -1067,7 +1143,8 @@
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,
         valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve, rigaEsito, pezziDiversi,
-        righePezziDiversi, cercaPerCodice, wattAlimentatore, utileConPezziGiusti };
+        righePezziDiversi, cercaPerCodice, wattAlimentatore, utileConPezziGiusti, costoScheda, costoEquivalente,
+        extraOrdine, righeExtra };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

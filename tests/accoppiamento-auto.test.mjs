@@ -225,4 +225,57 @@ assert.match(A.rigaUtile({ lordo: 212.5, srl: 148.75 }, 0), /212,50 € · SRL 1
 assert.equal(A.prezzoVendita('4814', [{ id: 4814, created_at: '2026-09-28T09:00:00Z',
   line_items: [{ name: 'PC GAMING HECTORE', price: '1341.00', quantity: 1, properties: [] }] }]).data, '2026-09-28T09:00:00Z');
 
+// --- esito in testa al riquadro (Antonio 29/09: «capire se sto in profitto o in negativo») ---
+assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 2, 150), /🟠 DA COMPLETARE · mancano 2 costi/);
+assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 1, 150), /manca 1 costo/);
+assert.match(A.rigaEsito({ lordo: -35.2, srl: -35.2 }, 0, 150), /🔴 IN PERDITA · -35,20 €/);
+assert.match(A.rigaEsito({ lordo: 150, srl: 105 }, 0, 150), /🟡 IN PROFITTO, SOTTO OBIETTIVO · SRL 105,00 € \(-45,00 €\)/);
+assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 0, 150), /🟢 IN PROFITTO · SRL 148,75 € · in target/);
+assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 0, null), /🟢 IN PROFITTO · SRL 148,75 €<\/div>/);
+
+// --- alimentatore della scheda diverso da quello da comprare (MSI LEVIATHAN #4816, bundle RTX 5070) ---
+assert.equal(A.wattAlimentatore('DEEPCOOL PF-600X 80+ BRONZE'), 600);
+assert.equal(A.wattAlimentatore('MSI ALIMENTATORE MAG A850GL PCIE5, EU, 850W'), 850);
+assert.equal(A.wattAlimentatore('GSPQ850G'), 850);
+assert.equal(A.wattAlimentatore('MPG A1000G PCIE5'), 1000);
+assert.equal(A.wattAlimentatore('0512'), null);                     // codice solo numerico: non si sa
+assert.equal(A.wattAlimentatore('8435099500123'), null);            // EAN
+const pcPsu = (codice, descrizione) => ({ pezzi: [{ tipo: 'PSU', nome_tipo: 'Alimentatore', fisso: null,
+  manuale: { codice, descrizione, fornitore: 'ABACO' },
+  auto: { codice, descrizione, fornitore: 'ACTION', costo: 90 } }] });
+const msi = pcPsu('MAG A850GL', 'MSI ALIMENTATORE MAG A850GL PCIE5, EU, 850W, FULLY-MODULAR, 80 PLUS GOLD');
+let dv = A.pezziDiversi([{ tipo: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE' }, { tipo: 'GPU', ean: 'X' }], msi);
+assert.equal(dv.length, 1);
+assert.equal(dv[0].motivo, '600W invece di 850W');
+assert.equal(dv[0].giusto, 'MAG A850GL (oggi 90,00 € da ACTION)');
+// stessa potenza ma non MSI in una build MSI
+assert.equal(A.pezziDiversi([{ tipo: 'ALIMENTATORE', ean: 'DEEPCOOL PN850-D V2 80+ GOLD' }], msi)[0].motivo, 'serve un alimentatore MSI');
+assert.equal(A.pezziDiversi([{ tipo: 'PSU', ean: 'MSI MAG A850GL' }], msi).length, 0);
+// build DeepCool: stesso alimentatore con nomi diversi (scheda e listini) non e' un allarme
+const dc850 = pcPsu('DEEPCOOL PN850-D V2 80+ GOLD', 'DEEPCOOL PN850-D V2 80+ GOLD');
+assert.equal(A.pezziDiversi([{ tipo: 'PSU', ean: 'DEEPCOOL PN850-D V2 80+ GOLD' }], dc850).length, 0);
+assert.equal(A.pezziDiversi([{ tipo: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE' }], dc850)[0].motivo, '600W invece di 850W');
+assert.equal(A.pezziDiversi([{ tipo: 'PSU', ean: '0512' }], dc850).length, 0);        // codice numerico: niente allarme
+assert.equal(A.pezziDiversi([{ tipo: 'PSU', ean: 'DEEPCOOL PQ1000M' }], dc850).length, 0);  // piu' potente: va bene
+assert.equal(A.pezziDiversi([{ tipo: 'PSU', ean: 'DEEPCOOL PF-600X' }], null).length, 0);
+// utile se si compra l'alimentatore giusto (prezzi di prova)
+const uG = A.utileConPezziGiusti(1220, 800, dv, [{ tipo: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE', costo: 35 }]);
+assert.equal(uG.lordo, A.utile(1220, 800 + 55).lordo);
+assert.equal(A.utileConPezziGiusti(1220, 800, dv, [{ tipo: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE', costo: null }]), null);
+assert.equal(A.utileConPezziGiusti(1220, 800, [], []), null);
+const hd = A.righePezziDiversi(dv, uG);
+assert.match(hd, /⚠ Alimentatore da cambiare/);
+assert.match(hd, /nella scheda DEEPCOOL PF-600X 80\+ BRONZE → da ordinare MAG A850GL/);
+assert.match(hd, /Con l'alimentatore giusto: utile 90,10 € · SRL 63,07 €/);
+assert.equal(A.righePezziDiversi([], null), '');
+
+// --- costo di un pezzo della scheda che la sua linea non usa (DeepCool 600W in un ordine MSI) ---
+v = A.voceAutomatica(dati, { configKey: 'MSI ALTRA', variants: {} }, 'MOBO', 'B650M S2H', 'OMEGA');
+assert.equal(v.origine, 'pezzo');
+assert.equal(v.auto.codice, 'PLYASRAM50021');
+v = A.voceAutomatica(dati, { configKey: 'MSI ALTRA', variants: {} }, 'SCHEDA MADRE', 'B650M-S2H', 'ALTRO FORNITORE');
+assert.equal(v.auto.codice, 'PLYASRAM50021');                       // stesso codice, altro fornitore
+assert.equal(A.cercaPerCodice(dati, 'MOBO', 'NIENTE', 'OMEGA'), null);
+assert.equal(A.cercaPerCodice(dati, 'MOBO', '', 'OMEGA'), null);
+
 console.log('accoppiamento-auto: tutti i test passati');

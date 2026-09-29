@@ -293,7 +293,28 @@
         const tipo = TIPI[tipoRiga] || tipoRiga;
         const k = `${lineaDi(dati, ctx.configKey)}|${tipo}|${chiave(ean)}|${String(fornitore || '').toUpperCase()}`;
         if (dati.per_valore[k] != null) return { ...voce(dati.per_valore[k]), origine: 'pezzo' };
+        // 4) lo stesso pezzo in un'altra linea o da un altro fornitore (29/09: la scheda di un ordine gia'
+        //    elaborato puo' avere un pezzo che la sua linea non usa, ma il costo nei listini c'e')
+        const altrove = cercaPerCodice(dati, tipo, ean, fornitore);
+        if (altrove != null) return { ...voce(altrove), origine: 'pezzo' };
         return null;
+    }
+
+    function cercaPerCodice(dati, tipo, ean, fornitore) {
+        if (!dati.__perCodice) {
+            const idx = {};
+            for (const [k, i] of Object.entries(dati.per_valore || {})) {
+                const [, t, cod, forn] = k.split('|');
+                if (idx[`${t}|${cod}|${forn}`] == null) idx[`${t}|${cod}|${forn}`] = i;
+                if (idx[`${t}|${cod}`] == null) idx[`${t}|${cod}`] = i;
+            }
+            Object.defineProperty(dati, '__perCodice', { value: idx, enumerable: false, configurable: true });
+        }
+        const c = chiave(ean);
+        if (!c) return null;
+        const f = String(fornitore || '').toUpperCase();
+        const i = dati.__perCodice[`${tipo}|${c}|${f}`];
+        return i != null ? i : (dati.__perCodice[`${tipo}|${c}`] != null ? dati.__perCodice[`${tipo}|${c}`] : null);
     }
 
     // ---------------------------------------------------------------- vendita e utile
@@ -338,6 +359,77 @@
                 `(${d > 0 ? '+' : ''}${eur(d)} rispetto al prezzo di questo ordine)</small></div>`;
         }
         return html;
+    }
+
+    // Antonio 29/09: «avere un'idea chiara se ciò che sto ordinando mi permette di stare in profitto o in
+    // negativo». Una riga in testa al riquadro, calcolata sui pezzi della scheda (quello che si ordina).
+    function rigaEsito(u, nMancanti, obiettivo) {
+        if (nMancanti > 0) {
+            return `<div class="acc-esito incompleto">🟠 DA COMPLETARE · ${nMancanti === 1 ? 'manca 1 costo' : `mancano ${nMancanti} costi`}</div>`;
+        }
+        if (u.lordo < 0) return `<div class="acc-esito neg">🔴 IN PERDITA · ${eur(u.lordo)}</div>`;
+        const v = valutaObiettivo(u.srl, obiettivo);
+        if (v && !v.inTarget) return `<div class="acc-esito basso">🟡 IN PROFITTO, SOTTO OBIETTIVO · SRL ${eur(u.srl)} (${eur(v.scarto)})</div>`;
+        return `<div class="acc-esito pos">🟢 IN PROFITTO · SRL ${eur(u.srl)}${v ? ' · in target' : ''}</div>`;
+    }
+
+    // Alimentatore della scheda diverso da quello che va comprato oggi (Antonio 29/09, ordine MSI LEVIATHAN
+    // elaborato con la regola vecchia: DeepCool 600W al posto di MSI 850W). Si confronta solo l'alimentatore,
+    // per potenza e per marca MSI: gli altri pezzi hanno nomi diversi tra scheda e listini (codici Tier One,
+    // descrizioni Amazon…) e un confronto per codice darebbe falsi allarmi su quasi tutti gli ordini.
+    function wattAlimentatore(x) {
+        const s = String(x || '').toUpperCase();
+        if (!/[A-Z]/.test(s)) return null;                 // codice solo numerico (Tier One, EAN): non si sa
+        const w = /(?<!\d)(\d{3,4})\s*W\b/.exec(s);
+        if (w) return Number(w[1]);
+        const n = (s.match(/(?<!\d)\d{3,4}(?!\d)/g) || []).map(Number).filter(v => v >= 400 && v <= 1600);
+        return n.length ? n[0] : null;
+    }
+    const alimentatoreMsi = (x) => /\bMSI\b|\bMAG\b|\bMPG\b|\bMEG\b/.test(String(x || '').toUpperCase());
+
+    function pezziDiversi(righeScheda, auto) {
+        if (!auto || !Array.isArray(auto.pezzi)) return [];
+        const p = auto.pezzi.find(x => x.tipo === 'PSU');
+        if (!p || p.fisso) return [];
+        const giustoNome = [p.manuale && p.manuale.codice, p.manuale && p.manuale.descrizione,
+            p.auto && p.auto.codice, p.auto && p.auto.descrizione].filter(Boolean).join(' ');
+        const wGiusto = wattAlimentatore(giustoNome);
+        const out = [];
+        for (const r of righeScheda) {
+            if ((TIPI[r.tipo] || r.tipo) !== 'PSU' || !r.ean) continue;
+            const wScheda = wattAlimentatore(r.ean);
+            const pocaPotenza = wGiusto != null && wScheda != null && wScheda < wGiusto;
+            const nonMsi = alimentatoreMsi(giustoNome) && /[A-Z]/i.test(r.ean) && !alimentatoreMsi(r.ean);
+            if (!pocaPotenza && !nonMsi) continue;
+            const m = p.manuale || {};
+            const giusto = `${m.codice || (p.auto && p.auto.codice) || ''}` +
+                `${p.auto && p.auto.costo != null ? ` (oggi ${eur(p.auto.costo)} da ${p.auto.fornitore})` : ''}`;
+            out.push({ tipo: p.nome_tipo || 'Alimentatore', scheda: r.ean, giusto,
+                costoGiusto: p.auto && p.auto.costo != null ? p.auto.costo : null,
+                motivo: pocaPotenza ? `${wScheda}W invece di ${wGiusto}W` : 'serve un alimentatore MSI' });
+        }
+        return out;
+    }
+
+    // Utile se si compra il pezzo giusto al posto di quello della scheda (null se manca un costo)
+    function utileConPezziGiusti(prezzo, costo, diversi, costiRiga) {
+        if (!diversi.length) return null;
+        let delta = 0;
+        for (const d of diversi) {
+            const r = (costiRiga || []).find(x => (TIPI[x.tipo] || x.tipo) === 'PSU' && x.ean === d.scheda);
+            if (!r || r.costo == null || d.costoGiusto == null) return null;
+            delta += d.costoGiusto - r.costo;
+        }
+        return utile(prezzo, costo + delta);
+    }
+
+    function righePezziDiversi(lista, uGiusto) {
+        if (!lista.length) return '';
+        return `<div class="acc-avvisi">⚠ Alimentatore da cambiare:<br>` +
+            lista.map(x => `<b>${esc(x.tipo)}</b>: nella scheda ${esc(x.scheda)} → da ordinare ${esc(x.giusto)}` +
+                (x.motivo ? ` <small>(${esc(x.motivo)})</small>` : '')).join('<br>') +
+            (uGiusto ? `<br>Con l'alimentatore giusto: utile ${eur(uGiusto.lordo)} · SRL ${eur(uGiusto.srl)}` : '') +
+            `<br><small>Se non è ancora stato comprato, cambialo nella scheda.</small></div>`;
     }
 
     // L'utile si scrive solo se ci sono i costi di tutti i pezzi: con costi mancanti sarebbe gonfiato (29/09)
@@ -403,6 +495,11 @@
 .acc-utile.neg{border-color:rgba(231,76,60,.7);background:rgba(231,76,60,.12)}
 .acc-utile.incompleto{border-color:rgba(241,196,15,.7);background:rgba(241,196,15,.08)}
 .acc-incompleto{color:#f5b041;font-weight:700}
+.acc-esito{font-weight:800;font-size:1.08em;letter-spacing:.2px;margin:0 0 6px;padding:4px 8px;border-radius:6px}
+.acc-esito.pos{background:rgba(46,204,113,.22);color:#abebc6}
+.acc-esito.basso{background:rgba(241,196,15,.18);color:#f9e79f}
+.acc-esito.neg{background:rgba(231,76,60,.25);color:#f5b7b1}
+.acc-esito.incompleto{background:rgba(245,176,65,.18);color:#f5b041}
 .acc-utile .riga{display:flex;justify-content:space-between;gap:8px}
 .acc-utile .forte{font-weight:700;font-size:1.1em}
 .acc-pos{color:#2ecc71}.acc-neg{color:#e74c3c}
@@ -495,7 +592,7 @@
         stile();
         let dati = null;
         try { dati = await carica(); } catch (e) { /* mostrato nel riquadro */ }
-        const conti = { man: 0, mancanti: [], stime: 0 };
+        const conti = { man: 0, mancanti: [], stime: 0, righe: [] };
         for (const row of righe(orderId)) {
             const tipo = row.dataset.componentType;
             const man = manualeDellaRiga(row);
@@ -505,6 +602,7 @@
             else if (costoManualeSalvato(tipo, man.ean) != null) costo = costoManualeSalvato(tipo, man.ean);
             else if (v && v.fisso && v.fisso.costo != null) costo = v.fisso.costo;
             else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; }
+            conti.righe.push({ tipo, ean: man.ean, costo });
             if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
             else { conti.man += costo; if (stima) conti.stime++; }
         }
@@ -550,13 +648,16 @@
         const confronto = auto
             ? `<div class="riga"><small>Con l'accoppiamento automatico: costo ${eur(ca.costo)}, utile ${eur(ca.utile.lordo)} · nei conti dell'Excel ${eur(ca.excel.costo)}${ca.costo > ca.excel.costo + TOLLERANZA_EXCEL ? ' <b class="acc-neg">▲ oggi costa di più</b>' : ''} · <a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a></small></div>`
             : (stato.errore && !conti.mancanti.length ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '');
+        const diversi = pezziDiversi(righe(orderId).map(row => ({ tipo: row.dataset.componentType, ean: manualeDellaRiga(row).ean })), auto);
         el.innerHTML =
+            rigaEsito(u, lista.length, auto ? auto.obiettivo : null) +
             righeVendita(vendita, vendita.data || (auto && auto.data), auto ? auto.listino_oggi : null) +
             `<div class="riga"><span>Costo pezzi${extra ? ' + voci personalizzate' : ''}${conti.stime ? ` <small>(${conti.stime} stimati)</small>` : ''}</span><span>${eur(conti.man + extra)}</span></div>` +
             `<div class="riga"><span>Montaggio e spedizione <small>(come nei conti dell'Excel)</small></span><span>${eur(servizi)}</span></div>` +
             rigaUtile(u, lista.length) +
             (lista.length ? '' : rigaObiettivo(u.srl, auto ? auto.obiettivo : null)) +
-            confronto + mancanti + avvisi;
+            confronto + mancanti +
+            righePezziDiversi(diversi, lista.length ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi;
         el.querySelectorAll('.mancanti a').forEach(a => a.addEventListener('click', (ev) => {
             ev.stopPropagation();
             const m = lista[parseInt(a.dataset.i, 10)];
@@ -770,6 +871,7 @@
             html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="num col-excel">Nei conti Excel</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
                 pc.pezzi.map(p => rigaPezzo(p, salvati)).join('') + righeServizi(pc) + `</tbody></table>`;
             html += `<div class="acc-utile ${cls}">` +
+                rigaEsito(c.utile, c.mancanti.length, pc.obiettivo) +
                 righeVendita(pc.prezzo, o.data, pc.listino_oggi) +
                 `<div class="riga"><span>Costo automatico (pezzi + montaggio e spedizione)</span><span>${eur(c.costo)}</span></div>` +
                 rigaUtile(c.utile, c.mancanti.length) +
@@ -964,7 +1066,8 @@
         idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,
-        valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve };
+        valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve, rigaEsito, pezziDiversi,
+        righePezziDiversi, cercaPerCodice, wattAlimentatore, utileConPezziGiusti };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

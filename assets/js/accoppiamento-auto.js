@@ -1,5 +1,5 @@
 // ============================================================
-// ACCOPPIAMENTO AUTOMATICO v4 (26/09/2026)
+// ACCOPPIAMENTO AUTOMATICO v4 (26/09/2026, pezzi migliori all'elaborazione 30/09)
 // ------------------------------------------------------------
 // Due pagine separate (Antonio 26/09):
 //   * «Ordini» (manuale): resta com'e'. Sotto ogni build c'e' il riquadro dell'utile con i
@@ -287,7 +287,9 @@
         const d = dati.distinte[ctx.configKey];
         if (d && d[tipoRiga] != null) {
             const v = voce(d[tipoRiga]);
-            if (v && chiave(v.manuale.codice) === chiave(ean)) return { ...v, origine: 'distinta' };
+            if (v && (chiave(v.manuale.codice) === chiave(ean) || (v.auto && chiave(v.auto.codice) === chiave(ean)))) {
+                return { ...v, origine: 'distinta' };                  // (30/09: anche il pezzo migliore gia' messo)
+            }
         }
         // 3) il pezzo com'e' scritto nell'ordine
         const tipo = TIPI[tipoRiga] || tipoRiga;
@@ -297,7 +299,30 @@
         //    elaborato puo' avere un pezzo che la sua linea non usa, ma il costo nei listini c'e')
         const altrove = cercaPerCodice(dati, tipo, ean, fornitore);
         if (altrove != null) return { ...voce(altrove), origine: 'pezzo' };
+        // 5) un pezzo che l'automatico sceglie oggi per qualche voce (30/09: pezzi migliori messi nella scheda)
+        const scelto = cercaPerScelta(dati, tipo, ean, fornitore);
+        if (scelto != null) return { ...voce(scelto), origine: 'scelta' };
         return null;
+    }
+
+    function cercaPerScelta(dati, tipo, ean, fornitore) {
+        if (!dati.__perScelta) {
+            const idx = {};
+            for (const [k, i] of Object.entries(dati.per_valore || {})) {
+                const a = dati.voci[i] && dati.voci[i].auto;
+                if (!a || !a.codice) continue;
+                const t = k.split('|')[1];
+                const c = chiave(a.codice);
+                const f = String(a.fornitore || '').toUpperCase();
+                if (idx[`${t}|${c}|${f}`] == null) idx[`${t}|${c}|${f}`] = i;
+                if (idx[`${t}|${c}`] == null) idx[`${t}|${c}`] = i;
+            }
+            Object.defineProperty(dati, '__perScelta', { value: idx, enumerable: false, configurable: true });
+        }
+        const c = chiave(ean);
+        if (!c) return null;
+        const i = dati.__perScelta[`${tipo}|${c}|${String(fornitore || '').toUpperCase()}`];
+        return i != null ? i : (dati.__perScelta[`${tipo}|${c}`] != null ? dati.__perScelta[`${tipo}|${c}`] : null);
     }
 
     function cercaPerCodice(dati, tipo, ean, fornitore) {
@@ -724,7 +749,26 @@
         const [idBase, n] = String(orderId).split('.');
         const o = dati.ordini[idBase];
         if (!o || !o.pc) return null;
-        return o.pc[(parseInt(n, 10) || 1) - 1] || null;
+        // 30/09: il gestionale fa un PC per unita' (riga con quantita' 2 -> .1 e .2), l'automatico una voce per riga
+        const indice = (parseInt(n, 10) || 1) - 1;
+        let primo = 0;
+        for (const pc of o.pc) {
+            const q = Math.max(1, parseInt(pc.quantita, 10) || 1);
+            if (indice < primo + q) return pc;
+            primo += q;
+        }
+        return null;
+    }
+
+    // Costo di oggi quando il pezzo della scheda e' proprio quello scelto dall'automatico (voce o ordine)
+    function sceltaUguale(v, auto, tipo, ean) {
+        const c = chiave(ean);
+        if (!c) return null;
+        if (v && v.auto && v.auto.costo != null && chiave(v.auto.codice) === c) return v.auto.costo;
+        const t = TIPI[tipo] || tipo;
+        const p = auto && Array.isArray(auto.pezzi)
+            ? auto.pezzi.find(x => x.tipo === t && x.auto && x.auto.costo != null && chiave(x.auto.codice) === c) : null;
+        return p ? p.auto.costo : null;
     }
 
     async function aggiornaOrdine(orderId) {
@@ -743,7 +787,11 @@
             const sch = costoScheda(dati, man.ean, man.fornitore);
             let costo = null, stima = false, fonte = null;
             const pagato = prezzoAcquisto(orderId, tipo, man.ean);
+            // pezzo migliore gia' nella scheda (30/09): costo del listino di oggi di quel pezzo
+            const scelto = sceltaUguale(v, auto, tipo, man.ean);
             if (pagato != null) { costo = pagato; fonte = 'acquistato'; }
+            else if (v && v.manuale && v.manuale.costo != null && chiave(v.manuale.codice) === chiave(man.ean)) { costo = v.manuale.costo; fonte = 'listino'; }
+            else if (scelto != null) { costo = scelto; fonte = 'listino'; }
             else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; fonte = 'listino'; }
             else if (costoManualeSalvato(tipo, man.ean) != null) { costo = costoManualeSalvato(tipo, man.ean); fonte = 'inserito'; }
             else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; fonte = 'fisso'; }
@@ -969,6 +1017,138 @@
         return isNaN(d) ? '' : d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
     };
 
+    // ================================================================ PEZZI MIGLIORI (Antonio 30/09)
+    // «In background i pezzi esatti da ordinare ordine per ordine: per ogni build i modelli più vantaggiosi
+    // economicamente, seguendo sempre tutte le regole, allineati all'Excel madre e alle varianti GPO. Nelle build
+    // Minimal importa solo il chipset, il brand no; nelle MSI e DeepCool il brand preciso.»
+    // Il pezzo dell'automatico (listini di oggi, fornitori con le regole del GPU Watch, scelte del cliente,
+    // alimentatore per la scheda video) prende il posto di quello scritto nella scheda solo se rispetta anche:
+    //   * il colore: pezzo bianco (o rosa) solo dove la scheda o il cliente lo vogliono, e viceversa
+    //     (es. case bianco -> dissipatore bianco, regola del gestionale);
+    //   * la marca della linea: build MSI -> scheda video MSI sempre; scheda madre, dissipatore, case e
+    //     alimentatore MSI quando quello della scheda e' MSI o non si capisce di che marca e'; build DeepCool ->
+    //     case, dissipatore e alimentatore DeepCool alle stesse condizioni. Minimal: il brand non conta;
+    //   * la stessa quantita' (la scheda dell'assemblatore non mostra le quantita');
+    //   * alimentatore mai meno potente di quello della scheda (regole del gestionale, es. doppio EPS).
+    // All'assemblatore resta il chipset: scheda video, SSD e scheda madre si mostrano generici come sempre.
+    const RE_BIANCO = /\b(WHITE|BIANC[OA]|SNOW)\b|-WH\b|\bWH\b/i;
+    const RE_ROSA = /\b(PINK|ROSA)\b/i;
+    const RE_MSI = /\bMSI\b|\bMAG\b(?!-)|\bMPG\b|\bMEG\b|\bVENTUS\b|\bINSPIRE\b|\bSUPRIM\b|\bSHADOW\s+\dX\b|\bGAMING\s+(X\s+)?TRIO\b|\bTOMAHAWK\b|\bMORTAR\b/i;
+    const RE_DEEPCOOL = /DEEP\s*COOL/i;
+    const RE_ALTRE_MARCHE = new RegExp('\\b(ASUS|ROG|TUF|GIGABYTE|AORUS|ASROCK|ZOTAC|PALIT|PNY|INNO3D|SAPPHIRE|POWERCOLOR|XFX|' +
+        'GAINWARD|KFA2|GALAX|ARCTIC|NOCTUA|CORSAIR|NZXT|BE ?QUIET|THERMALRIGHT|COOLER ?MASTER|LIAN ?LI|ENDORFY|MARS ?GAMING|' +
+        'KOLINK|THERMALTAKE|FRACTAL|PHANTEKS|MONTECH|SEASONIC|ANTEC|ID-?COOLING|XIGMATEK|ITEK|AEROCOOL|SHARKOON|NOUA|' +
+        'DARK ?CAVE|ENERMAX|SILVERSTONE|FSP|SUPER ?FLOWER|HYTE|JONSBO|ZALMAN|COUGAR|SCYTHE|RAIJINTEK)\\b', 'i');
+    const MARCA_LINEA = {
+        MSI: { re: RE_MSI, sempre: ['GPU'], seSua: ['MOBO', 'COOLER', 'CASE', 'PSU'] },
+        DEEPCOOL: { re: RE_DEEPCOOL, sempre: [], seSua: ['COOLER', 'CASE', 'PSU'] }
+    };
+
+    function coloreTesto(t) {
+        const s = String(t || '');
+        return RE_BIANCO.test(s) ? 'BIANCO' : (RE_ROSA.test(s) ? 'ROSA' : null);
+    }
+
+    const coloreRispettato = (scheda, nuovo) => coloreTesto(scheda) === coloreTesto(nuovo);
+
+    function marcaRispettata(linea, tipo, scheda, nuovo) {
+        const m = MARCA_LINEA[String(linea || '').toUpperCase()];
+        if (!m) return true;                                        // Minimal: conta solo il chipset
+        const serve = m.sempre.includes(tipo) ||
+            (m.seSua.includes(tipo) && (m.re.test(scheda) || !RE_ALTRE_MARCHE.test(scheda)));
+        return !serve || m.re.test(nuovo);
+    }
+
+    const stessaQuantita = (a, b) => (parseInt(a, 10) || 1) === (parseInt(b, 10) || 1);
+
+    function rispettaScheda(linea, tipo, scheda, a, quantita) {
+        const nuovo = [a.descrizione, a.codice, a.mpn].filter(Boolean).join(' ');
+        if (!coloreRispettato(scheda, nuovo) || !marcaRispettata(linea, tipo, scheda, nuovo)) return false;
+        if (!stessaQuantita(a.quantita, quantita)) return false;
+        if (tipo === 'PSU') {
+            const wScheda = wattAlimentatore(scheda), wNuovo = wattAlimentatore(nuovo);
+            if (wScheda != null && (wNuovo == null || wNuovo < wScheda)) return false;
+        }
+        return true;
+    }
+
+    // Pezzo dell'automatico di quest'ordine da mettere al posto della riga r {tipo, ean, fornitore, nome,
+    // quantita}, oppure null. «stessoPezzo»: solo se la riga e' ancora il pezzo di distinta/opzione che
+    // l'automatico ha valutato (all'elaborazione: non si disfano le regole del gestionale sulla scheda).
+    function sostitutoDaOrdine(auto, r, stessoPezzo) {
+        if (!auto || !Array.isArray(auto.pezzi)) return null;
+        const p = auto.pezzi.find(x => x.tipo === (TIPI[r.tipo] || r.tipo));
+        if (!p || !p.auto || !p.auto.codice || p.fisso) return null;
+        const m = p.manuale || {};
+        if (p.mag && chiave(m.codice) === chiave(r.ean)) return null;         // pezzo a magazzino: resta
+        if (stessoPezzo && chiave(m.codice) !== chiave(r.ean)) return null;
+        const codici = [p.auto.codice, p.auto.mpn].filter(Boolean).map(chiave);
+        const stessoFornitore = String(r.fornitore || '').toUpperCase().trim() === String(p.auto.fornitore || '').toUpperCase().trim();
+        if (codici.includes(chiave(r.ean)) && stessoFornitore) return null;
+        const scheda = [r.ean, r.nome, p.cliente, chiave(m.codice) === chiave(r.ean) ? m.descrizione : '']
+            .filter(Boolean).join(' ');
+        return rispettaScheda(auto.linea, p.tipo, scheda, p.auto, r.quantita) ? p : null;
+    }
+
+    // Stessa cosa quando l'ordine non e' ancora nei dati automatici (arrivato dopo l'ultimo aggiornamento):
+    // la voce della distinta o dell'opzione GPO scelta dal cliente, per i pezzi dove conta il modello
+    // equivalente (chipset e caratteristiche). Case e alimentatore restano quelli decisi dal gestionale.
+    const TIPI_VOCE_MIGLIORE = ['GPU', 'CPU', 'RAM', 'SSD', 'SSD_EXTRA', 'MOBO', 'COOLER'];
+
+    function sostitutoDaVoce(dati, ctx, c) {
+        const tipo = TIPI[c.type] || c.type;
+        if (!TIPI_VOCE_MIGLIORE.includes(tipo)) return null;
+        const v = voceAutomatica(dati, ctx, c.type, c.ean, c.supplier);
+        if (!v || !v.auto || !v.auto.codice || v.fisso) return null;
+        const m = v.manuale || {};
+        if (chiave(m.codice) !== chiave(c.ean)) return null;               // la voce non parla di questo pezzo
+        const codici = [v.auto.codice, v.auto.mpn].filter(Boolean).map(chiave);
+        const stessoFornitore = String(c.supplier || '').toUpperCase().trim() === String(v.auto.fornitore || '').toUpperCase().trim();
+        if (codici.includes(chiave(c.ean)) && stessoFornitore) return null;
+        const cliente = scelteCliente(c.type, ctx.variants).map(s => s.valore).join(' ');
+        const scheda = [c.ean, c.name, cliente, m.descrizione].filter(Boolean).join(' ');
+        return rispettaScheda(lineaDi(dati, ctx.configKey), tipo, scheda, v.auto, c.quantity) ? v.auto : null;
+    }
+
+    // Chiamata dal gestionale quando elabora un ordine, prima di salvare la scheda: cambia sul posto codice,
+    // fornitore e nome dei pezzi. Se i dati automatici non arrivano in 8 secondi la scheda resta com'e'.
+    // Ritorna i cambi fatti: [{ tipo, da: {ean, fornitore}, a: {codice, fornitore, descrizione} }].
+    async function pezziMigliori(componenti, ctx, orderId) {
+        const cambi = [];
+        if (!Array.isArray(componenti) || !componenti.length || !ctx || !ctx.configKey) return cambi;
+        let dati = null, timer = null;
+        try {
+            dati = await Promise.race([carica(), new Promise((_, no) => { timer = setTimeout(() => no(new Error('tempo scaduto')), 8000); })]);
+        } catch (e) {
+            return cambi;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+        if (!dati) return cambi;
+        const variants = ctx.variants || {};
+        const auto = orderId != null ? pcAutomatico(dati, orderId) : null;
+        const autoGiusto = auto && Array.isArray(auto.pezzi) && (!auto.build || auto.build === ctx.configKey) ? auto : null;
+        for (const c of componenti) {
+            const tipo = TIPI[c.type] || c.type;
+            if (!tipo || TIPI_EXTRA.includes(tipo) || tipo === 'MONITOR' || c.isCustom || c.is_custom) continue;
+            let a = null;
+            if (autoGiusto) {
+                const p = sostitutoDaOrdine(autoGiusto, { tipo: c.type, ean: c.ean, fornitore: c.supplier, nome: c.name,
+                    quantita: c.quantity }, true);
+                a = p ? p.auto : null;
+            } else {
+                a = sostitutoDaVoce(dati, { configKey: ctx.configKey, variants }, c);
+            }
+            if (!a) continue;
+            cambi.push({ tipo: c.type, da: { ean: c.ean, fornitore: c.supplier || '' },
+                a: { codice: a.codice, fornitore: a.fornitore, descrizione: a.descrizione || '' } });
+            c.ean = a.codice;
+            c.supplier = a.fornitore || c.supplier;
+            c.name = a.descrizione || c.name || null;
+        }
+        return cambi;
+    }
+
     // Pezzi della scheda da cambiare con quelli che l'automatico sceglie oggi (regole di sempre: fornitori
     // prioritari, marca MSI/DeepCool, alimentatore per la scheda video, RAM, scelte del cliente…). Restano come
     // sono i pezzi a magazzino, quelli a budget fisso (case, Amazon…) e quelli senza una scelta automatica.
@@ -977,12 +1157,11 @@
         if (!auto || !Array.isArray(auto.pezzi)) return [];
         const out = [];
         for (const r of righeScheda) {
-            const p = auto.pezzi.find(x => x.tipo === (TIPI[r.tipo] || r.tipo));
-            if (!p || !p.auto || !p.auto.codice || p.fisso) continue;
-            if (p.mag && chiave(p.manuale && p.manuale.codice) === chiave(r.ean)) continue;   // pezzo a magazzino: resta
-            const codici = [p.auto.codice, p.auto.mpn].filter(Boolean).map(chiave);
-            const stessoFornitore = String(r.fornitore || '').toUpperCase().trim() === String(p.auto.fornitore || '').toUpperCase().trim();
-            if (codici.includes(chiave(r.ean)) && stessoFornitore) continue;
+            const salvato = componentiSalvati(orderId).find(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean));
+            // nome salvato, non quello mostrato (la scheda aggiunge il colore del case a scheda video e madre)
+            const p = sostitutoDaOrdine(auto, { tipo: r.tipo, ean: r.ean, fornitore: r.fornitore,
+                nome: salvato ? salvato.name : '', quantita: salvato ? salvato.quantity : 1 });
+            if (!p) continue;
             out.push({ orderId, ordine: (dati.ordini[String(orderId).split('.')[0]] || {}).nome || `#${orderId}`,
                 tipo: r.tipo, da: { ean: r.ean, fornitore: r.fornitore, nome: r.nome, costo: r.costo, fonte: r.fonte },
                 a: { codice: p.auto.codice, fornitore: p.auto.fornitore, descrizione: p.auto.descrizione || p.auto.codice,
@@ -1505,7 +1684,8 @@
         righePezziDiversi, cercaPerCodice, wattAlimentatore, utileConPezziGiusti, costoScheda, costoEquivalente,
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
-        confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali };
+        confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
+        sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

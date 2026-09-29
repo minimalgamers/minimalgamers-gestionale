@@ -204,4 +204,25 @@ res = await sandbox.fetch('api_gateway/db_bridge/inventory_service/endpoint/api-
 assert.equal(riga('MAG-PSU-600W').quantity, 0);                    // mai sotto zero
 assert.equal(riga('MAG-PSU-600W').name, 'Alimentatore DeepCool PF-600X');
 
+// --- utile rispetto all'obiettivo, data e prezzo di oggi (Antonio 29/09) ---
+assert.equal(A.valutaObiettivo(170, 180).inTarget, false);
+assert.equal(A.valutaObiettivo(176, 180).inTarget, true);           // entro 5 € è in target
+assert.equal(A.valutaObiettivo(200, null), null);
+assert.match(A.rigaObiettivo(150.4, 180), /🔻 sotto di 29,60 €/);
+assert.match(A.rigaObiettivo(200, 180), /✅ in target \(\+20,00 €\)/);
+assert.equal(A.rigaObiettivo(200, null), '');
+assert.equal(A.dataBreve('2026-09-27T10:00:00+02:00'), '27/09/2026');
+let hv = A.righeVendita({ totale: 2425.9, pc: 2341, opzioni: 84.9 }, '2026-09-27T10:00:00+02:00', 2391);
+assert.match(hv, /Venduto il 27\/09\/2026 a \(IVA incl.\)/);
+assert.match(hv, /Oggi la build è a 2\.?391,00 € sul sito \(\+50,00 € rispetto al prezzo di questo ordine\)/);
+hv = A.righeVendita({ totale: 2341, pc: 2341, opzioni: 0 }, '', 2341);
+assert.doesNotMatch(hv, /Oggi la build/);
+// con costi mancanti l'utile non si scrive (prima usciva gonfiato: #4816 «2.989,75 €» con i pezzi a zero)
+assert.match(A.rigaUtile({ lordo: 2989.75, srl: 2092.82 }, 8), /da calcolare: mancano 8 costi/);
+assert.doesNotMatch(A.rigaUtile({ lordo: 2989.75, srl: 2092.82 }, 8), /2\.?989/);
+assert.match(A.rigaUtile({ lordo: 212.5, srl: 148.75 }, 0), /212,50 € · SRL 148,75 €/);
+// prezzo di vendita con la data dell'ordine
+assert.equal(A.prezzoVendita('4814', [{ id: 4814, created_at: '2026-09-28T09:00:00Z',
+  line_items: [{ name: 'PC GAMING HECTORE', price: '1341.00', quantity: 1, properties: [] }] }]).data, '2026-09-28T09:00:00Z');
+
 console.log('accoppiamento-auto: tutti i test passati');

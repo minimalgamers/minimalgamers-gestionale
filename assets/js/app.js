@@ -1408,6 +1408,12 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
         
         
         const components = [];
+        // Antonio 30/09: i prezzi pagati («CONFERMA ACQUISTO PEZZI») restano ai pezzi che non cambiano
+        const precedenti = (processedOrdersCache[orderId] && processedOrdersCache[orderId].components) || [];
+        const prezzoPagato = (type, ean) => {
+            const c = precedenti.find(x => x.type === type && String(x.ean || '') === String(ean || ''));
+            return c && c.price !== undefined && c.price !== null && c.price !== '' ? c.price : null;
+        };
         
         for (const row of componentRows) {
             const componentType = row.dataset.componentType;
@@ -1438,7 +1444,8 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
                     type: componentType,
                     ean: ean,
                     name: name || null,
-                    supplier: supplier || null
+                    supplier: supplier || null,
+                    price: prezzoPagato(componentType, ean)
                 });
             }
         }

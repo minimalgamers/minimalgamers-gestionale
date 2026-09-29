@@ -319,4 +319,40 @@ assert.equal(A.costoEquivalente(pcExtra, 'GPU', {}), 300);
 assert.equal(A.costoEquivalente(pcExtra, 'CPU', {}), null);
 assert.equal(A.costoEquivalente(null, 'GPU', {}), null);
 
+// --- conto dell'ordine come uno scontrino e pezzo per pezzo (Antonio 30/09: «troppo confusionarie») ---
+const vend = { totale: 2440, pc: 2440, opzioni: 0, data: '2026-09-23T10:00:00Z' };
+const costiProva = [{ testo: 'Pezzi della scheda', valore: 1500, sempre: true }, { testo: 'Opzioni fuori scheda', valore: 0 },
+  { testo: 'Montaggio e spedizione', valore: 43.79, sempre: true }];
+let hc = A.contoOrdine(vend, costiProva, 0, 180);
+assert.match(hc, /Pagato dal cliente il 23\/09\/2026/);
+assert.match(hc, /− IVA 22%<\/span><span>-440,00 €/);                       // 2440 − 2440/1,22
+assert.match(hc, /− Scalapay e commissioni 4,5%<\/span><span>-109,80 €/);
+assert.match(hc, /= Incasso netto<\/span><span>1890,20 €/);
+assert.doesNotMatch(hc, /Opzioni fuori scheda/);                               // zero: non si scrive
+const uc = A.utile(2440, 1543.79);
+assert.match(hc, new RegExp(`= Utile.*${String(uc.lordo.toFixed(2)).replace('.', ',')}`));
+assert.match(hc, /Utile SRL \(70%\) · obiettivo 180,00 €/);
+assert.match(A.contoOrdine(vend, costiProva, 2, 180), /da calcolare: mancano 2 costi/);
+assert.doesNotMatch(A.contoOrdine(vend, costiProva, 2, 180), /Utile SRL/);
+const dp = A.dettaglioPezzi([
+  { tipo: 'CPU', fornitore: 'TIER ONE', nome: '', ean: '9019', costo: 300, fonte: 'listino', consigliato: { costo: 220, fornitore: 'TIER ONE', descrizione: 'Ryzen 7 Tray' } },
+  { tipo: 'GPU', fornitore: 'OMEGA', nome: '', ean: 'X1', costo: 700, fonte: 'stima', consigliato: { costo: 700, fornitore: 'ACTION', descrizione: 'RTX' } },
+  { tipo: 'PSU', fornitore: 'ABACO', nome: 'DEEPCOOL PN850-D', ean: 'P', costo: 50, fonte: 'magazzino', consigliato: null },
+  { tipo: 'CASE', fornitore: 'NOUA', nome: '', ean: 'C', costo: null, fonte: null, consigliato: null }]);
+assert.match(dp, /<details class="acc-dettaglio"><summary>🔍 Pezzo per pezzo/);
+assert.match(dp, /CPU<\/b> · TIER ONE 9019<\/span><span>300,00 €/);
+assert.match(dp, /💡 consigliato: TIER ONE Ryzen 7 Tray a 220,00 € \(<b>−80,00 €<\/b>\)/);
+assert.match(dp, /≈ 700,00 €/);                                               // stimato
+assert.match(dp, /stimato col pezzo consigliato/);
+assert.match(dp, /a magazzino: prezzo pagato/);
+assert.match(dp, /CASE<\/b> · NOUA C<\/span><span><span class="acc-incompleto">manca/);
+assert.equal(A.dettaglioPezzi([]), '');
+// pezzo della scheda che e' quello a magazzino: prezzo pagato
+const pcMag = { pezzi: [{ tipo: 'PSU', manuale: { codice: 'DEEPCOOL PN850-D V2 80+ GOLD' }, auto: { costo: 70, fornitore: 'ABACO', descrizione: 'PQ850G' }, fisso: null }] };
+Object.defineProperty(pcMag.pezzi[0], 'mag', { value: { def: { costo: 50 } } });
+assert.equal(A.costoMagazzino(pcMag, 'ALIMENTATORE', 'DEEPCOOL PN850-D V2 80+ GOLD'), 50);
+assert.equal(A.costoMagazzino(pcMag, 'PSU', 'ALTRO ALIMENTATORE'), null);
+assert.equal(A.consigliato(pcMag, 'PSU', {}).costo, 70);
+assert.equal(A.consigliato(pcMag, 'GPU', {}), null);
+
 console.log('accoppiamento-auto: tutti i test passati');

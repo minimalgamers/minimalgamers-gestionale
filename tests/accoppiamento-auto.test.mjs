@@ -355,4 +355,43 @@ assert.equal(A.costoMagazzino(pcMag, 'PSU', 'ALTRO ALIMENTATORE'), null);
 assert.equal(A.consigliato(pcMag, 'PSU', {}).costo, 70);
 assert.equal(A.consigliato(pcMag, 'GPU', {}), null);
 
+// --- scrivanie E1–E4: AGGIORNA PREZZI PRODOTTO e CONFERMA ACQUISTO PEZZI (Antonio 30/09) ---
+vm.runInContext(`var processedOrdersCache = { '556': { components: [
+  { type: 'GPU', ean: 'GPU-VECCHIA', supplier: 'OMEGA', price: null },
+  { type: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE', supplier: 'ABACO', price: null } ] } };`, sandbox);
+assert.equal(A.acquistoConfermato('556'), false);
+assert.equal(A.prezzoAcquisto('556', 'GPU', 'GPU-VECCHIA'), null);
+// proposte: la scheda video cambia con quella scelta oggi; l'alimentatore a magazzino resta
+const righeProva = [
+  { tipo: 'GPU', ean: 'GPU-VECCHIA', fornitore: 'OMEGA', nome: 'Vecchia', costo: 350, fonte: 'stima' },
+  { tipo: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE', fornitore: 'ABACO', nome: '', costo: 25, fonte: 'magazzino' }];
+let prop = A.proposteOrdine(dati, '556', righeProva);
+assert.equal(prop.length, 1);
+assert.equal(prop[0].tipo, 'GPU');
+assert.equal(prop[0].a.codice, 'GPU-1');
+assert.equal(prop[0].a.fornitore, 'ACTION');
+assert.equal(prop[0].ordine, '#9002');
+// gia' il pezzo migliore (stesso codice e fornitore): niente da cambiare
+assert.equal(A.proposteOrdine(dati, '556', [{ tipo: 'GPU', ean: 'GPU-1', fornitore: 'ACTION', costo: 300 }]).length, 0);
+assert.equal(A.proposteOrdine(dati, '999', righeProva).length, 0);          // ordine senza automatico
+const tp = A.tabellaProposte(prop);
+assert.equal(tp.risparmio, 50);
+assert.match(tp.html, /<b>#9002<\/b>/);
+assert.match(tp.html, /GPU<\/b>: OMEGA Vecchia \(≈ 350,00 €\)<br>→ ACTION Scheda di prova <b>300,00 €<\/b>/);
+assert.match(tp.html, /−50,00 €/);
+// conferma acquisto: prezzi nella colonna price e nella copia in memoria
+const scritti = [];
+sandbox.window.SupabaseDB.setComponentPrices = async (id, prezzi) => { scritti.push({ id, prezzi }); return prezzi.length; };
+await A.salvaPrezzi('556', [{ type: 'GPU', ean: 'GPU-VECCHIA', price: 312.456 }, { type: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE', price: 25 }]);
+assert.equal(scritti.length, 1);
+assert.equal(scritti[0].prezzi.length, 2);
+assert.equal(A.acquistoConfermato('556'), true);
+assert.equal(A.prezzoAcquisto('556', 'GPU', 'GPU VECCHIA'), 312.46);     // codici confrontati come sempre
+// annulla conferma
+await A.salvaPrezzi('556', [{ type: 'GPU', ean: 'GPU-VECCHIA', price: null }, { type: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE', price: null }]);
+assert.equal(A.acquistoConfermato('556'), false);
+assert.match(A.URL_AGGIORNA_LISTINI, /^https:\/\/minimal-gamers-listini-scheduler\.theminimalgamers\.workers\.dev\/aggiorna-listini$/);
+assert.match(A.dettaglioPezzi([{ tipo: 'CPU', fornitore: 'TIER ONE', nome: 'X', ean: '1', costo: 200, fonte: 'acquistato', consigliato: { costo: 100, fornitore: 'A', descrizione: 'B' } }]),
+  /prezzo pagato \(acquisto confermato\)/);
+
 console.log('accoppiamento-auto: tutti i test passati');

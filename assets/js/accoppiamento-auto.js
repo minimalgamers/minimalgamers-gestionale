@@ -527,12 +527,12 @@
         return h;
     }
 
-    const NOME_FONTE = { listino: '', inserito: 'inserito da te', fisso: 'budget fisso', magazzino: 'a magazzino: prezzo pagato',
+    const NOME_FONTE = { acquistato: 'prezzo pagato (acquisto confermato)', listino: '', inserito: 'inserito da te', fisso: 'budget fisso', magazzino: 'a magazzino: prezzo pagato',
         altro: 'stimato: stesso pezzo, prezzo di un altro fornitore',
         stima: 'stimato col pezzo consigliato: questo non ha un prezzo di listino' };
 
     // Pezzo per pezzo (aperto a richiesta): quanto costa oggi, da dove viene il numero e se c'e' di meglio
-    function dettaglioPezzi(righeConto) {
+    function dettaglioPezzi(righeConto, confermato) {
         if (!righeConto.length) return '';
         const corpo = righeConto.map(r => {
             const nome = r.nome || r.ean || '';
@@ -546,7 +546,7 @@
             }
             return `<div class="acc-pezzo"><div class="riga"><span><b>${esc(r.tipo)}</b> · ${esc(r.fornitore || '')} ${esc(nome)}</span><span>${val}</span></div>${sotto ? `<div>${sotto}</div>` : ''}</div>`;
         }).join('');
-        return `<details class="acc-dettaglio"><summary>🔍 Pezzo per pezzo (prezzi netti di oggi)</summary>${corpo}</details>`;
+        return `<details class="acc-dettaglio"><summary>🔍 Pezzo per pezzo (${confermato ? 'prezzi netti pagati' : 'prezzi netti di oggi'})</summary>${corpo}</details>`;
     }
 
     // L'utile si scrive solo se ci sono i costi di tutti i pezzi: con costi mancanti sarebbe gonfiato (29/09)
@@ -623,6 +623,22 @@
 .acc-dettaglio{margin:6px 0}.acc-dettaglio summary{cursor:pointer;font-weight:600}
 .acc-pezzo{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.12)}
 .acc-consiglio{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.35)}
+.acc-barra{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.15)}
+.acc-barra button{padding:9px 14px;border-radius:8px;font-weight:800;cursor:pointer;border:1px solid rgba(255,255,255,.35);color:#fff;background:rgba(52,152,219,.35)}
+.acc-barra button.acc-btn-conferma{background:rgba(46,204,113,.35)}
+.acc-barra button:disabled{opacity:.5;cursor:wait}
+.acc-barra-stato{color:#fff;font-size:.9em;opacity:.9}
+.acc-acquistato{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(46,204,113,.16);border:1px solid rgba(46,204,113,.45)}
+.acc-finestra{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10050;display:flex;align-items:center;justify-content:center}
+.acc-finestra-box{background:#15181d;color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:12px;padding:18px;width:min(760px,94vw);max-height:86vh;display:flex;flex-direction:column}
+.acc-finestra-box h3{margin:0 0 10px}
+.acc-finestra-corpo{overflow:auto;font-size:.9em;line-height:1.5}
+.acc-finestra-bottoni{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
+.acc-finestra-bottoni button{padding:9px 16px;border-radius:8px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff}
+.acc-finestra-bottoni button[data-si]{background:rgba(46,204,113,.45)}
+.acc-fin-ordine{margin:8px 0;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.05)}
+.acc-fin-riga{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.1)}
+.acc-prezzo{width:90px;padding:3px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;text-align:right}
 .acc-extra{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(52,152,219,.14);border:1px solid rgba(52,152,219,.35)}
 .acc-utile .riga{display:flex;justify-content:space-between;gap:8px}
 .acc-utile .forte{font-weight:700;font-size:1.1em}
@@ -726,7 +742,9 @@
             const v = dati ? voceAutomatica(dati, ctx, tipo, man.ean, man.fornitore) : null;
             const sch = costoScheda(dati, man.ean, man.fornitore);
             let costo = null, stima = false, fonte = null;
-            if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; fonte = 'listino'; }
+            const pagato = prezzoAcquisto(orderId, tipo, man.ean);
+            if (pagato != null) { costo = pagato; fonte = 'acquistato'; }
+            else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; fonte = 'listino'; }
             else if (costoManualeSalvato(tipo, man.ean) != null) { costo = costoManualeSalvato(tipo, man.ean); fonte = 'inserito'; }
             else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; fonte = 'fisso'; }
             else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = sch.costo; fonte = 'listino'; }
@@ -739,6 +757,8 @@
             if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
             else { conti.man += costo; if (stima) conti.stime++; }
         }
+        conti.confermato = acquistoConfermato(orderId);
+        ultimiConti[orderId] = conti;
         await mostraUtile(orderId, conti, dati);
     }
 
@@ -785,7 +805,12 @@
         const ca = auto ? contiPc(auto, leggiLS(K_FISSI, {})) : null;
         const vai = `<a class="acc-link" data-vai="${esc(String(orderId).split('.')[0])}">apri nell'Automatico</a>`;
         let confronto = '';
-        if (auto && !nMancanti && !ca.mancanti.length && ca.utile.srl - u.srl >= 5) {
+        if (conti.confermato) {
+            const senzaPrezzo = conti.righe.filter(r => r.fonte !== 'acquistato').length;
+            confronto = `<div class="acc-acquistato">✅ Pezzi acquistati: nei conti ci sono i prezzi pagati` +
+                (senzaPrezzo ? ` <small>(${senzaPrezzo === 1 ? '1 pezzo cambiato dopo, a prezzo di oggi' : `${senzaPrezzo} pezzi cambiati dopo, a prezzo di oggi`})</small>` : '') +
+                ` · <a class="acc-link" data-sblocca="1" title="I prezzi pagati si cancellano e si torna ai prezzi di oggi">annulla conferma</a></div>`;
+        } else if (auto && !nMancanti && !ca.mancanti.length && ca.utile.srl - u.srl >= 5) {
             confronto = `<div class="acc-consiglio">💡 Con i pezzi consigliati dall'Automatico l'utile SRL sarebbe <b>${eur(ca.utile.srl)}</b> ` +
                 `(+${eur(tonda(ca.utile.srl - u.srl))}), se non li hai ancora comprati · ${vai}</div>`;
         } else if (auto) {
@@ -797,14 +822,15 @@
         const oggi = auto && auto.listino_oggi != null && Math.abs(Number(auto.listino_oggi) - vendita.pc) >= 1
             ? `<div class="riga"><small>Oggi la build è a ${eur(Number(auto.listino_oggi))} sul sito</small></div>` : '';
         const costi = [
-            { testo: `Pezzi della scheda <small>(prezzi di oggi${conti.stime ? `, ${conti.stime} stimati` : ''})</small>`, valore: tonda(conti.man + extra), sempre: true },
+            { testo: conti.confermato ? 'Pezzi acquistati <small>(prezzi pagati)</small>'
+                : `Pezzi della scheda <small>(prezzi di oggi${conti.stime ? `, ${conti.stime} stimati` : ''})</small>`, valore: tonda(conti.man + extra), sempre: true },
             { testo: `Opzioni fuori scheda <small>(${esc(extraLista.map(x => x.nome).join(', '))})</small>`, valore: costoExtra },
             { testo: 'Montaggio e spedizione', valore: servizi, sempre: true },
         ];
         el.innerHTML =
             rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) +
             `<div class="acc-conto">${contoOrdine({ ...vendita, data: vendita.data || (auto && auto.data) }, costi, nMancanti, auto ? auto.obiettivo : null)}</div>` +
-            oggi + dettaglioPezzi(conti.righe) +
+            oggi + dettaglioPezzi(conti.righe, conti.confermato) +
             righeExtra(extraLista) + confronto + mancanti +
             righePezziDiversi(diversi, nMancanti ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi;
         el.querySelectorAll('.mancanti a').forEach(a => a.addEventListener('click', (ev) => {
@@ -818,6 +844,15 @@
                 scriviLS(K_COSTI, c);
                 aggiornaOrdine(orderId);
             }
+        }));
+        el.querySelectorAll('[data-sblocca]').forEach(a => a.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            if (!confirm('Annullare la conferma di acquisto di questo PC?\nI prezzi pagati si cancellano e l\'utile torna ai prezzi di oggi.')) return;
+            try {
+                await salvaPrezzi(orderId, conti.righe.map(r => ({ type: r.tipo, ean: r.ean, price: null })));
+                avvisa('Conferma di acquisto annullata', 'success');
+            } catch (e) { avvisa('Conferma non annullata: ' + (e && e.message ? e.message : e), 'error'); }
+            aggiornaOrdine(orderId);
         }));
         el.querySelectorAll('[data-extra]').forEach(a => a.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -845,7 +880,246 @@
     // Chiamata da loadComponentsForOrder quando le righe dell'ordine sono pronte
     function decora(orderId, ctx) {
         contesti[orderId] = { configKey: ctx.configKey, variants: ctx.variants || {}, allItems: ctx.allItems || [] };
+        try { barraScrivania(); } catch (e) { console.warn('[ACCOPPIAMENTO] barra', e); }
         aggiornaOrdine(orderId).catch(err => console.warn('[ACCOPPIAMENTO] ', err));
+    }
+
+    // ================================================================ SCRIVANIE E1–E4 (Antonio 30/09)
+    // «Due pulsanti per ogni scrivania: AGGIORNA PREZZI PRODOTTO, che aggiorna in tempo reale i pezzi che
+    // servono attraverso i nostri fornitori con le regole che conosci, e CONFERMA ACQUISTO PEZZI, quando
+    // abbiamo comprato i pezzi dei PC di quella scrivania: fino ad allora si aggiorna quante volte si vuole.»
+    const URL_AGGIORNA_LISTINI = 'https://minimal-gamers-listini-scheduler.theminimalgamers.workers.dev/aggiorna-listini';
+    const ATTESA_LISTINI_MS = 9 * 60 * 1000;
+    const ultimiConti = {};                      // orderId -> conti dell'ultimo calcolo del riquadro
+
+    function componentiSalvati(orderId) {
+        try {
+            return (typeof processedOrdersCache !== 'undefined' && processedOrdersCache && processedOrdersCache[orderId]
+                && processedOrdersCache[orderId].components) || [];
+        } catch (e) { return []; }
+    }
+
+    // Prezzo pagato di un pezzo (colonna price, scritta da «CONFERMA ACQUISTO PEZZI»)
+    function prezzoAcquisto(orderId, tipo, ean) {
+        const c = componentiSalvati(orderId).find(x => x.type === tipo && chiave(x.ean) === chiave(ean));
+        if (!c || c.price === null || c.price === undefined || c.price === '') return null;
+        const n = Number(c.price);
+        return isNaN(n) ? null : n;
+    }
+
+    const acquistoConfermato = (orderId) => componentiSalvati(orderId).some(x => x.price !== null && x.price !== undefined && x.price !== '');
+
+    async function salvaPrezzi(orderId, prezzi) {
+        const db = typeof window !== 'undefined' ? window.SupabaseDB : null;
+        if (!db || typeof db.setComponentPrices !== 'function') throw new Error('database non pronto');
+        await db.setComponentPrices(orderId, prezzi);
+        for (const p of prezzi) {                  // stessa cosa nella copia in memoria del gestionale
+            const c = componentiSalvati(orderId).find(x => x.type === p.type && chiave(x.ean) === chiave(p.ean))
+                || (componentiSalvati(orderId).filter(x => x.type === p.type).length === 1 ? componentiSalvati(orderId).find(x => x.type === p.type) : null);
+            if (c) c.price = p.price === null || p.price === undefined || p.price === '' ? null : Math.round(Number(p.price) * 100) / 100;
+        }
+    }
+
+    function scrivaniaAttiva() {
+        const t = document.querySelector('.tab-button.active');
+        return ({ processed: 1, 'processed-e2': 2, 'processed-e3': 3, 'processed-e4': 4 })[t ? t.dataset.tab : ''] || null;
+    }
+
+    function ordiniScrivania() {
+        return Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]'))
+            .map(c => c.dataset.orderId).filter(id => contesti[id]);
+    }
+
+    function barraScrivania() {
+        const cont = document.getElementById('processed-container');
+        const n = scrivaniaAttiva();
+        if (!cont || !n) return;
+        const vecchia = cont.querySelector('.acc-barra');
+        if (vecchia && vecchia.dataset.scrivania === String(n)) return;
+        if (vecchia) vecchia.remove();
+        stile();
+        const b = document.createElement('div');
+        b.className = 'acc-barra';
+        b.dataset.scrivania = String(n);
+        b.innerHTML = `<button type="button" class="acc-btn-aggiorna" title="Listini dei fornitori di adesso e pezzi migliori con le regole di sempre, per i PC non ancora acquistati">🔄 AGGIORNA PREZZI PRODOTTO</button>` +
+            `<button type="button" class="acc-btn-conferma" title="Hai comprato i pezzi dei PC di questa scrivania: i prezzi pagati restano nei conti">✅ CONFERMA ACQUISTO PEZZI</button>` +
+            `<span class="acc-barra-stato">Scrivania E${n}</span>`;
+        cont.insertBefore(b, cont.firstChild);
+        b.querySelector('.acc-btn-aggiorna').addEventListener('click', () => aggiornaScrivania(n, b));
+        b.querySelector('.acc-btn-conferma').addEventListener('click', () => confermaScrivania(n, b));
+    }
+
+    // Finestra con due pulsanti; risolve con il contenitore se si preme il primo, con null altrimenti
+    function finestra(titolo, corpo, si, no) {
+        return new Promise(resolve => {
+            stile();
+            const ov = document.createElement('div');
+            ov.className = 'acc-finestra';
+            ov.innerHTML = `<div class="acc-finestra-box"><h3>${titolo}</h3><div class="acc-finestra-corpo">${corpo}</div>` +
+                `<div class="acc-finestra-bottoni"><button type="button" data-no>${no}</button><button type="button" data-si>${si}</button></div></div>`;
+            document.body.appendChild(ov);
+            const chiudi = (ok) => { const c = ov.querySelector('.acc-finestra-corpo'); ov.remove(); resolve(ok ? c : null); };
+            ov.querySelector('[data-si]').addEventListener('click', () => chiudi(true));
+            ov.querySelector('[data-no]').addEventListener('click', () => chiudi(false));
+        });
+    }
+
+    const oraBreve = (iso) => {
+        const d = new Date(iso || '');
+        return isNaN(d) ? '' : d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+    };
+
+    // Pezzi della scheda da cambiare con quelli che l'automatico sceglie oggi (regole di sempre: fornitori
+    // prioritari, marca MSI/DeepCool, alimentatore per la scheda video, RAM, scelte del cliente…). Restano come
+    // sono i pezzi a magazzino, quelli a budget fisso (case, Amazon…) e quelli senza una scelta automatica.
+    function proposteOrdine(dati, orderId, righeScheda) {
+        const auto = pcAutomatico(dati, orderId);
+        if (!auto || !Array.isArray(auto.pezzi)) return [];
+        const out = [];
+        for (const r of righeScheda) {
+            const p = auto.pezzi.find(x => x.tipo === (TIPI[r.tipo] || r.tipo));
+            if (!p || !p.auto || !p.auto.codice || p.fisso) continue;
+            if (p.mag && chiave(p.manuale && p.manuale.codice) === chiave(r.ean)) continue;   // pezzo a magazzino: resta
+            const codici = [p.auto.codice, p.auto.mpn].filter(Boolean).map(chiave);
+            const stessoFornitore = String(r.fornitore || '').toUpperCase().trim() === String(p.auto.fornitore || '').toUpperCase().trim();
+            if (codici.includes(chiave(r.ean)) && stessoFornitore) continue;
+            out.push({ orderId, ordine: (dati.ordini[String(orderId).split('.')[0]] || {}).nome || `#${orderId}`,
+                tipo: r.tipo, da: { ean: r.ean, fornitore: r.fornitore, nome: r.nome, costo: r.costo, fonte: r.fonte },
+                a: { codice: p.auto.codice, fornitore: p.auto.fornitore, descrizione: p.auto.descrizione || p.auto.codice,
+                    costo: p.auto.costo, disponibilita: p.auto.disponibilita, daConfermare: !!p.auto.da_confermare } });
+        }
+        return out;
+    }
+
+    function tabellaProposte(proposte) {
+        const perOrdine = {};
+        for (const x of proposte) (perOrdine[x.ordine] = perOrdine[x.ordine] || []).push(x);
+        let risparmio = 0;
+        const html = Object.entries(perOrdine).map(([nome, lista]) => `<div class="acc-fin-ordine"><b>${esc(nome)}</b>` +
+            lista.map(x => {
+                let d = x.da.costo != null && x.a.costo != null ? tonda(x.da.costo - x.a.costo) : null;
+                if (d != null && Math.abs(d) < 0.005) d = null;
+                if (d != null) risparmio += d;
+                return `<div class="acc-fin-riga"><span><b>${esc(x.tipo)}</b>: ${esc(x.da.fornitore || '')} ${esc(x.da.nome || x.da.ean)}` +
+                    `${x.da.costo != null ? ` (${x.da.fonte === 'stima' ? '≈ ' : ''}${eur(x.da.costo)})` : ''}<br>→ ${esc(x.a.fornitore)} ${esc(x.a.descrizione)} ` +
+                    `<b>${eur(x.a.costo)}</b> <small>${esc(x.a.disponibilita || '')}</small></span>` +
+                    `<span class="${d != null && d > 0 ? 'acc-pos' : (d != null && d < 0 ? 'acc-neg' : '')}">${d == null ? '' : (d > 0 ? `−${eur(d)}` : `+${eur(-d)}`)}</span></div>`;
+            }).join('') + `</div>`).join('');
+        return { html, risparmio: tonda(risparmio) };
+    }
+
+    // Le modifiche fatte a mano in questo browser (ean_modifications / supplier_modifications di app.js)
+    // coprirebbero il pezzo nuovo appena salvato: per quel pezzo si tolgono.
+    function pulisciModificheLocali(orderId, tipo) {
+        for (const k of ['ean_modifications', 'supplier_modifications']) {
+            const m = leggiLS(k, {});
+            if (m && m[orderId] && m[orderId][tipo] !== undefined) {
+                delete m[orderId][tipo];
+                scriviLS(k, m);
+            }
+        }
+    }
+
+    async function aggiornaScrivania(n, barra) {
+        const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
+        const bottoni = Array.from(barra.querySelectorAll('button'));
+        bottoni.forEach(x => { x.disabled = true; });
+        try {
+            const ids = ordiniScrivania().filter(id => !acquistoConfermato(id));
+            if (!ids.length) { scrivi(`E${n}: i PC di questa scrivania hanno già i pezzi acquistati.`); return; }
+            // 1) listini dei fornitori di adesso (lo stesso aggiornamento che parte da solo ogni mezz'ora)
+            scrivi(`E${n}: chiedo ai fornitori i listini di adesso…`);
+            let esito = null;
+            try {
+                const r = await fetch(URL_AGGIORNA_LISTINI, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: password() || '' }) });
+                esito = await r.json();
+            } catch (e) { esito = { stato: 'errore' }; }
+            let dati = await carica(true);
+            const prima = dati && dati.generato;
+            if (esito && (esito.stato === 'avviato' || esito.stato === 'in_corso')) {
+                const inizio = Date.now();
+                while (Date.now() - inizio < ATTESA_LISTINI_MS) {
+                    const sec = Math.round((Date.now() - inizio) / 1000);
+                    scrivi(`E${n}: listini in aggiornamento dai fornitori (${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}, di solito 4-5 minuti)…`);
+                    await new Promise(r => setTimeout(r, 20000));
+                    try { dati = await carica(true); } catch (e) { /* si riprova */ }
+                    if (dati && dati.generato && dati.generato !== prima) break;
+                }
+            }
+            const quando = oraBreve(dati && dati.generato);
+            const nota = !esito || esito.stato === 'errore' || esito.stato === 'non_autorizzato'
+                ? ' (aggiornamento dei fornitori non partito: uso gli ultimi listini)' : '';
+            // 2) prezzi di adesso in ogni riquadro
+            for (const id of ids) await aggiornaOrdine(id);
+            // 3) pezzi migliori di oggi
+            const proposte = [];
+            for (const id of ids) proposte.push(...proposteOrdine(dati, id, (ultimiConti[id] && ultimiConti[id].righe) || []));
+            if (!proposte.length) {
+                scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. I pezzi sono già i migliori di oggi.`);
+                return;
+            }
+            const t = tabellaProposte(proposte);
+            const corpo = `<p>Listini delle ${esc(quando)}${esc(nota)}. Con le regole di sempre questi pezzi oggi conviene prenderli così` +
+                `${t.risparmio > 0 ? ` (<b>${eur(t.risparmio)} in meno</b> in totale)` : ''}:</p>${t.html}` +
+                `<p><small>I PC con i pezzi già acquistati non si toccano. Se un pezzo l'hai già comprato, premi «Lascia così» e poi «CONFERMA ACQUISTO PEZZI».</small></p>`;
+            const ok = await finestra(`🔄 Scrivania E${n}: ${proposte.length === 1 ? '1 pezzo da cambiare' : `${proposte.length} pezzi da cambiare`}`, corpo, 'Cambia i pezzi', 'Lascia così');
+            if (!ok) { scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. Pezzi lasciati come sono.`); return; }
+            let fatti = 0;
+            for (const x of proposte) {
+                const salvato = typeof updateProcessedOrderComponent === 'function'
+                    ? await updateProcessedOrderComponent(x.orderId, x.tipo, x.a.codice, x.a.descrizione, x.a.fornitore) : false;
+                if (salvato) { fatti++; pulisciModificheLocali(x.orderId, x.tipo); }
+            }
+            scrivi(`E${n}: ${fatti} di ${proposte.length} pezzi cambiati con i listini delle ${quando}. Ricarico le schede…`);
+            if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
+            if (typeof renderProcessedOrders === 'function' && typeof getFilteredProcessedOrdersMap === 'function'
+                && typeof processedOrdersMap !== 'undefined' && typeof getActiveWorksheetTab === 'function') {
+                await renderProcessedOrders(getFilteredProcessedOrdersMap(processedOrdersMap, getActiveWorksheetTab()));
+            }
+            avvisa(`E${n}: ${fatti} pezzi aggiornati${fatti < proposte.length ? ` (${proposte.length - fatti} non salvati: riprova)` : ''}`, fatti === proposte.length ? 'success' : 'error');
+        } catch (e) {
+            scrivi(`E${n}: aggiornamento non riuscito (${e && e.message ? e.message : e}). Riprova.`);
+        } finally {
+            bottoni.forEach(x => { x.disabled = false; });
+        }
+    }
+
+    async function confermaScrivania(n, barra) {
+        const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
+        const ids = ordiniScrivania().filter(id => !acquistoConfermato(id));
+        if (!ids.length) { scrivi(`E${n}: non ci sono PC da confermare (sono già tutti acquistati).`); return; }
+        for (const id of ids) await aggiornaOrdine(id);
+        let dati = null;
+        try { dati = await carica(); } catch (e) { /* nomi dal gestionale */ }
+        const blocchi = ids.map(id => {
+            const conti = ultimiConti[id];
+            if (!conti || !conti.righe.length) return '';
+            const nome = (dati && dati.ordini && (dati.ordini[String(id).split('.')[0]] || {}).nome) || `#${id}`;
+            return `<div class="acc-fin-ordine"><label><input type="checkbox" data-ordine="${esc(id)}" checked> <b>${esc(nome)}</b></label>` +
+                conti.righe.map((r, i) => `<div class="acc-fin-riga"><span><b>${esc(r.tipo)}</b>: ${esc(r.fornitore || '')} ${esc(r.nome || r.ean)}` +
+                    `${r.fonte === 'stima' || r.fonte === 'altro' ? ' <small class="acc-incompleto">≈ stimato: metti il prezzo pagato</small>' : ''}</span>` +
+                    `<span><input type="text" inputmode="decimal" class="acc-prezzo" data-ordine="${esc(id)}" data-i="${i}" value="${r.costo == null ? '' : String(r.costo).replace('.', ',')}"> €</span></div>`).join('') +
+                `</div>`;
+        }).join('');
+        const corpo = `<p>Prezzi <b>netti (IVA esclusa)</b> pagati per ogni pezzo: sono già scritti quelli di oggi, correggi quelli diversi. ` +
+            `Da qui in poi l'utile di questi PC usa i prezzi pagati e «AGGIORNA PREZZI PRODOTTO» non li tocca più.</p>${blocchi}`;
+        const c = await finestra(`✅ Scrivania E${n}: conferma acquisto pezzi`, corpo, 'Confermo: pezzi acquistati', 'Annulla');
+        if (!c) return;
+        const scelti = Array.from(c.querySelectorAll('input[type=checkbox][data-ordine]')).filter(x => x.checked).map(x => x.dataset.ordine);
+        let fatti = 0, errori = 0;
+        for (const id of scelti) {
+            const conti = ultimiConti[id];
+            const prezzi = Array.from(c.querySelectorAll(`input.acc-prezzo[data-ordine="${CSS.escape(String(id))}"]`))
+                .map(inp => ({ r: conti.righe[parseInt(inp.dataset.i, 10)], v: String(inp.value || '').trim().replace(/\s|€/g, '').replace(',', '.') }))
+                .filter(x => x.r && x.v !== '' && !isNaN(Number(x.v)))
+                .map(x => ({ type: x.r.tipo, ean: x.r.ean, price: Number(x.v) }));
+            if (!prezzi.length) continue;
+            try { await salvaPrezzi(id, prezzi); fatti++; } catch (e) { errori++; }
+            aggiornaOrdine(id);
+        }
+        scrivi(`E${n}: acquisto confermato per ${fatti === 1 ? '1 PC' : `${fatti} PC`}${errori ? `, ${errori} non salvati (riprova)` : ''}.`);
+        avvisa(`E${n}: acquisto confermato per ${fatti} PC${errori ? `, ${errori} non salvati` : ''}`, errori ? 'error' : 'success');
     }
 
     // ================================================================ PAGINA AUTOMATICO
@@ -1229,7 +1503,9 @@
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,
         valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve, rigaEsito, pezziDiversi,
         righePezziDiversi, cercaPerCodice, wattAlimentatore, utileConPezziGiusti, costoScheda, costoEquivalente,
-        extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino };
+        extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
+        acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
+        confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

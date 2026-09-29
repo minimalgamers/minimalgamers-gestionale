@@ -307,7 +307,7 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     // Cerco se esiste già un componente per questo type
     const { data: existing, error: errEx } = await supabase
         .from('processed_order_components')
-        .select('id')
+        .select('id, ean')
         .eq('order_id', internalId)
         .eq('component_type', componentType)
         .or('is_custom.is.null,is_custom.eq.0')
@@ -315,13 +315,16 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     if (errEx) throw errEx;
 
     if (existing) {
+        const campi = {
+            ean: ean || null,
+            product_name: productName || null,
+            supplier: supplier || null
+        };
+        // pezzo cambiato: il prezzo pagato (conferma acquisto, 30/09) era del pezzo di prima
+        if (String(existing.ean || '') !== String(ean || '')) campi.price = null;
         const { error } = await supabase
             .from('processed_order_components')
-            .update({
-                ean: ean || null,
-                product_name: productName || null,
-                supplier: supplier || null
-            })
+            .update(campi)
             .eq('id', existing.id);
         if (error) throw error;
         return 'update';
@@ -340,6 +343,42 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
         if (error) throw error;
         return 'insert';
     }
+}
+
+// Antonio 30/09, «CONFERMA ACQUISTO PEZZI»: il prezzo pagato (netto) di ogni pezzo della scheda va nella
+// colonna price, finora sempre vuota. prezzi: [{ type, ean, price }]; price null toglie la conferma.
+// Si aggiorna la riga con quel tipo e quel codice; se il codice non combacia e di quel tipo ce n'e' una
+// sola, quella. Ritorna quante righe sono state scritte.
+async function dbSetComponentPrices(shopifyOrderId, prezzi) {
+    const { data: orderRow, error: errOrd } = await supabase
+        .from('processed_orders').select('id')
+        .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    if (errOrd) throw errOrd;
+    if (!orderRow) throw new Error('Ordine non trovato');
+    let scritte = 0;
+    for (const p of prezzi || []) {
+        if (!p || !p.type) continue;
+        const valore = p.price === null || p.price === undefined || p.price === '' ? null
+            : Math.round(Number(p.price) * 100) / 100;
+        if (valore !== null && !isFinite(valore)) continue;
+        let q = supabase.from('processed_order_components').update({ price: valore })
+            .eq('order_id', orderRow.id).eq('component_type', p.type)
+            .or('is_custom.is.null,is_custom.eq.0');
+        if (p.ean) q = q.eq('ean', p.ean);
+        const { data, error } = await q.select('id');
+        if (error) throw error;
+        if (data && data.length) { scritte += data.length; continue; }
+        const { data: stessoTipo, error: errT } = await supabase.from('processed_order_components').select('id')
+            .eq('order_id', orderRow.id).eq('component_type', p.type).or('is_custom.is.null,is_custom.eq.0');
+        if (errT) throw errT;
+        if (stessoTipo && stessoTipo.length === 1) {
+            const { error: errU } = await supabase.from('processed_order_components')
+                .update({ price: valore }).eq('id', stessoTipo[0].id);
+            if (errU) throw errU;
+            scritte += 1;
+        }
+    }
+    return scritte;
 }
 
 async function dbDeleteProcessedOrder(shopifyOrderId) {
@@ -856,6 +895,7 @@ window.SupabaseDB = {
     updateProcessedOrder: dbUpdateProcessedOrder,
     deleteProcessedOrder: dbDeleteProcessedOrder,
     upsertSingleComponent: dbUpsertSingleComponent,
+    setComponentPrices: dbSetComponentPrices,
     // Custom items per ordine
     getCustomItemsByOrder: dbGetCustomItemsByOrder,
     saveCustomItemsForOrder: dbSaveCustomItemsForOrder,

@@ -29,7 +29,9 @@
     const TIPI = {
         GPU: 'GPU', CPU: 'CPU', RAM: 'RAM', SSD: 'SSD', 'SSD ADDON': 'SSD_EXTRA', MOBO: 'MOBO',
         'SCHEDA MADRE': 'MOBO', PSU: 'PSU', ALIMENTATORE: 'PSU', COOLER: 'COOLER', DISSIPATORE: 'COOLER',
-        CASE: 'CASE', MONITOR: 'MONITOR'
+        CASE: 'CASE', MONITOR: 'MONITOR',
+        // 30/09: righe accessori della scheda (kit dei bundle, sedia, scrivania) = pezzi ACCESSORIO dell'automatico
+        'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO'
     };
     const CHIAVI_TECNICHE = ['_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
         'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'];
@@ -291,6 +293,14 @@
                 return { ...v, origine: 'distinta' };                  // (30/09: anche il pezzo migliore gia' messo)
             }
         }
+        return vocePerCodice(dati, ctx, tipoRiga, ean, fornitore);
+    }
+
+    // Voce del pezzo com'e' scritto nella scheda, senza guardare le scelte del cliente (30/09: se la scheda ha un
+    // pezzo diverso da quello dell'opzione, per esempio il case ATX al posto del Minimal Case, conta il suo costo)
+    function vocePerCodice(dati, ctx, tipoRiga, ean, fornitore) {
+        if (!dati || !chiave(ean)) return null;
+        const voce = (i) => (i == null ? null : dati.voci[i]);
         // 3) il pezzo com'e' scritto nell'ordine
         const tipo = TIPI[tipoRiga] || tipoRiga;
         const k = `${lineaDi(dati, ctx.configKey)}|${tipo}|${chiave(ean)}|${String(fornitore || '').toUpperCase()}`;
@@ -303,6 +313,30 @@
         const scelto = cercaPerScelta(dati, tipo, ean, fornitore);
         if (scelto != null) return { ...voce(scelto), origine: 'scelta' };
         return null;
+    }
+
+    // Pezzo dell'automatico di quest'ordine che corrisponde alla riga della scheda: stesso tipo e stesso pezzo di
+    // partenza (distinta, opzione o regola del gestionale, es. «CASE ATX BLACK») o stesso pezzo scelto; per gli
+    // accessori e il monitor basta la stessa famiglia (kit, sedia, scrivania, mouse + tastiera, monitor).
+    const FAMIGLIA_ACCESSORIO = /KIT|SEDIA|SCRIVANIA|G61|K61|MONITOR/;
+    function pezzoDellaRiga(auto, tipo, ean) {
+        if (!auto || !Array.isArray(auto.pezzi)) return null;
+        const t = TIPI[tipo] || tipo;
+        const c = chiave(ean);
+        const stessi = auto.pezzi.filter(x => x.tipo === t);
+        if (!stessi.length || !c) return null;
+        // stesso codice, anche con una nota in piu' (es. «ASIN B0G39F6MQH» e «ASIN B0G39F6MQH (nero)»)
+        const simile = (k) => !!k && (k === c || (Math.min(k.length, c.length) >= 8 && (k.startsWith(c) || c.startsWith(k))));
+        const uguale = stessi.find(x => simile(chiave(x.manuale && x.manuale.codice))) ||
+            stessi.find(x => x.auto && simile(chiave(x.auto.codice)));
+        if (uguale) return uguale;
+        if (t !== 'ACCESSORIO' && t !== 'MONITOR') return null;
+        const fam = (String(ean).toUpperCase().match(FAMIGLIA_ACCESSORIO) || [])[0] || (t === 'MONITOR' ? 'MONITOR' : '');
+        const simili = stessi.filter(x => {
+            const testo = `${x.manuale && x.manuale.codice || ''} ${x.cliente || ''} ${x.fisso && x.fisso.descrizione || ''}`.toUpperCase();
+            return fam && (testo.includes(fam) || (fam === 'MONITOR' && t === 'MONITOR'));
+        });
+        return simili.length === 1 ? simili[0] : null;
     }
 
     function cercaPerScelta(dati, tipo, ean, fornitore) {
@@ -787,17 +821,27 @@
             const sch = costoScheda(dati, man.ean, man.fornitore);
             let costo = null, stima = false, fonte = null;
             const pagato = prezzoAcquisto(orderId, tipo, man.ean);
-            // pezzo migliore gia' nella scheda (30/09): costo del listino di oggi di quel pezzo
+            // 30/09 (Antonio: «il gestionale mi ha detto di non sapere il costo del kit»): conta sempre il pezzo scritto
+            // nella scheda. La voce dell'opzione del cliente vale solo se la scheda ha proprio quel pezzo; altrimenti
+            // vale la voce del pezzo della scheda (per codice) o il pezzo dell'automatico per quella riga (case ATX
+            // della regola del gestionale, kit e monitor dei bundle, dissipatore del colore del case).
             const scelto = sceltaUguale(v, auto, tipo, man.ean);
+            const vStesso = v && v.manuale && chiave(v.manuale.codice) === chiave(man.ean) ? v : vocePerCodice(dati, ctx, tipo, man.ean, man.fornitore);
+            const pRiga = pezzoDellaRiga(auto, tipo, man.ean);
+            const mag = costoMagazzino(auto, tipo, man.ean);
             if (pagato != null) { costo = pagato; fonte = 'acquistato'; }
-            else if (v && v.manuale && v.manuale.costo != null && chiave(v.manuale.codice) === chiave(man.ean)) { costo = v.manuale.costo; fonte = 'listino'; }
+            else if (mag != null) { costo = mag; fonte = 'magazzino'; }     // a terra: prezzo pagato, come nell'Excel
+            else if (vStesso && vStesso.manuale && vStesso.manuale.costo != null && chiave(vStesso.manuale.codice) === chiave(man.ean)) { costo = vStesso.manuale.costo; fonte = 'listino'; }
             else if (scelto != null) { costo = scelto; fonte = 'listino'; }
-            else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; fonte = 'listino'; }
+            else if (pRiga && pRiga.manuale && pRiga.manuale.costo != null) { costo = pRiga.manuale.costo; fonte = 'listino'; }
             else if (costoManualeSalvato(tipo, man.ean) != null) { costo = costoManualeSalvato(tipo, man.ean); fonte = 'inserito'; }
-            else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; fonte = 'fisso'; }
+            else if (pRiga && !pRiga.auto && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; fonte = 'fisso'; }
+            else if (vStesso && vStesso.fisso && vStesso.fisso.costo != null) { costo = vStesso.fisso.costo; fonte = 'fisso'; }
             else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = sch.costo; fonte = 'listino'; }
-            else if (costoMagazzino(auto, tipo, man.ean) != null) { costo = costoMagazzino(auto, tipo, man.ean); fonte = 'magazzino'; }
+            else if (pRiga && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; stima = true; fonte = 'stima'; }
             else if (sch && sch.costo != null) { costo = sch.costo; stima = true; fonte = 'altro'; }
+            else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; stima = true; fonte = 'stima'; }
+            else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; stima = true; fonte = 'stima'; }
             else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; fonte = 'stima'; }
             else if (costoEquivalente(auto, tipo, salvati) != null) { costo = costoEquivalente(auto, tipo, salvati); stima = true; fonte = 'stima'; }
             conti.righe.push({ tipo, ean: man.ean, fornitore: man.fornitore, nome: man.nome, costo, fonte,
@@ -1078,10 +1122,21 @@
     function sostitutoDaOrdine(auto, r, stessoPezzo) {
         if (!auto || !Array.isArray(auto.pezzi)) return null;
         const p = auto.pezzi.find(x => x.tipo === (TIPI[r.tipo] || r.tipo));
-        if (!p || !p.auto || !p.auto.codice || p.fisso) return null;
+        if (!p) return null;
         const m = p.manuale || {};
         if (p.mag && chiave(m.codice) === chiave(r.ean)) return null;         // pezzo a magazzino: resta
         if (stessoPezzo && chiave(m.codice) !== chiave(r.ean)) return null;
+        // 30/09: il case che la regola del gestionale vuole oggi (TOP o scheda madre cambiata: CASE ATX) quando nella
+        // scheda c'e' ancora quello vecchio (es. NOUA Vitra M-ATX con una scheda madre ATX)
+        if (!stessoPezzo && p.tipo === 'CASE' && /regola case/i.test(p.origine || '') && m.codice &&
+            chiave(m.codice) !== chiave(r.ean) && !(p.auto && [p.auto.codice, p.auto.mpn].map(chiave).includes(chiave(r.ean)))) {
+            const regolaCase = { ...p, auto: p.auto || { codice: m.codice, fornitore: m.fornitore || (p.fisso && p.fisso.fornitore) || 'ALTRO',
+                descrizione: m.codice, costo: p.costo, quantita: 1, disponibilita: p.fisso ? 'budget del case (regola del gestionale)' : '' } };
+            if (!regolaCase.auto.codice) return null;
+            const schedaCase = [r.ean, r.nome, p.cliente].filter(Boolean).join(' ');
+            return rispettaScheda(auto.linea, 'CASE', schedaCase, { ...regolaCase.auto, descrizione: `${regolaCase.auto.descrizione || ''} ${m.codice}` }, r.quantita) ? regolaCase : null;
+        }
+        if (!p.auto || !p.auto.codice || p.fisso) return null;
         const codici = [p.auto.codice, p.auto.mpn].filter(Boolean).map(chiave);
         const stessoFornitore = String(r.fornitore || '').toUpperCase().trim() === String(p.auto.fornitore || '').toUpperCase().trim();
         if (codici.includes(chiave(r.ean)) && stessoFornitore) return null;
@@ -1685,7 +1740,8 @@
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
-        sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale };
+        sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
+        pezzoDellaRiga };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

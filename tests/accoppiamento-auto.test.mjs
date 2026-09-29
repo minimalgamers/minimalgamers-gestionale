@@ -518,4 +518,41 @@ assert.equal(prop.length, 1);                                       // il vecchi
 assert.equal(prop[0].a.codice, '2520');
 A.stato.promessa = null;
 
+
+// --- conti della scheda allineati all'automatico (Antonio 30/09: «il gestionale mi ha detto di non sapere il costo del kit») ---
+const pcBundle = { linea: 'MINIMAL', build: 'BUNDLE PROVA', pezzi: [
+  { tipo: 'CASE', origine: 'regola case Minimal', cliente: 'MINIMAL CASE WHITE - 1x RGB', manuale: { codice: 'CASE ATX WHITE', fornitore: 'ALTRO', costo: null },
+    auto: null, fisso: { id: 'case_atx', descrizione: 'CASE ATX', fornitore: 'ALTRO', costo: 40 }, costo: 40 },
+  { tipo: 'MONITOR', cliente: '', manuale: { codice: 'MONITOR 180Hz 1ms', costo: null }, auto: null,
+    fisso: { id: 'monitor_180', descrizione: 'Monitor', costo: 70 }, costo: 70 },
+  { tipo: 'ACCESSORIO', cliente: '', manuale: { codice: 'KIT GAMING', costo: null }, auto: null,
+    fisso: { id: 'kit_gaming', descrizione: 'Kit gaming 4in1', costo: 30 }, costo: 30 }] };
+// la riga KIT GAMING WHITE della scheda e' il kit dell'automatico; il monitor del bundle e' il monitor
+assert.equal(A.pezzoDellaRiga(pcBundle, 'KIT GAMING', 'KIT GAMING WHITE').fisso.id, 'kit_gaming');
+assert.equal(A.pezzoDellaRiga(pcBundle, 'MONITOR', "MONITOR 24'' 180HZ - FULL HD").fisso.id, 'monitor_180');
+assert.equal(A.pezzoDellaRiga(pcBundle, 'MONITOR', 'MG-BUNDLE-TERMINATOR').fisso.id, 'monitor_180');
+assert.equal(A.pezzoDellaRiga(pcBundle, 'CASE', 'CASE ATX WHITE').fisso.id, 'case_atx');
+assert.equal(A.pezzoDellaRiga(pcBundle, 'CASE', 'NOUA VITRA WHITE'), null);        // pezzo diverso: niente
+assert.equal(A.pezzoDellaRiga(pcBundle, 'SEDIA', 'SEDIA GAMING'), null);
+assert.equal(A.pezzoDellaRiga(null, 'KIT GAMING', 'KIT'), null);
+const pcAio = { pezzi: [{ tipo: 'COOLER', manuale: { codice: 'ASIN B0G39F6MQH (nero)', costo: null }, auto: null, fisso: { id: 'aio_360', costo: 45 } }] };
+assert.equal(A.pezzoDellaRiga(pcAio, 'COOLER', 'ASIN B0G39F6MQH').fisso.id, 'aio_360');   // stesso codice con la nota
+assert.equal(A.pezzoDellaRiga(pcAio, 'COOLER', 'ASIN'), null);
+// voce per codice: il pezzo scritto nella scheda, anche se il cliente aveva scelto un'altra opzione
+const datiCodice = { voci: [{ manuale: { codice: 'CASE ATX BLACK', costo: null }, auto: null, fisso: { id: 'case_atx', costo: 40 } }],
+  distinte: {}, linee: { 'PC TOP': 'MINIMAL' }, varianti: {}, per_valore: { 'MINIMAL|CASE|CASEATXBLACK|ALTRO': 0 }, ordini: {} };
+assert.equal(A.vocePerCodice(datiCodice, { configKey: 'PC TOP', variants: {} }, 'CASE', 'CASE ATX BLACK', 'ALTRO').fisso.id, 'case_atx');
+assert.equal(A.vocePerCodice(datiCodice, { configKey: 'PC TOP', variants: {} }, 'CASE', '', 'ALTRO'), null);
+// AGGIORNA PREZZI PRODOTTO: la NOUA Vitra rimasta nella scheda diventa il CASE ATX che la regola vuole oggi
+vm.runInContext(`processedOrdersCache['800'] = { components: [{ type: 'CASE', ean: 'NOUA VITRA WHITE', supplier: 'NOUA', name: '', price: null, quantity: 1 }] };`, sandbox);
+const datiCase = { ordini: { '800': { nome: '#9800', pc: [{ ...pcBundle, quantita: 1 }] } } };
+prop = A.proposteOrdine(datiCase, '800', [{ tipo: 'CASE', ean: 'NOUA VITRA WHITE', fornitore: 'NOUA', nome: 'NOUA Vitra', costo: 27, fonte: 'fisso' }]);
+assert.equal(prop.length, 1);
+assert.equal(prop[0].a.codice, 'CASE ATX WHITE');
+assert.equal(prop[0].a.fornitore, 'ALTRO');
+assert.equal(prop[0].a.costo, 40);
+// gia' CASE ATX: niente da cambiare; all'elaborazione (stesso pezzo) la regola del gestionale non si tocca
+assert.equal(A.proposteOrdine(datiCase, '800', [{ tipo: 'CASE', ean: 'CASE ATX WHITE', fornitore: 'ALTRO', costo: 40 }]).length, 0);
+assert.equal(A.sostitutoDaOrdine(pcBundle, { tipo: 'CASE', ean: 'NOUA VITRA WHITE', fornitore: 'NOUA', quantita: 1 }, true), null);
+
 console.log('accoppiamento-auto: tutti i test passati');

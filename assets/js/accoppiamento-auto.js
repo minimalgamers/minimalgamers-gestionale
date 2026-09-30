@@ -777,6 +777,22 @@
         return el;
     }
 
+    // 30/09 «a scalare»: un ordine con piu' PC uguali puo' prendere un pezzo da piu' fornitori (auto_parti: quanti PC
+    // da ognuno, nell'ordine in cui si prendono). Il PC numero «unita» (da 0) prende la sua parte.
+    function parteDellUnita(p, unita) {
+        if (!p || !p.auto || !Array.isArray(p.auto_parti) || !p.auto_parti.length) return p;
+        let primo = 0;
+        for (const parte of p.auto_parti) {
+            const k = Math.max(1, parseInt(parte.pc, 10) || 1);
+            if (unita < primo + k) {
+                const { pc, ...a } = parte;
+                return { ...p, auto: { ...p.auto, ...a }, costo: parte.costo != null ? parte.costo : p.costo };
+            }
+            primo += k;
+        }
+        return p;
+    }
+
     // PC accoppiato dall'automatico per questo ordine (orderId «123» o «123.2» per il secondo PC)
     function pcAutomatico(dati, orderId) {
         if (!dati || !dati.ordini) return null;
@@ -788,7 +804,11 @@
         let primo = 0;
         for (const pc of o.pc) {
             const q = Math.max(1, parseInt(pc.quantita, 10) || 1);
-            if (indice < primo + q) return pc;
+            if (indice < primo + q) {
+                const unita = indice - primo;
+                return (pc.pezzi || []).some(x => x && Array.isArray(x.auto_parti) && x.auto_parti.length)
+                    ? { ...pc, unita, pezzi: pc.pezzi.map(x => parteDellUnita(x, unita)) } : pc;
+            }
             primo += q;
         }
         return null;
@@ -1369,6 +1389,8 @@
             const costo = pagato != null ? pagato : oggi;
             return { costo: costo != null ? costo : null, fonte: 'magazzino' };
         }
+        // 30/09: pezzo diviso tra piu' fornitori per i PC della riga: costo medio per PC calcolato dall'automatico
+        if (p.auto && Array.isArray(p.auto_parti) && p.auto_parti.length && p.costo != null) return { costo: p.costo, fonte: 'auto' };
         if (p.auto && p.auto.costo != null) return { costo: p.auto.costo, fonte: 'auto' };
         const k = chiaveFisso(p);
         if (salvati && salvati[k] != null) return { costo: salvati[k], fonte: 'inserito' };
@@ -1416,36 +1438,42 @@
     }
 
     // Riepilogo per fornitore degli ordini scelti: { FORNITORE: [{codice, descrizione, quantita, costo, ordini}] }
-    // I pezzi senza offerta ordinabile oggi finiscono sotto «DA DECIDERE».
+    // I pezzi senza offerta ordinabile oggi finiscono sotto «DA DECIDERE». Un ordine con piu' PC uguali conta i pezzi
+    // di tutti i suoi PC; un pezzo diviso tra piu' fornitori (30/09, «a scalare») va da ognuno con i suoi pezzi.
     function riepilogoFornitori(dati, idOrdini, salvati) {
         const out = {};
+        const aggiungi = (o, forn, codice, descr, q, costo) => {
+            const lista = out[forn] = out[forn] || [];
+            const k = `${chiave(codice)}|${codice ? '' : descr}`;
+            let r = lista.find(x => x.k === k);
+            if (!r) { r = { k, codice, descrizione: descr, quantita: 0, costo: 0, ordini: [], senzaCosto: false }; lista.push(r); }
+            r.quantita += q;
+            if (costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + costo);
+            if (!r.ordini.includes(o.nome)) r.ordini.push(o.nome);
+        };
+        const per = (costo, n) => (costo == null ? null : tonda(costo * n));
         for (const id of idOrdini) {
             const o = dati.ordini[id];
             if (!o) continue;
             for (const pc of o.pc) {
+                const n = Math.max(1, parseInt(pc.quantita, 10) || 1);
                 for (const p of pc.pezzi) {
-                    let forn, codice, descr, q, costo;
                     if (pezzoPreso(p)) {                                  // preso dal magazzino: non si ordina
-                        forn = 'MAGAZZINO'; codice = ''; descr = p.mag.def.descrizione;
-                        q = 1; costo = costoPezzo(p, salvati).costo;
+                        aggiungi(o, 'MAGAZZINO', '', p.mag.def.descrizione, 1, costoPezzo(p, salvati).costo);
+                    } else if (p.auto && Array.isArray(p.auto_parti) && p.auto_parti.length) {
+                        for (const a of p.auto_parti) {
+                            const k = Math.max(1, parseInt(a.pc, 10) || 1);
+                            aggiungi(o, a.fornitore, a.codice, a.descrizione, (a.quantita || 1) * k, per(a.costo, k));
+                        }
                     } else if (p.auto) {
-                        forn = p.auto.fornitore; codice = p.auto.codice; descr = p.auto.descrizione;
-                        q = p.auto.quantita || 1; costo = p.auto.costo;
+                        aggiungi(o, p.auto.fornitore, p.auto.codice, p.auto.descrizione, (p.auto.quantita || 1) * n, per(p.auto.costo, n));
                     } else if (p.fisso) {
                         if (p.fisso.costo === 0) continue;                 // incluso o servizio senza costo
-                        forn = p.fisso.fornitore || 'FUORI LISTINO'; codice = ''; descr = p.fisso.descrizione;
-                        q = 1; costo = costoPezzo(p, salvati).costo;
+                        aggiungi(o, p.fisso.fornitore || 'FUORI LISTINO', '', p.fisso.descrizione, n, per(costoPezzo(p, salvati).costo, n));
                     } else {
-                        forn = 'DA DECIDERE'; codice = p.manuale.codice || ''; descr = `${p.nome_tipo}: ${p.cliente || p.manuale.descrizione || ''}`;
-                        q = 1; costo = costoPezzo(p, salvati).costo;
+                        aggiungi(o, 'DA DECIDERE', p.manuale.codice || '', `${p.nome_tipo}: ${p.cliente || p.manuale.descrizione || ''}`,
+                            n, per(costoPezzo(p, salvati).costo, n));
                     }
-                    const lista = out[forn] = out[forn] || [];
-                    const k = `${chiave(codice)}|${codice ? '' : descr}`;
-                    let r = lista.find(x => x.k === k);
-                    if (!r) { r = { k, codice, descrizione: descr, quantita: 0, costo: 0, ordini: [], senzaCosto: false }; lista.push(r); }
-                    r.quantita += q;
-                    if (costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + costo);
-                    if (!r.ordini.includes(o.nome)) r.ordini.push(o.nome);
                 }
             }
         }
@@ -1732,7 +1760,7 @@
     }
 
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
-        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico,
+        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico, parteDellUnita,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,
         valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve, rigaEsito, pezziDiversi,

@@ -555,4 +555,35 @@ assert.equal(prop[0].a.costo, 40);
 assert.equal(A.proposteOrdine(datiCase, '800', [{ tipo: 'CASE', ean: 'CASE ATX WHITE', fornitore: 'ALTRO', costo: 40 }]).length, 0);
 assert.equal(A.sostitutoDaOrdine(pcBundle, { tipo: 'CASE', ean: 'NOUA VITRA WHITE', fornitore: 'NOUA', quantita: 1 }, true), null);
 
+// --- 30/09 «a scalare»: un pezzo diviso tra piu' fornitori per i PC di una riga (dati di prova) ---
+// Riga con 3 PC uguali: RAM 2 PC dal fornitore AAA (l'unico con pezzi), 1 PC da BBB; processore tutto da CCC.
+const pezzoDiviso = { tipo: 'RAM', nome_tipo: 'RAM', manuale: { codice: 'RAM-X' }, fisso: null, costo: 11,
+  auto: { fornitore: 'AAA', codice: 'R-A', descrizione: 'RAM prova A', quantita: 1, costo: 10, disponibilita: '2 pz' },
+  auto_parti: [{ fornitore: 'AAA', codice: 'R-A', descrizione: 'RAM prova A', quantita: 1, costo: 10, pc: 2, disponibilita: '2 pz' },
+               { fornitore: 'BBB', codice: 'R-B', descrizione: 'RAM prova B', quantita: 1, costo: 13, pc: 1, disponibilita: '9 pz' }] };
+const pezzoIntero = { tipo: 'CPU', nome_tipo: 'Processore', manuale: { codice: 'CPU-X' }, fisso: null, costo: 50,
+  auto: { fornitore: 'CCC', codice: 'C-1', descrizione: 'CPU prova', quantita: 1, costo: 50 } };
+const datiScala = { ordini: { '900': { nome: '#9900', pc: [{ build: 'PC PROVA', quantita: 3, pezzi: [pezzoDiviso, pezzoIntero] }] } } };
+const rs = A.riepilogoFornitori(datiScala, ['900'], {});
+assert.deepEqual([rs.AAA[0].codice, rs.AAA[0].quantita, rs.AAA[0].costo], ['R-A', 2, 20]);
+assert.deepEqual([rs.BBB[0].codice, rs.BBB[0].quantita, rs.BBB[0].costo], ['R-B', 1, 13]);
+assert.deepEqual([rs.CCC[0].quantita, rs.CCC[0].costo], [3, 150]);          // 3 PC: 3 processori, non 1
+// ogni PC della riga prende la sua parte: il primo e il secondo da AAA, il terzo da BBB
+assert.equal(A.pcAutomatico(datiScala, '900').pezzi[0].auto.codice, 'R-A');
+assert.equal(A.pcAutomatico(datiScala, '900.2').pezzi[0].auto.codice, 'R-A');
+const terzo = A.pcAutomatico(datiScala, '900.3');
+assert.equal(terzo.unita, 2);
+assert.deepEqual([terzo.pezzi[0].auto.fornitore, terzo.pezzi[0].auto.codice, terzo.pezzi[0].costo], ['BBB', 'R-B', 13]);
+assert.equal(terzo.pezzi[1], pezzoIntero);                                   // pezzo non diviso: lo stesso
+assert.equal(A.pcAutomatico(datiScala, '900.4'), null);
+// costo nel conto della riga: la media per PC calcolata dall'automatico; per il terzo PC il costo della sua parte
+assert.deepEqual(JSON.parse(JSON.stringify(A.costoPezzo(pezzoDiviso, {}))), { costo: 11, fonte: 'auto' });
+assert.equal(A.costoPezzo(terzo.pezzi[0], {}).costo, 13);
+assert.equal(A.parteDellUnita(pezzoIntero, 5), pezzoIntero);
+// proposta per il terzo PC: la RAM di BBB (il fornitore AAA ha finito i pezzi)
+vm.runInContext(`processedOrdersCache['900.3'] = { components: [{ type: 'RAM', ean: 'RAM-X', supplier: 'AAA', name: '', price: null, quantity: 1 }] };`, sandbox);
+const propScala = A.proposteOrdine(datiScala, '900.3', [{ tipo: 'RAM', ean: 'RAM-X', fornitore: 'AAA', nome: 'RAM', costo: 10, fonte: 'auto' }]);
+assert.equal(propScala.length, 1);
+assert.deepEqual([propScala[0].a.fornitore, propScala[0].a.codice, propScala[0].a.costo], ['BBB', 'R-B', 13]);
+
 console.log('accoppiamento-auto: tutti i test passati');

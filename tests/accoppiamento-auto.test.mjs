@@ -586,4 +586,70 @@ const propScala = A.proposteOrdine(datiScala, '900.3', [{ tipo: 'RAM', ean: 'RAM
 assert.equal(propScala.length, 1);
 assert.deepEqual([propScala[0].a.fornitore, propScala[0].a.codice, propScala[0].a.costo], ['BBB', 'R-B', 13]);
 
+// --- 30/09 riepilogo fornitori della scrivania, modalita' automatica (dati di prova) ---
+const ssdA = { fornitore: 'AAA', codice: 'SSD-A', descrizione: 'SSD prova A', quantita: 1, costo: 50, disponibilita: '1 pz' };
+const ssdB = { fornitore: 'BBB', codice: 'SSD-B', descrizione: 'SSD prova B', quantita: 1, costo: 55, disponibilita: '9 pz' };
+const cpu1 = { fornitore: 'CCC', codice: 'CPU-1', descrizione: 'CPU prova', quantita: 1, costo: 100, disponibilita: '5 pz' };
+const datiRf = {
+  ordini: {
+    '910': { nome: '#9910', pc: [{ build: 'PC PROVA', quantita: 2, pezzi: [
+      { tipo: 'SSD', nome_tipo: 'SSD', manuale: { codice: 'SSD-A' }, costo: 52.5, auto: ssdA,
+        auto_parti: [{ ...ssdA, pc: 1 }, { ...ssdB, pc: 1 }] },
+      { tipo: 'CPU', nome_tipo: 'Processore', manuale: { codice: 'CPU-1' }, auto: cpu1 },
+      { tipo: 'WIFI', nome_tipo: 'Wi-Fi', manuale: {}, fisso: { descrizione: 'Scheda Wi-Fi prova', fornitore: 'DDD', costo: 20 } }] }] },
+    '920': { nome: '#9920', pc: [{ build: 'PC PROVA', quantita: 1, pezzi: [
+      { tipo: 'CPU', nome_tipo: 'Processore', manuale: { codice: 'CPU-1' }, auto: cpu1 }] }] }
+  },
+  per_codice: { 'EEE|GPUX': { costo: 300, descrizione: 'GPU prova X', fornitore: 'EEE', fonte: 'listino', disponibilita: 'non disponibile' } }
+};
+const rigaRf = (tipo, ean, fornitore, costo, fonte, nome) => ({ tipo, ean, fornitore, nome: nome || '', costo, fonte: fonte || 'listino' });
+const schedeRf = [
+  { id: '910', nome: '#9910', righe: [rigaRf('SSD', 'SSD-A', 'AAA', 50), rigaRf('CPU', 'CPU-1', 'CCC', 100), rigaRf('GPU', 'INTEGRATA', '', null)],
+    salvati: [{ type: 'SSD', ean: 'SSD-A', name: 'SSD 1TB', quantity: 1 }], voci: [] },
+  { id: '910.2', nome: '#9910', righe: [rigaRf('SSD', 'SSD-A', 'AAA', 50), rigaRf('CPU', 'CPU-1', 'CCC', 100)],
+    voci: [{ name: 'WIFI', value: 'Antenna Wi-Fi prova', supplier: 'AMAZON', ean: 'B0PROVA' }] },
+  { id: '920', nome: '#9920', righe: [rigaRf('CPU', 'CPU-1', 'CCC', 100), rigaRf('GPU', 'GPUX', 'EEE', 300, 'altro', 'GPU X'),
+    rigaRf('SSD', 'SSD-A', 'AAA', 50), rigaRf('PSU', 'PSU-MAG', 'ABACO', 60, 'magazzino', 'Alimentatore a terra')] },
+  { id: '930', nome: '#9930', confermato: true, righe: [rigaRf('CPU', 'CPU-1', 'CCC', 100)] }
+];
+const J = (x) => JSON.parse(JSON.stringify(x));      // oggetti del sandbox -> oggetti del test
+const rf = J(A.daOrdinare(datiRf, schedeRf, {}));
+assert.equal(rf.pc, 3);
+assert.deepEqual([...rf.esclusi], ['#9930']);                     // acquisto gia' confermato: non conta
+assert.equal(rf.cambi, 1);                                          // il secondo PC prende l'SSD dal fornitore dopo
+assert.deepEqual(rf.categorie.map(c => c.nome), ['CPU', 'GPU', 'SSD', 'PSU', 'WI-FI']);
+const catRf = (n) => rf.categorie.find(c => c.nome === n);
+const cpuRf = catRf('CPU').fornitori[0];
+assert.deepEqual([cpuRf.nome, cpuRf.pezzi, cpuRf.costo, cpuRf.righe[0].descrizione, cpuRf.righe[0].disponibilita],
+  ['CCC', 3, 300, 'CPU prova', '5 pz']);
+assert.deepEqual([...cpuRf.righe[0].ordini], ['#9910', '#9920']);
+const ssdRf = catRf('SSD').fornitori;
+assert.deepEqual(ssdRf.map(f => [f.nome, f.pezzi, f.costo]), [['AAA', 2, 100], ['BBB', 1, 55]]);
+assert.equal(ssdRf[0].righe[0].poco, 1);                            // AAA ne ha 1: l'SSD del #9920 va preso altrove
+assert.deepEqual([...ssdRf[1].righe[0].scheda], ['AAA SSD-A']);     // scheda da allineare
+assert.equal(ssdRf[1].righe[0].disponibilita, '9 pz');
+const gpuRf = catRf('GPU').fornitori[0].righe[0];
+assert.deepEqual([gpuRf.codice, gpuRf.descrizione, gpuRf.stimato, gpuRf.nonDisponibile], ['GPUX', 'GPU prova X', true, true]);
+assert.deepEqual(catRf('PSU').fornitori.map(f => [f.nome, f.pezzi]), [['MAGAZZINO', 1]]);
+assert.equal(catRf('PSU').pezzi, 0);                                // a terra: non si ordina
+const wifiRf = catRf('WI-FI').fornitori;
+assert.deepEqual(wifiRf.map(f => [f.nome, f.pezzi, f.costo]), [['AMAZON', 1, 0], ['DDD', 1, 20]]);
+assert.equal(wifiRf[0].righe[0].senzaCosto, true);                  // voce personalizzata senza prezzo
+assert.equal(rf.totale, 775);
+assert.equal(rf.pezzi, 9);
+assert.equal(rf.senzaCosto, 1);
+assert.deepEqual(rf.fornitori.map(f => f.nome), ['CCC', 'EEE', 'AAA', 'BBB', 'DDD', 'AMAZON', 'MAGAZZINO']);
+assert.equal(A.testoOrdineFornitore(rf.fornitori[0]), 'x3 | CPU-1 - CPU prova');
+assert.equal(A.testoCategoria(catRf('SSD')).split('\n').length, 2);
+assert.equal(A.categoriaScheda('SSD AGGIUNTIVO'), 'SSD ADDON');
+assert.equal(A.categoriaVoce({ name: 'OFFICE', value: 'Office prova' }), 'SOFTWARE');
+const htmlRf = A.htmlCategorieDaOrdinare(rf);
+assert.ok(htmlRf.includes('data-rf-cat="SSD"') && htmlRf.includes('si allinea con'));
+assert.ok(A.htmlLatoDaOrdinare(rf, 2, '10:30').includes('scrivania E2'));
+const vuotoRf = J(A.daOrdinare(datiRf, [schedeRf[3]], {}));
+assert.ok(A.htmlCategorieDaOrdinare(vuotoRf).includes('già l\'acquisto dei pezzi confermato'));
+// senza dati automatici restano i pezzi delle schede
+const senzaAuto = J(A.daOrdinare(null, [schedeRf[2]], {}));
+assert.deepEqual(senzaAuto.categorie.map(c => c.nome), ['CPU', 'GPU', 'SSD', 'PSU']);
+
 console.log('accoppiamento-auto: tutti i test passati');

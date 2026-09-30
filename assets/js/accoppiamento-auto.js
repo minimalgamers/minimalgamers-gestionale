@@ -748,7 +748,30 @@
 .acc-tabella td.acc-sopra{color:#ff8a80;font-weight:700}.acc-tabella td.acc-sotto{color:#82e0aa}
 .acc-tabella td.col-excel{white-space:normal;min-width:64px}.acc-tabella td.col-excel small{font-weight:400;display:block}
 .acc-excel-sopra{color:#ff8a80;font-weight:700}.acc-excel-ok{color:#82e0aa}
-@media (max-width:760px){.acc-tabella .col-cliente,.acc-tabella .col-disp{display:none}.acc-tabella td.col-excel,.acc-tabella th.col-excel{font-size:.9em;max-width:78px}}`;
+@media (max-width:760px){.acc-tabella .col-cliente,.acc-tabella .col-disp{display:none}.acc-tabella td.col-excel,.acc-tabella th.col-excel{font-size:.9em;max-width:78px}}
+.acc-rf-modi{display:flex;gap:8px;margin:14px 0 6px}
+.acc-rf-modi button{flex:1;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:10px;padding:8px 6px;cursor:pointer;font-weight:700;font-size:.9em;line-height:1.25}
+.acc-rf-modi button small{display:block;font-weight:400;font-size:.8em;color:rgba(255,255,255,.75)}
+.acc-rf-modi button.attivo{background:rgba(52,152,219,.55);border-color:#5dade2;box-shadow:0 0 0 2px rgba(93,173,226,.35)}
+.acc-rf-scrivania{font-weight:700;font-size:1.05em;margin:6px 0}
+.acc-rf-lato{text-align:left;margin-top:12px;font-size:.9em}
+.acc-rf-tot{background:rgba(0,0,0,.25);border-radius:10px;padding:8px 10px;margin-bottom:8px}
+.acc-rf-tot small{display:block;color:rgba(255,255,255,.7)}.acc-rf-tot b{font-size:1.4em}
+.acc-rf-forn-riga{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.1)}
+.acc-rf-forn-riga>span:not(.acc-forn){flex:1;color:#fff}
+.acc-rf-forn-riga .acc-forn,.acc-rf-forn .acc-forn{flex:none}
+.acc-rf-forn{margin:10px 0 2px;padding-bottom:3px;border-bottom:1px solid rgba(255,255,255,.2)}
+.acc-rf-forn small{color:rgba(255,255,255,.8);font-size:.85em}
+.acc-rf-forn:first-child{margin-top:0}
+.acc-rf-costo{margin-left:auto;font-weight:700;white-space:nowrap;color:#fff}
+#riepilogo-auto .acc-nota{color:rgba(255,255,255,.65)}
+@media (max-width:900px){#suppliers-container.active{flex-direction:column;align-items:stretch}#suppliers-container .suppliers-section-header{max-width:none}}
+.acc-rf-cambio{color:#f7dc6f;font-size:.82em;margin-top:3px}
+.acc-rf-avviso{color:#ff8a80;font-size:.82em;font-weight:700;margin-top:3px}
+.acc-rf-copia{width:100%;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:9px 14px;border-radius:8px;cursor:pointer;font-weight:600;font-size:.9em;margin-top:8px}
+.acc-rf-copia:hover{background:rgba(255,255,255,.25)}
+.acc-rf-copia.acc-rf-mini{width:auto;padding:2px 8px;margin:0;font-size:.8em}
+#riepilogo-auto .supplier-item-name{margin-top:2px}`;
         document.head.appendChild(st);
     }
 
@@ -1739,6 +1762,376 @@
         }));
     }
 
+    // ================================================================ RIEPILOGO FORNITORI DELLA SCRIVANIA (Antonio 30/09)
+    // «La pagina di riepilogo fornitori deve essere associata ad ogni scrivania, con la doppia modalità: quella
+    // manuale che già ci sta e divide i pezzi per categorie con i nomi generici (quelli del PDF per i ragazzi che
+    // assemblano) e quella automatica, che serve a me per fare l'ordine: diviso per ogni categoria, quali sono i pezzi
+    // che realisticamente devo acquistare, categoria per categoria e fornitore per fornitore.»
+    // L'automatica non scrive nulla. Per ogni PC della scrivania prende i pezzi della scheda; dove l'automatico oggi
+    // sceglie un altro pezzo con le regole di sempre (le stesse di «AGGIORNA PREZZI PRODOTTO»: colore, marca della
+    // linea, quantita', alimentatore, disponibilita' a scalare tra i fornitori) mette quello e segna che la scheda e'
+    // da allineare. I PC con l'acquisto gia' confermato non contano. In piu' le opzioni del cliente fuori scheda e le
+    // voci personalizzate. Il magazzino resta a parte: pezzi gia' a terra, da non ordinare.
+    const K_MODO_RIEPILOGO = 'riepilogo_fornitori_modo';
+    const ORDINE_CATEGORIE = ['CPU', 'GPU', 'MOBO', 'RAM', 'SSD', 'SSD ADDON', 'HDD', 'PSU', 'COOLER', 'CASE', 'MONITOR',
+        'KIT GAMING', 'SEDIA', 'SCRIVANIA', 'WI-FI', 'VENTOLE', 'SOFTWARE', 'SCATOLE', 'ACCESSORI'];
+    const CATEGORIA_EXTRA = { WIFI: 'WI-FI', VENTOLE: 'VENTOLE', SOFTWARE: 'SOFTWARE', SERVIZIO: 'SCATOLE', ACCESSORIO: 'ACCESSORI' };
+    const COLORI_CATEGORIA = { CPU: '#3498db', GPU: '#9b59b6', MOBO: '#e67e22', RAM: '#f39c12', SSD: '#1abc9c',
+        'SSD ADDON': '#16a085', HDD: '#16a085', PSU: '#e74c3c', COOLER: '#2980b9', CASE: '#2ecc71', MONITOR: '#8e44ad',
+        'KIT GAMING': '#d35400', SEDIA: '#c0392b', SCRIVANIA: '#8e6e53' };
+    const SENZA_PEZZO = /^(GENERICO|INTEGRATA|N\/?A|-)?$/i;          // come il riepilogo manuale: righe senza un pezzo
+    const riepilogo = { n: null, ids: [], nomi: {}, modo: null, token: 0, ultimo: null };
+
+    function categoriaScheda(tipo) {
+        const t = String(tipo || '').toUpperCase().trim();
+        const alias = { 'SSD AGGIUNTIVO': 'SSD ADDON', 'SCHEDA MADRE': 'MOBO', ALIMENTATORE: 'PSU', DISSIPATORE: 'COOLER' };
+        return alias[t] || t || 'ALTRO';
+    }
+
+    function categoriaVoce(v) {
+        const testo = `${v.name || ''} ${v.value || ''}`;
+        for (const [tipo, re] of Object.entries(VOCE_PERSONALIZZATA)) if (re.test(testo)) return CATEGORIA_EXTRA[tipo];
+        return String(v.name || '').toUpperCase().trim() || 'ALTRO';
+    }
+
+    const pezziDisponibili = (t) => { const m = /^\s*(\d+)\s*pz/i.exec(String(t || '')); return m ? Number(m[1]) : null; };
+    const posizione = (c) => { const i = ORDINE_CATEGORIE.indexOf(c); return i < 0 ? ORDINE_CATEGORIE.length : i; };
+
+    // Pezzi da comprare per i PC di una scrivania. schede: [{ id, nome, confermato, righe: [{tipo, ean, fornitore, nome,
+    // costo, fonte}] (le righe del riquadro dell'utile), salvati: componenti della scheda nel database, voci: voci
+    // personalizzate [{name, value, supplier, ean}] }]. Ritorna le categorie con i loro fornitori e il totale per fornitore.
+    function daOrdinare(dati, schede, salvatiFissi) {
+        const out = { pc: 0, esclusi: [], cambi: 0, senzaCosto: 0, totale: 0, pezzi: 0, categorie: [], fornitori: [] };
+        const cat = {};                                          // CATEGORIA -> FORNITORE -> codice -> riga
+        const aggiungi = (categoria, x, ordine) => {
+            const forn = String(x.fornitore || '').toUpperCase().trim() || 'SENZA FORNITORE';
+            const c = cat[categoria] || (cat[categoria] = {});
+            const f = c[forn] || (c[forn] = {});
+            const k = chiave(x.codice) || `~${String(x.descrizione || '').toUpperCase().trim()}`;
+            const r = f[k] || (f[k] = { codice: x.codice || '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
+                senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [] });
+            r.quantita += x.quantita;
+            if (x.costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + x.costo);
+            if (x.stimato) r.stimato = true;
+            if (x.daConfermare) r.daConfermare = true;
+            if (!r.disponibilita && x.disponibilita) r.disponibilita = x.disponibilita;
+            if (ordine && !r.ordini.includes(ordine)) r.ordini.push(ordine);
+            if (x.scheda && !r.scheda.includes(x.scheda)) r.scheda.push(x.scheda);
+        };
+        for (const s of schede || []) {
+            if (s.confermato) { out.esclusi.push(s.nome); continue; }
+            out.pc++;
+            const auto = pcAutomatico(dati, s.id);
+            const salvati = s.salvati || [];
+            for (const r of s.righe || []) {
+                if (SENZA_PEZZO.test(String(r.ean || '').trim())) continue;
+                const categoria = categoriaScheda(r.tipo);
+                const salvato = salvati.find(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean));
+                const quantita = Math.max(1, parseInt(salvato && salvato.quantity, 10) || 1);
+                const p = auto ? sostitutoDaOrdine(auto, { tipo: r.tipo, ean: r.ean, fornitore: r.fornitore,
+                    nome: salvato ? salvato.name : '', quantita }) : null;
+                if (p && p.auto && p.auto.codice) {                   // l'automatico oggi prende un altro pezzo
+                    out.cambi++;
+                    aggiungi(categoria, { fornitore: p.auto.fornitore, codice: p.auto.codice, descrizione: p.auto.descrizione,
+                        quantita: parseInt(p.auto.quantita, 10) || quantita, costo: p.auto.costo != null ? p.auto.costo : null,
+                        disponibilita: p.auto.disponibilita, daConfermare: !!p.auto.da_confermare,
+                        scheda: `${r.fornitore || ''} ${r.ean}`.trim() }, s.nome);
+                    continue;
+                }
+                // il pezzo della scheda resta: nome e disponibilita' dai listini (pezzo dell'automatico con lo stesso
+                // codice e fornitore, altrimenti il costo di oggi del pezzo della scheda)
+                const forn = String(r.fornitore || '').toUpperCase().trim();
+                const uguale = auto && Array.isArray(auto.pezzi) ? auto.pezzi.find(x => x.tipo === (TIPI[r.tipo] || r.tipo) && x.auto &&
+                    [x.auto.codice, x.auto.mpn].filter(Boolean).map(chiave).includes(chiave(r.ean)) &&
+                    String(x.auto.fornitore || '').toUpperCase().trim() === forn) : null;
+                const sch = costoScheda(dati, r.ean, r.fornitore);
+                const listino = sch && sch.fonte === 'listino' ? sch : null;
+                const aTerra = r.fonte === 'magazzino';
+                aggiungi(categoria, { fornitore: aTerra ? 'MAGAZZINO' : r.fornitore, codice: r.ean,
+                    descrizione: (uguale && uguale.auto.descrizione) || (listino && listino.descrizione) || (salvato && salvato.name) || r.nome || r.ean,
+                    quantita, costo: r.costo != null ? r.costo : null, stimato: r.fonte === 'stima' || r.fonte === 'altro',
+                    disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
+                    daConfermare: !!(uguale && uguale.auto.da_confermare) }, s.nome);
+            }
+            for (const x of extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi)) {
+                if (x.personalizzata || x.costo === 0) continue;          // gia' tra le voci personalizzate o senza costo
+                aggiungi(CATEGORIA_EXTRA[x.tipo] || x.tipo, { fornitore: x.fornitore || 'FUORI LISTINO', codice: '',
+                    descrizione: x.descrizione || x.nome, quantita: 1, costo: x.costo }, s.nome);
+            }
+            for (const v of s.voci || []) {
+                const q = Math.max(1, parseInt(v.quantity != null ? v.quantity : v.quantita, 10) || 1);
+                const prezzo = parseFloat(v.price != null ? v.price : v.prezzo);
+                aggiungi(categoriaVoce(v), { fornitore: v.supplier, codice: v.ean || '', descrizione: v.value || v.name || v.ean,
+                    quantita: q, costo: isNaN(prezzo) ? null : tonda(prezzo * q) }, s.nome);
+            }
+        }
+        const forn = {};
+        for (const nome of Object.keys(cat).sort((a, b) => posizione(a) - posizione(b) || a.localeCompare(b))) {
+            const c = { nome, pezzi: 0, costo: 0, fornitori: [] };
+            for (const [f, righe] of Object.entries(cat[nome])) {
+                const lista = Object.values(righe).sort((a, b) => b.quantita - a.quantita || a.descrizione.localeCompare(b.descrizione));
+                for (const r of lista) {
+                    const n = pezziDisponibili(r.disponibilita);
+                    if (f !== 'MAGAZZINO' && n != null && r.quantita > n) r.poco = n;
+                    if (f !== 'MAGAZZINO' && /^non disponibile/i.test(r.disponibilita)) r.nonDisponibile = true;
+                }
+                const pezzi = lista.reduce((t, r) => t + r.quantita, 0);
+                const costo = tonda(lista.reduce((t, r) => t + r.costo, 0));
+                c.fornitori.push({ nome: f, pezzi, costo, righe: lista });
+                const g = forn[f] || (forn[f] = { nome: f, pezzi: 0, costo: 0, senzaCosto: 0, righe: [] });
+                g.pezzi += pezzi;
+                g.costo = tonda(g.costo + costo);
+                for (const r of lista) {
+                    g.righe.push({ categoria: nome, ...r });
+                    if (r.senzaCosto) g.senzaCosto++;
+                }
+                if (f === 'MAGAZZINO') continue;
+                c.pezzi += pezzi;
+                c.costo = tonda(c.costo + costo);
+            }
+            // magazzino in fondo, poi i fornitori con piu' pezzi
+            c.fornitori.sort((a, b) => (a.nome === 'MAGAZZINO') - (b.nome === 'MAGAZZINO') || b.pezzi - a.pezzi || a.nome.localeCompare(b.nome));
+            out.categorie.push(c);
+            out.pezzi += c.pezzi;
+            out.totale = tonda(out.totale + c.costo);
+        }
+        out.fornitori = Object.values(forn).sort((a, b) => (a.nome === 'MAGAZZINO') - (b.nome === 'MAGAZZINO') || b.costo - a.costo || a.nome.localeCompare(b.nome));
+        out.senzaCosto = out.fornitori.filter(f => f.nome !== 'MAGAZZINO').reduce((t, f) => t + f.senzaCosto, 0);
+        return out;
+    }
+
+    // Testo da incollare nell'ordine al fornitore (stesso formato del riepilogo manuale)
+    function testoOrdineFornitore(f) {
+        return f.righe.map(r => `x${r.quantita} | ${r.codice || '—'} - ${r.descrizione}`).join('\n');
+    }
+
+    function testoCategoria(c) {
+        return c.fornitori.map(f => f.righe.map(r => `x${r.quantita} | ${f.nome} | ${r.codice || '—'} - ${r.descrizione}`).join('\n')).join('\n');
+    }
+
+    function htmlRigaDaOrdinare(r, colore, magazzino) {
+        const disp = r.disponibilita ? `${r.disponibilita}${r.daConfermare && !/confermare/i.test(r.disponibilita) ? ' · da confermare' : ''}` : '';
+        const costo = r.senzaCosto && !r.costo ? 'costo —' : `${r.stimato ? '≈ ' : ''}${eur(r.costo)}${r.senzaCosto ? ' +' : ''}`;
+        return `<div class="supplier-item">` +
+            `<div class="supplier-item-header"><span class="supplier-item-quantity" style="background:${colore};box-shadow:0 2px 8px ${colore}40">x${r.quantita}</span>` +
+            `<span class="acc-cod" data-copia="${esc(r.codice)}" title="Copia il codice">${esc(r.codice || '—')}</span>` +
+            `<span class="acc-rf-costo">${magazzino ? '' : costo}</span></div>` +
+            `<div class="supplier-item-name">${esc(r.descrizione)}</div>` +
+            `<div class="acc-nota">${esc(r.ordini.join(' '))}${disp ? ' · ' + esc(disp) : ''}</div>` +
+            (r.scheda.length ? `<div class="acc-rf-cambio">🔄 nella scheda: ${esc(r.scheda.join(', '))} · si allinea con «AGGIORNA PREZZI PRODOTTO»</div>` : '') +
+            (r.poco != null ? `<div class="acc-rf-avviso">⚠ il fornitore ne ha solo ${r.poco}: gli altri vanno presi altrove</div>` : '') +
+            (r.nonDisponibile ? `<div class="acc-rf-avviso">⚠ oggi non disponibile da questo fornitore</div>` : '') +
+            `</div>`;
+    }
+
+    function htmlCategorieDaOrdinare(r) {
+        if (!r.categorie.length) {
+            return `<div class="suppliers-empty-state"><h2>📦 Niente da ordinare</h2><p>${r.esclusi.length
+                ? 'I PC di questa scrivania hanno già l\'acquisto dei pezzi confermato.' : 'Nessun pezzo nelle schede di questa scrivania.'}</p></div>`;
+        }
+        return r.categorie.map(c => {
+            const col = COLORI_CATEGORIA[c.nome] || '#95a5a6';
+            return `<div class="supplier-card"><div class="supplier-header" style="background:${col}"><span>${esc(c.nome)}</span>` +
+                `<span class="supplier-count">${c.pezzi} pz${c.costo ? ' · ' + eur(c.costo) : ''}</span></div><div class="supplier-items-list">` +
+                c.fornitori.map(f => `<div class="acc-rf-forn">${badgeFornitore(f.nome)} <small>${f.pezzi} pz` +
+                    `${f.nome === 'MAGAZZINO' ? ' · già a terra, non si ordinano' : (f.costo ? ' · ' + eur(f.costo) : '')}</small></div>` +
+                    f.righe.map(x => htmlRigaDaOrdinare(x, col, f.nome === 'MAGAZZINO')).join('')).join('') +
+                `</div><div class="supplier-card-footer"><button type="button" class="acc-rf-copia" data-rf-cat="${esc(c.nome)}">📋 Copia ${esc(c.nome)}</button></div></div>`;
+        }).join('');
+    }
+
+    function htmlLatoDaOrdinare(r, n, quando) {
+        return `<div class="acc-rf-tot"><small>Da ordinare · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
+            `<b>${eur(r.totale)}</b><small>${r.pezzi} pezzi per ${r.pc === 1 ? '1 PC' : `${r.pc} PC`}` +
+            `${r.senzaCosto ? ` · ${r.senzaCosto === 1 ? '1 pezzo' : `${r.senzaCosto} pezzi`} senza costo` : ''}</small></div>` +
+            (r.esclusi.length ? `<div class="acc-nota">Non contati, acquisto già confermato: ${esc(r.esclusi.join(', '))}</div>` : '') +
+            (r.cambi ? `<div class="acc-rf-cambio">🔄 ${r.cambi === 1 ? '1 pezzo diverso' : `${r.cambi} pezzi diversi`} dalla scheda: ` +
+                `per allinearla premi «AGGIORNA PREZZI PRODOTTO» nella scrivania E${n}</div>` : '') +
+            r.fornitori.map(f => `<div class="acc-rf-forn-riga">${badgeFornitore(f.nome)} <span>${f.pezzi} pz` +
+                `${f.nome === 'MAGAZZINO' ? ' a terra' : (f.senzaCosto && !f.costo ? ' · costo —' : ` · ${eur(f.costo)}${f.senzaCosto ? ' +' : ''}`)}</span>` +
+                `${f.nome === 'MAGAZZINO' ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia l'ordine per ${esc(f.nome)}">📋 Copia</button>`}</div>`).join('') +
+            `<button type="button" class="acc-rf-copia" data-rf-ricalcola="1">🔄 Ricalcola con gli ultimi listini</button>`;
+    }
+
+    // PC visibili della scrivania aperta (stessi del riepilogo manuale: filtro operatore compreso)
+    function catturaScrivania() {
+        const n = scrivaniaAttiva();
+        if (!n) {                                  // tab gia' cambiata: la scrivania che ha visto il riepilogo manuale
+            let c = null;
+            try { c = typeof lastSupplierSummaryContext !== 'undefined' ? lastSupplierSummaryContext : null; } catch (e) { c = null; }
+            const m = c && ({ processed: 1, 'processed-e2': 2, 'processed-e3': 3, 'processed-e4': 4 })[c.sourceTabName];
+            if (!m || !c.visibleProcessedOrderIds) return false;
+            riepilogo.n = m;
+            riepilogo.ids = Array.from(c.visibleProcessedOrderIds).map(String);
+            riepilogo.nomi = {};
+            return true;
+        }
+        const carte = Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]')).filter(c => {
+            const s = window.getComputedStyle(c);
+            return s.display !== 'none' && s.visibility !== 'hidden';
+        });
+        riepilogo.n = n;
+        riepilogo.ids = carte.map(c => String(c.dataset.orderId).trim()).filter(Boolean);
+        riepilogo.nomi = {};
+        for (const c of carte) {
+            const flip = c.querySelector('.order-id-flip');
+            const t = flip ? String(flip.textContent || '').trim() : '';
+            riepilogo.nomi[String(c.dataset.orderId).trim()] = t ? (t.startsWith('#') ? t : `#${t}`) : '';
+        }
+        return true;
+    }
+
+    function righeDaScheda(id) {
+        if (ultimiConti[id] && ultimiConti[id].righe) return ultimiConti[id].righe;
+        return righe(id).map(row => ({ tipo: row.dataset.componentType, ...manualeDellaRiga(row), costo: null, fonte: null }));
+    }
+
+    function vociDaScheda(id) {
+        const cont = document.getElementById(`custom-items-${id}`);
+        if (!cont) return [];
+        return Array.from(cont.querySelectorAll('.custom-item-row')).map(row => {
+            const strong = row.querySelector('strong');
+            const span = row.querySelector('span');
+            return { name: strong ? strong.textContent.replace(':', '').trim() : '', value: span ? span.textContent.trim() : '',
+                supplier: row.dataset.supplier || '', ean: row.dataset.ean || '' };
+        });
+    }
+
+    function barraRiepilogo() {
+        const testa = document.getElementById('suppliers-header');
+        if (!testa) return null;
+        stile();
+        let barra = testa.querySelector('.acc-rf-barra');
+        if (!barra) {
+            barra = document.createElement('div');
+            barra.className = 'acc-rf-barra';
+            barra.innerHTML = `<div class="acc-rf-scrivania"></div><div class="acc-rf-modi">` +
+                `<button type="button" data-rf-modo="manuale" title="Pezzi per categoria con i nomi generici, come nel PDF per chi assembla">📋 Manuale<small>per chi assembla</small></button>` +
+                `<button type="button" data-rf-modo="auto" title="Pezzi da comprare oggi, per categoria e fornitore">🤖 Automatico<small>da ordinare</small></button></div>` +
+                `<div class="acc-rf-lato"></div>`;
+            const ora = testa.querySelector('.update-time');           // sotto il sottotitolo, prima dell'ora
+            if (ora) testa.insertBefore(barra, ora); else testa.appendChild(barra);
+            barra.querySelectorAll('[data-rf-modo]').forEach(b => b.addEventListener('click', () => mostraModo(b.dataset.rfModo)));
+        }
+        return barra;
+    }
+
+    function contenitoreAuto() {
+        let el = document.getElementById('riepilogo-auto');
+        const griglia = document.getElementById('suppliers-grid');
+        if (!el && griglia) {
+            el = document.createElement('div');
+            el.id = 'riepilogo-auto';
+            el.className = 'suppliers-grid';
+            el.style.display = 'none';
+            griglia.parentNode.insertBefore(el, griglia.nextSibling);
+        }
+        return el;
+    }
+
+    // «GENERA PDF» fa i PDF del riepilogo manuale: nella modalita' automatica non si mostra
+    function sorvegliaPdf() {
+        const b = document.getElementById('generate-orders-btn');
+        if (!b || b.__accRf || typeof MutationObserver === 'undefined') return;
+        b.__accRf = true;
+        new MutationObserver(() => {
+            if (riepilogo.modo === 'auto' && b.style.display !== 'none') b.style.display = 'none';
+        }).observe(b, { attributes: true, attributeFilter: ['style'] });
+    }
+
+    function mostraModo(modo) {
+        const m = modo === 'auto' ? 'auto' : 'manuale';
+        riepilogo.modo = m;
+        scriviLS(K_MODO_RIEPILOGO, m);
+        const barra = barraRiepilogo();
+        const griglia = document.getElementById('suppliers-grid');
+        const auto = contenitoreAuto();
+        sorvegliaPdf();
+        if (barra) {
+            barra.querySelectorAll('[data-rf-modo]').forEach(b => b.classList.toggle('attivo', b.dataset.rfModo === m));
+            const s = barra.querySelector('.acc-rf-scrivania');
+            if (s) s.textContent = riepilogo.n ? `Scrivania E${riepilogo.n} · ${riepilogo.ids.length === 1 ? '1 PC' : `${riepilogo.ids.length} PC`}` : '';
+            const lato = barra.querySelector('.acc-rf-lato');
+            if (lato) { lato.style.display = m === 'auto' ? '' : 'none'; if (m !== 'auto') lato.innerHTML = ''; }
+        }
+        const testa = document.getElementById('suppliers-header');
+        const sotto = testa ? testa.querySelector('h1 ~ p') : null;
+        if (sotto) sotto.textContent = m === 'auto' ? 'Pezzi da comprare oggi, categoria per categoria e fornitore per fornitore'
+            : 'Pezzi per categoria con i nomi generici, come nel PDF per chi assembla';
+        for (const sel of ['.suppliers-log-section', '.update-time']) {            // cronologia e ora del riepilogo manuale
+            const el = testa ? testa.querySelector(sel) : null;
+            if (el) el.style.display = m === 'auto' ? 'none' : '';
+        }
+        const pdf = document.getElementById('generate-orders-btn');
+        if (griglia) griglia.style.display = m === 'auto' ? 'none' : '';
+        if (auto) auto.style.display = m === 'auto' ? '' : 'none';
+        if (m === 'auto') {
+            if (pdf) pdf.style.display = 'none';
+            return renderRiepilogoAuto();
+        }
+        const suTab = document.querySelector('.tab-button.active[data-tab="suppliers"]');
+        if (pdf && suTab && typeof window !== 'undefined' && window.currentSupplierData && Object.keys(window.currentSupplierData).length) pdf.style.display = 'block';
+        return Promise.resolve();
+    }
+
+    async function renderRiepilogoAuto(forza) {
+        const box = contenitoreAuto();
+        const barra = barraRiepilogo();
+        const lato = barra ? barra.querySelector('.acc-rf-lato') : null;
+        if (!box) return;
+        const tok = ++riepilogo.token;
+        if (!riepilogo.n) {
+            box.innerHTML = `<div class="suppliers-empty-state"><h2>Apri il riepilogo da una scrivania</h2><p>Vai in E1, E2, E3 o E4 e premi il pulsante del riepilogo fornitori.</p></div>`;
+            if (lato) lato.innerHTML = '';
+            return;
+        }
+        box.innerHTML = `<div class="suppliers-empty-state"><h2>⏳ Calcolo i pezzi da ordinare…</h2><p>Scrivania E${riepilogo.n}: listini di oggi e disponibilità dei fornitori.</p></div>`;
+        if (lato) lato.innerHTML = '';
+        let dati;
+        try {
+            dati = await carica(forza);
+        } catch (e) {
+            if (tok !== riepilogo.token) return;
+            box.innerHTML = `<div class="suppliers-empty-state"><h2>Automatico non disponibile</h2><p>${esc(stato.errore || (e && e.message) || e)}</p></div>`;
+            return;
+        }
+        // riquadri dell'utile ricalcolati: costi dei pezzi della scheda con i listini appena letti
+        await Promise.all(riepilogo.ids.filter(id => contesti[id]).map(id => aggiornaOrdine(id).catch(() => {})));
+        if (tok !== riepilogo.token) return;
+        const schede = riepilogo.ids.map(id => ({
+            id, confermato: acquistoConfermato(id), righe: righeDaScheda(id), salvati: componentiSalvati(id), voci: vociDaScheda(id),
+            nome: riepilogo.nomi[id] || ((dati.ordini || {})[String(id).split('.')[0]] || {}).nome || `#${id}`
+        }));
+        const r = daOrdinare(dati, schede, leggiLS(K_FISSI, {}));
+        riepilogo.ultimo = r;
+        box.innerHTML = htmlCategorieDaOrdinare(r);
+        if (lato) lato.innerHTML = htmlLatoDaOrdinare(r, riepilogo.n, oraBreve(dati.listini || dati.generato));
+        box.querySelectorAll('[data-copia]').forEach(el => el.addEventListener('click', () => { if (el.dataset.copia) copia(el.dataset.copia); }));
+        box.querySelectorAll('[data-rf-cat]').forEach(b => b.addEventListener('click', () => {
+            const c = r.categorie.find(x => x.nome === b.dataset.rfCat);
+            if (c) copia(testoCategoria(c));
+        }));
+        if (lato) {
+            lato.querySelectorAll('[data-rf-forn]').forEach(b => b.addEventListener('click', () => {
+                const f = r.fornitori.find(x => x.nome === b.dataset.rfForn);
+                if (f) copia(testoOrdineFornitore(f));
+            }));
+            lato.querySelectorAll('[data-rf-ricalcola]').forEach(b => b.addEventListener('click', () => renderRiepilogoAuto(true)));
+        }
+    }
+
+    // Pulsante del riepilogo fornitori (E1–E4): la pagina si apre per quella scrivania, nella modalita' scelta l'ultima volta
+    function collegaRiepilogo() {
+        const b = document.getElementById('export-btn');
+        if (!b || b.dataset.accRiepilogo) return;
+        b.dataset.accRiepilogo = '1';
+        // in fase di cattura: si legge la scrivania prima che il riepilogo manuale passi alla pagina dei fornitori
+        b.addEventListener('click', () => {
+            if (!catturaScrivania()) return;
+            setTimeout(() => { mostraModo(leggiLS(K_MODO_RIEPILOGO, 'manuale')).catch(e => console.warn('[ACCOPPIAMENTO] riepilogo', e)); }, 0);
+        }, true);
+    }
+
     function apriAutomatico(idOrdine) {
         const btn = document.querySelector('.tab-button[data-tab="automatico"]');
         if (btn) btn.click();
@@ -1754,9 +2147,10 @@
         btn.dataset.accCollegato = '1';
         btn.addEventListener('click', () => setTimeout(() => renderPagina(), 0));
     }
+    const collega = () => { collegaTab(); collegaRiepilogo(); };
     if (typeof document !== 'undefined' && document.addEventListener) {
-        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', collegaTab);
-        else collegaTab();
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', collega);
+        else collega();
     }
 
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
@@ -1769,7 +2163,8 @@
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
-        pezzoDellaRiga };
+        pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
+        categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

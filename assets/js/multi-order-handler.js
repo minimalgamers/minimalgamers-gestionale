@@ -665,7 +665,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
         }
         
         for (const comp of finalComponents) {
-            const match = comp.value.match(/^(.+?)\s*\((.+?)\)$/);
+            const match = comp.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
             let ean = comp.value;
             let supplier = '';
             
@@ -937,7 +937,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
             
             
             for (const comp of finalComponents) {
-                const match = comp.value.match(/^(.+?)\s*\((.+?)\)$/);
+                const match = comp.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
                 let ean = comp.value;
                 let supplier = '';
                 

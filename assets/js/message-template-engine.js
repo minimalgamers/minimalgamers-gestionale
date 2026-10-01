@@ -3,6 +3,25 @@
     const DEFAULT_TEMPLATE_CATEGORY_PRIORITY = ['DISSIPATORE', 'MOBO WIFI', 'KIT VENTOLE', 'CASE', 'FPS BOOSTER'];
     const MESSAGE_SECTION_SEPARATOR = '-------------------------';
 
+    // Upgrade del set GPO della build (Antonio 01/10 sera): il pulsante WhatsApp mostra cosa il cliente puo' ancora
+    // aggiungere pagando la differenza; per ogni categoria spuntata si usa il testo «UPGRADE <CATEGORIA>» della pagina
+    // Template (se c'e'), altrimenti quello qui sotto. Segnaposto: {{upgrade}}, {{attuale}}, {{differenza}}.
+    const UPGRADE_PREFIX = 'UPGRADE ';
+    const UPGRADE_DEFAULTS = {
+        'INTRO': 'Ciao {{customerName}}, stiamo preparando la tua build {{orderNumber}}. Prima di montarla ti segnalo qualche upgrade che puoi ancora aggiungere pagando *solo la differenza*:',
+        'CONNETTIVITÀ': 'La scheda madre della tua build *non ha Wi-Fi e Bluetooth integrati*. Ti consiglio di aggiungere *{{upgrade}}*: ti colleghi a internet senza cavo e usi cuffie, controller e periferiche wireless senza adattatori esterni.\n*Costo upgrade {{differenza}}*.',
+        'SCHEDA MADRE': 'Inoltre valuterei *l\'upgrade della scheda madre*: al posto di {{attuale}} ti proponiamo *{{upgrade}}*, con più connettività, alimentazione più stabile per CPU e RAM e più margine per gli aggiornamenti futuri.\n*Costo upgrade {{differenza}}*.',
+        'DISSIPATORE': 'Per temperature più basse e meno rumore ti propongo *{{upgrade}}* al posto di {{attuale}}: il processore resta fresco anche nelle sessioni più lunghe e lavora sempre al massimo delle prestazioni.\n*Costo upgrade {{differenza}}*.',
+        'VENTOLE RGB': 'Per un look davvero completo puoi aggiungere la *build full ventole RGB*: più flusso d\'aria nel case e illuminazione coordinata su tutta la build.\n*Costo {{differenza}}*.',
+        'SCATOLE COMPONENTI': 'Se vuoi, insieme al PC ti spediamo anche *le scatole originali dei componenti*: comode per garanzie e per un\'eventuale rivendita futura.\n*Costo {{differenza}}*.',
+        'CASE': 'Se vuoi dare alla tua build un aspetto ancora più curato, puoi passare al case *{{upgrade}}* al posto di {{attuale}}.\n*Costo upgrade {{differenza}}*.',
+        'SCHEDA VIDEO': 'Per più FPS e una build che dura più a lungo puoi passare alla scheda video *{{upgrade}}* al posto di {{attuale}}.\n*Costo upgrade {{differenza}}*.',
+        'ARCHIVIAZIONE AGGIUNTIVA': 'Se ti serve più spazio per giochi, video e file puoi aggiungere *{{upgrade}}* di archiviazione in più.\n*Costo {{differenza}}*.',
+        'SOFTWARE': 'Possiamo installarti anche *{{upgrade}}*: lo trovi già pronto all\'uso quando accendi il PC.\n*Costo {{differenza}}*.',
+        'ALTRO': 'Puoi passare a *{{upgrade}}* al posto di {{attuale}}.\n*Costo upgrade {{differenza}}*.'
+    };
+    const UPGRADE_CATEGORIES = Object.keys(UPGRADE_DEFAULTS).map(c => UPGRADE_PREFIX + c);
+
     let inMemoryConfig = null;
     let initPromise = null;
 
@@ -336,6 +355,11 @@
             return false;
         }
 
+        // i testi «UPGRADE …» servono solo al messaggio con le spunte (buildUpgradeMessage), mai per componente
+        if (String(rule?.templateCategory || '').trim().toUpperCase().startsWith(UPGRADE_PREFIX)) {
+            return false;
+        }
+
         
         
         if (isMoboWifiCategory(rule)) {
@@ -601,7 +625,48 @@
         };
     }
 
+    function formatEuro(value) {
+        const n = Number(value);
+        if (!isFinite(n)) return '';
+        const intero = Math.abs(n - Math.round(n)) < 0.005;
+        return (intero ? String(Math.round(n)) : n.toFixed(2).replace('.', ',')) + '€';
+    }
+
+    function upgradeTemplate(config, categoria) {
+        const cat = String(categoria || '').trim().toUpperCase();
+        const nome = UPGRADE_PREFIX + (UPGRADE_DEFAULTS[cat] ? cat : 'ALTRO');
+        const rule = (config.rules || []).find(r => r.enabled !== false
+            && String(r.templateCategory || '').trim().toUpperCase() === nome && String(r.messageTemplate || '').trim());
+        return rule ? rule.messageTemplate : UPGRADE_DEFAULTS[nome.slice(UPGRADE_PREFIX.length)];
+    }
+
+    // Messaggio WhatsApp con gli upgrade spuntati: introduzione, un paragrafo per upgrade, FPS BOOSTER (se voluto) e
+    // chiusura finale, separati come i messaggi di sempre.
+    function buildUpgradeMessage(order, upgrades, opzioni, overrideConfig) {
+        const config = resolveConfig(overrideConfig);
+        const base = buildPlaceholders(order || {}, [], null);
+        const sezioni = [applyTemplate(upgradeTemplate(config, 'INTRO'), base)];
+        (Array.isArray(upgrades) ? upgrades : []).forEach((u) => {
+            const ph = { ...base, upgrade: String(u.scelta || ''), attuale: String(u.attuale || 'quella di serie'),
+                differenza: formatEuro(u.differenza), categoria: String(u.categoria || '') };
+            sezioni.push(applyTemplate(upgradeTemplate(config, u.categoria), ph));
+        });
+        if (!opzioni || opzioni.fps !== false) {
+            const fps = resolveFpsBoosterRule(config);
+            if (fps) sezioni.push(applyTemplate(fps.messageTemplate, base));
+        }
+        const fine = resolveFinalRule(config);
+        if (fine) sezioni.push(applyTemplate(fine.messageTemplate, base));
+        return joinMessageSections(sezioni);
+    }
+
     window.MessageTemplateEngine = {
+        UPGRADE_PREFIX,
+        UPGRADE_DEFAULTS,
+        UPGRADE_CATEGORIES,
+        formatEuro,
+        upgradeTemplate,
+        buildUpgradeMessage,
         MESSAGE_TEMPLATE_API_URL,
         createDefaultConfig,
         createDefaultRule,
@@ -613,5 +678,5 @@
         buildMessageForChannel
     };
 
-    console.log('✅ message-template-engine.js caricato (v3 - fix MOBO WIFI: nome/ROG/TOMAHAWK/X870)');
+    console.log('✅ message-template-engine.js caricato (v4 - upgrade del set GPO per WhatsApp)');
 })();

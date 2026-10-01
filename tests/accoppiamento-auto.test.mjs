@@ -706,5 +706,12 @@ const exScelta = A.extraOrdine({ pezzi: [{ tipo: 'VENTOLE', nome_tipo: 'Ventole'
   fisso: { descrizione: 'Ventole RGB (prova)', fornitore: '', costo: 20 } }, { tipo: 'WIFI', nome_tipo: 'Connettività', cliente: 'Wi-Fi prova', manuale: {} }] }, [], [], {});
 assert.deepEqual(J(exScelta).map(x => [x.scelta, x.pezzo, x.accoppiata]), [['Build full ventole (prova)', 'Ventole RGB (prova)', true], ['Wi-Fi prova', '', false]]);
 assert.match(A.corpoPezzi([{ tipo: 'CPU', fornitore: 'AAA', nome: 'CPU', ean: '1', costo: 10, fonte: 'listino' }], false), /Prezzi netti di oggi, pezzo per pezzo/);
+// 01/10 (#4812, #4822): opzione scelta ma non pagata, riga rossa in testa al riquadro
+assert.equal(A.rigaNonPagate({ non_pagate: [] }), '');
+assert.equal(A.rigaNonPagate(null), '');
+const np = A.rigaNonPagate({ non_pagate: [{ menu: 'CPU', scelta: 'CPU PROVA <X>', prezzo: 50, pc: 1, pagate: 0 }] });
+assert.match(np, /acc-esito neg acc-non-pagata/);
+assert.match(np, /🔴 OPZIONE NON PAGATA · CPU CPU PROVA &lt;X&gt; \(\+50,00\s€\)/);
+assert.match(A.rigaNonPagate({ non_pagate: [{ menu: 'GPU', scelta: 'G', prezzo: 10, pc: 2, pagate: 1 }] }), /pagata per 1 PC su 2/);
 
 console.log('accoppiamento-auto: tutti i test passati');

@@ -10,9 +10,13 @@
 
     const GPO_MAPPING_API_URL = 'api_gateway/db_bridge/components_service/endpoint/api-gpo-mapping.php';
     const CUSTOM_COMPONENTS_API_URL = 'api_gateway/db_bridge/components_service/endpoint/api-custom-components.php';
-    const TEMPLATE_CATEGORIES = ['DISSIPATORE', 'MOBO WIFI', 'SCHEDA MADRE', 'CASE', 'KIT VENTOLE', 'FPS BOOSTER', 'FINALE'];
+    // Antonio 01/10 sera: un testo per ogni categoria di upgrade del set GPO (messaggio WhatsApp con le spunte)
+    const UPGRADE_CATEGORIES = (window.MessageTemplateEngine && window.MessageTemplateEngine.UPGRADE_CATEGORIES) || [];
+    const TEMPLATE_CATEGORIES = ['DISSIPATORE', 'MOBO WIFI', 'SCHEDA MADRE', 'CASE', 'KIT VENTOLE', 'FPS BOOSTER', 'FINALE',
+        ...UPGRADE_CATEGORIES];
     const UNIQUE_CATEGORY = 'MOBO WIFI';
-    const UNIQUE_CATEGORIES = ['MOBO WIFI', 'FPS BOOSTER', 'FINALE'];
+    const UNIQUE_CATEGORIES = ['MOBO WIFI', 'FPS BOOSTER', 'FINALE', ...UPGRADE_CATEGORIES];
+    const isUpgradeCategory = (c) => UPGRADE_CATEGORIES.includes(String(c || '').toUpperCase().trim());
     const SPECIAL_MOBO_RULE_NAME = 'MOBO WIFI (eccezione)';
     const SPECIAL_FPS_RULE_NAME = 'FPS BOOSTER';
     const SPECIAL_FINAL_RULE_NAME = 'FINALE';
@@ -73,6 +77,7 @@
         if (normalized === 'MOBO WIFI') return SPECIAL_MOBO_RULE_NAME;
         if (normalized === 'FPS BOOSTER') return SPECIAL_FPS_RULE_NAME;
         if (normalized === 'FINALE') return SPECIAL_FINAL_RULE_NAME;
+        if (isUpgradeCategory(normalized)) return normalized.replace(/^UPGRADE /, 'UPGRADE · ');
         return '';
     }
 
@@ -219,7 +224,8 @@
         const isMoboSpecial = category === 'MOBO WIFI';
         const isFpsBoosterSpecial = category === 'FPS BOOSTER';
         const isFinalSpecial = category === 'FINALE';
-        const isSpecial = isMoboSpecial || isFpsBoosterSpecial || isFinalSpecial;
+        const isUpgradeSpecial = isUpgradeCategory(category);
+        const isSpecial = isMoboSpecial || isFpsBoosterSpecial || isFinalSpecial || isUpgradeSpecial;
 
         if (articleWrap) {
             articleWrap.style.display = isSpecial ? 'none' : 'block';
@@ -230,7 +236,11 @@
         }
 
         if (specialInfoText && isSpecial) {
-            if (isMoboSpecial) {
+            if (isUpgradeSpecial) {
+                specialInfoText.textContent = category === 'UPGRADE INTRO'
+                    ? 'UPGRADE GPO · INTRODUZIONE: apre il messaggio WhatsApp con gli upgrade spuntati sull\'ordine (pulsante WhatsApp della scrivania).'
+                    : 'UPGRADE GPO: testo usato quando nel messaggio WhatsApp spunti un upgrade di questa categoria. Segnaposto: {{upgrade}} (la scelta nuova), {{attuale}} (quella del cliente), {{differenza}} (da pagare), {{customerName}}, {{orderNumber}}.';
+            } else if (isMoboSpecial) {
                 specialInfoText.textContent = 'Ricerca nella scheda madre del WiFi: questa regola eccezionale si attiva solo se nella tabella Scheda_Madre il campo wifi vale 0 per la motherboard dell\'ordine elaborato.';
             } else if (isFpsBoosterSpecial) {
                 specialInfoText.textContent = 'FPS BOOSTER: regola eccezionale senza ricerca GPO. Il testo di questo template viene aggiunto in coda al messaggio principale, prima dell\'eventuale chiusura finale.';
@@ -268,6 +278,33 @@
             const isMobo = String(rule.templateCategory || '').toUpperCase().trim() === UNIQUE_CATEGORY;
             if (!isMobo) return true;
             return String(rule.id) === keeperId;
+        });
+    }
+
+    // Le categorie di upgrade che mancano compaiono con il testo di partenza: Antonio le modifica e si salvano.
+    function ensureSpecialUpgradeRules() {
+        const presenti = new Set(workingConfig.rules.map(r => String(r.templateCategory || '').toUpperCase().trim()));
+        const testi = (window.MessageTemplateEngine && window.MessageTemplateEngine.UPGRADE_DEFAULTS) || {};
+        UPGRADE_CATEGORIES.forEach((categoria) => {
+            if (presenti.has(categoria)) return;
+            const regola = window.MessageTemplateEngine.createDefaultRule();
+            regola.templateCategory = categoria;
+            regola.ruleName = getSpecialRuleName(categoria);
+            regola.messageTemplate = testi[categoria.replace(/^UPGRADE /, '')] || '';
+            workingConfig.rules.push(regola);
+        });
+    }
+
+    function ensureCategoryOptions() {
+        const select = byId('editor-template-category');
+        if (!select) return;
+        const esistenti = new Set(Array.from(select.options).map(o => String(o.value || '').toUpperCase()));
+        TEMPLATE_CATEGORIES.forEach((categoria) => {
+            if (esistenti.has(categoria)) return;
+            const opt = document.createElement('option');
+            opt.value = categoria;
+            opt.textContent = categoria;
+            select.appendChild(opt);
         });
     }
 
@@ -421,6 +458,7 @@
         if (!list) return;
 
         ensureSpecialMoboWifiRule();
+        ensureSpecialUpgradeRules();
 
         if (!workingConfig.rules.length) {
             list.innerHTML = '<div style="color: rgba(255,255,255,0.75); border: 1px dashed rgba(255,255,255,0.3); border-radius: 8px; padding: 10px; font-size: 0.9em;">Nessuna regola attiva</div>';
@@ -816,6 +854,8 @@
         workingConfig = window.MessageTemplateEngine.normalizeConfig(workingConfig);
         workingConfig = window.MessageTemplateEngine.loadConfig();
         ensureSpecialMoboWifiRule();
+        ensureSpecialUpgradeRules();
+        ensureCategoryOptions();
         selectedRuleId = workingConfig.rules[0]?.id || null;
 
         initEvents();

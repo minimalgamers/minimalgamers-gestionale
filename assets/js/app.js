@@ -3772,33 +3772,33 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
                     let supplier = supplierMatch ? supplierMatch[1] : null;
                     
                     if (!supplier && componentIndex !== -1) {
-                        const originalSupplier = finalComponents[componentIndex].value.match(/\((.+?)\)$/);
+                        const originalSupplier = finalComponents[componentIndex].value.match(/\(([^()]+)\)$/);
                         supplier = originalSupplier ? originalSupplier[1] : 'NOUA';
                     }
                     
                     variantValue = supplier ? `${foundEAN} (${supplier})` : foundEAN;
                 } else {
-                    const variantMatch = value.match(/^(.+?)\s*\((.+?)\)$/);
+                    const variantMatch = value.match(/^(.*\S)\s*\(([^()]+)\)$/);
                     if (!variantMatch && componentIndex !== -1) {
-                        const originalSupplier = finalComponents[componentIndex].value.match(/\((.+?)\)$/);
+                        const originalSupplier = finalComponents[componentIndex].value.match(/\(([^()]+)\)$/);
                         const supplierPart = originalSupplier ? ` ${originalSupplier[0]}` : '';
                         variantValue = `${value}${supplierPart}`;
                     }
                 }
             } else {
-                const variantMatch = value.match(/^(.+?)\s*\((.+?)\)$/);
+                const variantMatch = value.match(/^(.*\S)\s*\(([^()]+)\)$/);
                 if (!variantMatch && componentIndex !== -1) {
-                    const originalSupplier = finalComponents[componentIndex].value.match(/\((.+?)\)$/);
+                    const originalSupplier = finalComponents[componentIndex].value.match(/\(([^()]+)\)$/);
                     const supplierPart = originalSupplier ? ` ${originalSupplier[0]}` : '';
                     variantValue = `${value}${supplierPart}`;
                 }
             }
         } else {
-            const variantMatch = value.match(/^(.+?)\s*\((.+?)\)$/);
+            const variantMatch = value.match(/^(.*\S)\s*\(([^()]+)\)$/);
             
             if (componentIndex !== -1) {
                 if (!variantMatch) {
-                    const originalSupplier = finalComponents[componentIndex].value.match(/\((.+?)\)$/);
+                    const originalSupplier = finalComponents[componentIndex].value.match(/\(([^()]+)\)$/);
                     const supplierPart = originalSupplier ? ` ${originalSupplier[0]}` : '';
                     variantValue = `${value}${supplierPart}`;
                 }
@@ -4012,7 +4012,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
     for (const component of finalComponents) {
         if (deletedComponents.includes(component.type)) continue;
         
-        const match = component.value.match(/^(.+?)\s*\((.+?)\)$/);
+        const match = component.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
         
         let ean = component.value;
         let supplier = component.supplier ? String(component.supplier).trim().toUpperCase() : '';
@@ -4105,7 +4105,7 @@ async function renderComponentsFromDatabase(orderId, savedComponents, allItems =
         
         
         if (!ean && component.value) {
-            const match = component.value.match(/^(.+?)\s*\((.+?)\)$/);
+            const match = component.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
             if (match) {
                 ean = match[1].trim();
                 if (!supplier) supplier = match[2].trim();
@@ -5510,7 +5510,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
 
                 for (const comp of finalComponents) {
                     
-                    const match = comp.value.match(/^(.+?)\s*\((.+?)\)$/);
+                    const match = comp.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
                     let ean = comp.value;
                     let supplier = comp.supplier ? String(comp.supplier).trim().toUpperCase() : '';
                     
@@ -5691,73 +5691,48 @@ let orderIdPressElement = null;
 const ORDER_ID_LONG_PRESS_DURATION = 5000; 
 
 
-document.addEventListener('mousedown', (e) => {
-    if (e.target.classList.contains('order-id-flip')) {
-        orderIdPressElement = e.target;
-        orderIdPressStartTime = Date.now();
-        
-        
-        orderIdPressTimer = setTimeout(() => {
-            enableOrderIdEdit(orderIdPressElement);
-        }, ORDER_ID_LONG_PRESS_DURATION);
+// Antonio 01/10: «quando clicco lì non si gira più la scheda». Un solo gestore per mouse, touchpad e touch (prima con il
+// touch la scheda girava due volte, su touchend e sul mouseup simulato, e restava ferma) e il clic vale su tutta
+// l'intestazione della scheda, non solo sul numero. Pulsanti, link e selettori dell'intestazione fanno la loro cosa.
+// Tenendo premuto il numero per 5 secondi si modifica come prima.
+let orderIdLongPressDone = false;
+const CARD_HEADER_CONTROLS = 'button, a, input, select, textarea, .operator-selector, .processed-select-icon, .config-badge-editable';
+
+function orderIdPressStart(e) {
+    const flip = e.target && e.target.closest ? e.target.closest('.order-id-flip') : null;
+    orderIdLongPressDone = false;
+    if (!flip) return;
+    orderIdPressElement = flip;
+    orderIdPressStartTime = Date.now();
+    if (orderIdPressTimer) clearTimeout(orderIdPressTimer);
+    orderIdPressTimer = setTimeout(() => {
+        orderIdLongPressDone = true;
+        enableOrderIdEdit(flip);
+    }, ORDER_ID_LONG_PRESS_DURATION);
+}
+
+function orderIdPressEnd() {
+    if (orderIdPressTimer) {
+        clearTimeout(orderIdPressTimer);
+        orderIdPressTimer = null;
     }
+}
+
+document.addEventListener('pointerdown', orderIdPressStart);
+document.addEventListener('pointerup', orderIdPressEnd);
+document.addEventListener('pointercancel', orderIdPressEnd);
+
+document.addEventListener('click', (e) => {
+    const header = e.target && e.target.closest ? e.target.closest('.flip-container .card-header') : null;
+    if (!header) return;
+    if (e.target.closest(CARD_HEADER_CONTROLS)) return;
+    if (e.target.isContentEditable || (e.target.closest && e.target.closest('[contenteditable="true"]'))) return;
+    if (orderIdLongPressDone) { orderIdLongPressDone = false; return; }
+    const flipContainer = header.closest('.flip-container');
+    if (flipContainer) flipContainer.classList.toggle('flipped');
+    orderIdPressStartTime = null;
+    orderIdPressElement = null;
 });
-
-document.addEventListener('touchstart', (e) => {
-    if (e.target.classList.contains('order-id-flip')) {
-        orderIdPressElement = e.target;
-        orderIdPressStartTime = Date.now();
-        
-        orderIdPressTimer = setTimeout(() => {
-            enableOrderIdEdit(orderIdPressElement);
-        }, ORDER_ID_LONG_PRESS_DURATION);
-    }
-}, { passive: true });
-
-
-document.addEventListener('mouseup', (e) => {
-    if (e.target.classList.contains('order-id-flip')) {
-        const pressDuration = Date.now() - orderIdPressStartTime;
-        
-        
-        if (orderIdPressTimer) {
-            clearTimeout(orderIdPressTimer);
-            orderIdPressTimer = null;
-        }
-        
-        
-        if (pressDuration < ORDER_ID_LONG_PRESS_DURATION) {
-            const flipContainer = e.target.closest('.flip-container');
-            if (flipContainer) {
-                flipContainer.classList.toggle('flipped');
-            }
-        }
-        
-        orderIdPressStartTime = null;
-        orderIdPressElement = null;
-    }
-});
-
-document.addEventListener('touchend', (e) => {
-    if (orderIdPressElement && orderIdPressElement.classList.contains('order-id-flip')) {
-        const pressDuration = Date.now() - orderIdPressStartTime;
-        
-        if (orderIdPressTimer) {
-            clearTimeout(orderIdPressTimer);
-            orderIdPressTimer = null;
-        }
-        
-        if (pressDuration < ORDER_ID_LONG_PRESS_DURATION) {
-            const flipContainer = orderIdPressElement.closest('.flip-container');
-            if (flipContainer) {
-                flipContainer.classList.toggle('flipped');
-            }
-        }
-        
-        orderIdPressStartTime = null;
-        orderIdPressElement = null;
-    }
-}, { passive: true });
 
 
 document.addEventListener('mousemove', (e) => {

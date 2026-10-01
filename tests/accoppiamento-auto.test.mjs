@@ -229,9 +229,9 @@ assert.equal(A.prezzoVendita('4814', [{ id: 4814, created_at: '2026-09-28T09:00:
 assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 2, 150), /🟠 DA COMPLETARE · mancano 2 costi/);
 assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 1, 150), /manca 1 costo/);
 assert.match(A.rigaEsito({ lordo: -35.2, srl: -35.2 }, 0, 150), /🔴 IN PERDITA · -35,20 €/);
-assert.match(A.rigaEsito({ lordo: 150, srl: 105 }, 0, 150), /🟡 IN PROFITTO, SOTTO OBIETTIVO · SRL 105,00 € \(-45,00 €\)/);
-assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 0, 150), /🟢 IN PROFITTO · SRL 148,75 € · in target/);
-assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 0, null), /🟢 IN PROFITTO · SRL 148,75 €<\/div>/);
+assert.match(A.rigaEsito({ lordo: 150, srl: 105 }, 0, 150), /🟡 UTILE SRL 105,00 € · sotto obiettivo di 45,00 €/);
+assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 0, 150), /🟢 UTILE SRL 148,75 € · in target/);
+assert.match(A.rigaEsito({ lordo: 212.5, srl: 148.75 }, 0, null), /🟢 UTILE SRL 148,75 €<\/div>/);
 
 // --- alimentatore della scheda diverso da quello da comprare (MSI LEVIATHAN #4816, bundle RTX 5070) ---
 assert.equal(A.wattAlimentatore('DEEPCOOL PF-600X 80+ BRONZE'), 600);
@@ -325,15 +325,19 @@ const costiProva = [{ testo: 'Pezzi della scheda', valore: 1500, sempre: true },
   { testo: 'Montaggio e spedizione', valore: 43.79, sempre: true }];
 let hc = A.contoOrdine(vend, costiProva, 0, 180);
 assert.match(hc, /Pagato dal cliente il 23\/09\/2026/);
-assert.match(hc, /− IVA 22%<\/span><span>-440,00 €/);                       // 2440 − 2440/1,22
-assert.match(hc, /− Scalapay e commissioni 4,5%<\/span><span>-109,80 €/);
-assert.match(hc, /= Incasso netto<\/span><span>1890,20 €/);
+assert.match(hc, /− IVA 22%<\/span><span class="val">-440,00 €/);                       // 2440 − 2440/1,22
+assert.match(hc, /− Scalapay e commissioni 4,5%<\/span><span class="val">-109,80 €/);
+assert.doesNotMatch(hc, /Incasso netto/);                                   // 01/10: riga tolta, conto piu' corto
 assert.doesNotMatch(hc, /Opzioni fuori scheda/);                               // zero: non si scrive
 const uc = A.utile(2440, 1543.79);
-assert.match(hc, new RegExp(`= Utile.*${String(uc.lordo.toFixed(2)).replace('.', ',')}`));
-assert.match(hc, /Utile SRL \(70%\) · obiettivo 180,00 €/);
+assert.match(hc, new RegExp(`= Utile prima delle tasse.*${String(uc.lordo.toFixed(2)).replace('.', ',')}`));
+assert.match(hc, new RegExp(`− Tasse 30%.*-${String((uc.lordo - uc.srl).toFixed(2)).replace('.', ',')}`));
+assert.match(hc, new RegExp(`= UTILE SRL <small>in tasca, al netto di tutto</small>.*${String(uc.srl.toFixed(2)).replace('.', ',')} €`));
+assert.match(hc, /🎯 Obiettivo 180,00 €/);
+assert.ok(hc.lastIndexOf('UTILE SRL') > hc.indexOf('Tasse'));              // l'utile SRL e' l'ultima riga del conto
+assert.doesNotMatch(A.contoOrdine(vend, [{ testo: 'Pezzi', valore: 3000, sempre: true }], 0, null), /Tasse/);   // in perdita: niente tasse
 assert.match(A.contoOrdine(vend, costiProva, 2, 180), /da calcolare: mancano 2 costi/);
-assert.doesNotMatch(A.contoOrdine(vend, costiProva, 2, 180), /Utile SRL/);
+assert.doesNotMatch(A.contoOrdine(vend, costiProva, 2, 180), /Tasse|Obiettivo/);
 const dp = A.dettaglioPezzi([
   { tipo: 'CPU', fornitore: 'TIER ONE', nome: '', ean: '9019', costo: 300, fonte: 'listino', consigliato: { costo: 220, fornitore: 'TIER ONE', descrizione: 'Ryzen 7 Tray' } },
   { tipo: 'GPU', fornitore: 'OMEGA', nome: '', ean: 'X1', costo: 700, fonte: 'stima', consigliato: { costo: 700, fornitore: 'ACTION', descrizione: 'RTX' } },
@@ -651,5 +655,52 @@ assert.ok(A.htmlCategorieDaOrdinare(vuotoRf).includes('già l\'acquisto dei pezz
 // senza dati automatici restano i pezzi delle schede
 const senzaAuto = J(A.daOrdinare(null, [schedeRf[2]], {}));
 assert.deepEqual(senzaAuto.categorie.map(c => c.nome), ['CPU', 'GPU', 'SSD', 'PSU']);
+
+// --- 01/10: fornitori chiari, link Amazon, vista per fornitore, cambio dal Buyer Desk (dati di prova) ---
+const datiFissi = { ordini: { '940': { nome: '#9940', pc: [{ build: 'PC PROVA', quantita: 1, pezzi: [
+  { tipo: 'COOLER', nome_tipo: 'Dissipatore', manuale: { codice: 'DISSIPATORE 240MM BIANCO' }, auto: null,
+    fisso: { id: 'aio_240_bianco', descrizione: 'Dissipatore a liquido 240mm bianco (prova)', fornitore: 'AMAZON', costo: 40 } },
+  { tipo: 'CASE', nome_tipo: 'Case', manuale: { codice: 'CASE ATX BLACK' }, auto: null,
+    fisso: { id: 'case_atx', descrizione: 'CASE ATX: budget massimo di prova', fornitore: 'ALTRO', costo: 50 } }] }] } } };
+const rFissi = J(A.daOrdinare(datiFissi, [{ id: '940', nome: '#9940', righe: [
+  rigaRf('COOLER', 'DISSIPATORE 240MM BIANCO', '', 40, 'fisso', 'DISSIPATORE 240MM BIANCO'),
+  rigaRf('CASE', 'CASE ATX BLACK', 'ALTRO', 50, 'fisso', 'CASE ATX BLACK'),
+  rigaRf('SSD ADDON', 'HDD 1TB AGGIUNTIVO', 'AMAZON', 60, 'fisso', 'HDD 1TB AGGIUNTIVO')] }], {}));
+const fornFissi = Object.fromEntries(rFissi.fornitori.map(f => [f.nome, f]));
+assert.deepEqual(Object.keys(fornFissi).sort(), ['AMAZON', 'DA SCEGLIERE']);       // niente «SENZA FORNITORE» o «ALTRO»
+assert.equal(fornFissi.AMAZON.righe.find(x => x.codice === 'DISSIPATORE 240MM BIANCO').descrizione, 'Dissipatore a liquido 240mm bianco (prova)');
+assert.equal(fornFissi['DA SCEGLIERE'].righe[0].descrizione, 'CASE ATX: budget massimo di prova');
+assert.equal(rFissi.fornitori.at(-1).nome, 'DA SCEGLIERE');                         // in fondo
+const hdd = fornFissi.AMAZON.righe.find(x => x.codice === 'HDD 1TB AGGIUNTIVO');
+assert.match(hdd.link.url, /amazon\.it\/s\?k=hard%20disk%202%2C5%20pollici%201TB.*&s=price-asc-rank/);  // dal prezzo piu' basso
+assert.deepEqual(J(hdd.pezzi), [{ id: '940', tipo: 'SSD ADDON', ean: 'HDD 1TB AGGIUNTIVO', fornitore: 'AMAZON', nome: 'HDD 1TB AGGIUNTIVO', ordine: '#9940' }]);
+assert.equal(A.linkAmazon('ASIN B0G39F6MQH (nero)', '', 'COOLER').url, 'https://www.amazon.it/dp/B0G39F6MQH');
+assert.match(A.linkAmazon('CASE ATX WHITE', '', 'CASE').url, /case%20ATX%204%20ventole%20ARGB%20vetro%20temperato%20bianco$/);
+assert.match(A.linkAmazon("MONITOR 27'' 180HZ - 2K", '', 'MONITOR').url, /monitor%20gaming%2027%20pollici%20180Hz%20QHD/);
+assert.equal(A.linkAmazon('1298', 'AMD Ryzen 5 9600X Tray', 'CPU'), null);
+assert.ok(A.fornitoreVago('ALTRO') && A.fornitoreVago('') && A.fornitoreVago('fuori listino') && !A.fornitoreVago('AMAZON'));
+const hf = A.htmlFornitoriDaOrdinare(rFissi, 'AMAZON');
+assert.match(hf, /📋 Copia ordine AMAZON/);
+assert.doesNotMatch(hf, /CASE ATX: budget/);                                       // solo il fornitore scelto
+assert.match(hf, /🛒 Cerca su Amazon \(dal prezzo più basso\)/);
+assert.match(hf, /data-rf-cambia="\d+"/);
+assert.match(A.htmlFornitoriDaOrdinare(rFissi, null), /Pezzi fuori dai listini: si scelgono col budget/);
+assert.match(A.htmlLatoDaOrdinare(rFissi, 3, '10:00', 'fornitori', 'AMAZON'), /data-rf-vedi="AMAZON"[\s\S]*↩ Tutti i fornitori/);
+assert.equal(A.ricercaPerCambio({ pezzi: [{ nome: 'RX 9060 XT 16GB WHITE' }], descrizione: 'x' }), 'RX 9060 XT 16GB');
+// messaggi del Buyer Desk: solo dalla sua origine e solo dopo «Cambia»
+const scelta = { tipo: 'mg-buyer-scelta', fornitore: 'TIER ONE', codice: '5781', descrizione: 'SSD', prezzo: 80 };
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), false);   // nessun cambio aperto
+A.cambio.riga = { pezzi: [{ id: '940', tipo: 'SSD' }] }; A.cambio.aperto = Date.now();
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), true);
+assert.equal(A.sceltaValida('https://evil.example', scelta), false);
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', { ...scelta, tipo: 'altro' }), false);
+A.cambio.aperto = Date.now() - 2 * 3600 * 1000;
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), false);   // cambio di piu' di un'ora fa
+A.cambio.riga = null;
+// opzioni del cliente per la riga nella scheda: scelta del cliente e pezzo trovato
+const exScelta = A.extraOrdine({ pezzi: [{ tipo: 'VENTOLE', nome_tipo: 'Ventole', cliente: 'Build full ventole (prova)', manuale: {},
+  fisso: { descrizione: 'Ventole RGB (prova)', fornitore: '', costo: 20 } }, { tipo: 'WIFI', nome_tipo: 'Connettività', cliente: 'Wi-Fi prova', manuale: {} }] }, [], [], {});
+assert.deepEqual(J(exScelta).map(x => [x.scelta, x.pezzo, x.accoppiata]), [['Build full ventole (prova)', 'Ventole RGB (prova)', true], ['Wi-Fi prova', '', false]]);
+assert.match(A.corpoPezzi([{ tipo: 'CPU', fornitore: 'AAA', nome: 'CPU', ean: '1', costo: 10, fonte: 'listino' }], false), /Prezzi netti di oggi, pezzo per pezzo/);
 
 console.log('accoppiamento-auto: tutti i test passati');

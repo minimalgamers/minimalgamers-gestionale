@@ -1944,6 +1944,8 @@
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
                 link: forn === 'AMAZON' || forn === DA_SCEGLIERE ? linkAmazon(x.codice, x.descrizione, categoria) : null });
             if (x.pezzo) r.pezzi.push(x.pezzo);
+            // la spiegazione piu' chiara vince sul solo codice (es. «CASE ATX BLACK» -> budget del case ATX)
+            if (x.descrizione && x.descrizione !== x.codice && (!r.descrizione || r.descrizione === r.codice)) r.descrizione = x.descrizione;
             r.quantita += x.quantita;
             if (x.costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + x.costo);
             if (x.stimato) r.stimato = true;
@@ -2362,7 +2364,7 @@
                 `<b>${esc(p.ordine || p.id)}</b> · ${esc(p.tipo)}: ${esc(p.fornitore)} ${esc(p.ean)}</label></div>`).join('') +
             `<p><small>Se un pezzo l'hai già comprato, togli la spunta a quel PC.</small></p>`;
         const c = await finestra(`🔁 Cambia ${esc(riga.codice || 'pezzo')}`, corpo, 'Cambia nelle schede', 'Annulla');
-        if (!c) return;
+        if (!c) { cambio.riga = null; return; }                // annullato: per cambiare si riparte da «Cambia»
         const scelti = Array.from(c.querySelectorAll('input[data-pc]')).filter(x => x.checked).map(x => pezzi[parseInt(x.dataset.pc, 10)]);
         let fatti = 0;
         for (const p of scelti) {

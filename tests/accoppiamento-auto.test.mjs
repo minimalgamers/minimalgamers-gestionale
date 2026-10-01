@@ -670,6 +670,10 @@ const fornFissi = Object.fromEntries(rFissi.fornitori.map(f => [f.nome, f]));
 assert.deepEqual(Object.keys(fornFissi).sort(), ['AMAZON', 'DA SCEGLIERE']);       // niente «SENZA FORNITORE» o «ALTRO»
 assert.equal(fornFissi.AMAZON.righe.find(x => x.codice === 'DISSIPATORE 240MM BIANCO').descrizione, 'Dissipatore a liquido 240mm bianco (prova)');
 assert.equal(fornFissi['DA SCEGLIERE'].righe[0].descrizione, 'CASE ATX: budget massimo di prova');
+// stesso pezzo in un PC senza dati automatici prima: la spiegazione del budget vince sul solo codice
+const rUnito = J(A.daOrdinare(datiFissi, [{ id: '941', nome: '#9941', righe: [rigaRf('CASE', 'CASE ATX BLACK', 'ALTRO', 50, 'fisso', 'CASE ATX BLACK')] },
+  { id: '940', nome: '#9940', righe: [rigaRf('CASE', 'CASE ATX BLACK', 'ALTRO', 50, 'fisso', 'CASE ATX BLACK')] }], {}));
+assert.deepEqual([rUnito.fornitori[0].righe[0].quantita, rUnito.fornitori[0].righe[0].descrizione], [2, 'CASE ATX: budget massimo di prova']);
 assert.equal(rFissi.fornitori.at(-1).nome, 'DA SCEGLIERE');                         // in fondo
 const hdd = fornFissi.AMAZON.righe.find(x => x.codice === 'HDD 1TB AGGIUNTIVO');
 assert.match(hdd.link.url, /amazon\.it\/s\?k=hard%20disk%202%2C5%20pollici%201TB.*&s=price-asc-rank/);  // dal prezzo piu' basso

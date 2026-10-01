@@ -433,6 +433,17 @@
         return `<div class="acc-esito pos">🟢 UTILE SRL ${eur(u.srl)}${v ? ' · in target' : ''}</div>`;
     }
 
+    // 01/10 (#4812, #4822): il cliente ha tolto dal carrello la riga OPZIONI di una scelta a pagamento.
+    // Il file dell'automatico porta per ogni PC «non_pagate» (guardia_opzioni dei listini): riga rossa in testa.
+    function rigaNonPagate(pc) {
+        const np = (pc && Array.isArray(pc.non_pagate)) ? pc.non_pagate : [];
+        if (!np.length) return '';
+        const voci = np.map(v => `${esc(v.menu)} ${esc(v.scelta)}${v.prezzo != null && !isNaN(Number(v.prezzo)) ? ` (+${eur(Number(v.prezzo))})` : ''}` +
+            (v.pc > 1 ? ` <small>pagata per ${Number(v.pagate) || 0} PC su ${Number(v.pc)}</small>` : ''));
+        return `<div class="acc-esito neg acc-non-pagata" title="Il cliente ha tolto dal carrello la riga OPZIONI: la scelta è scritta nell'ordine ma non è pagata. Decidi tu se montare il pezzo di serie o chiedere la differenza.">` +
+            `🔴 OPZIONE NON PAGATA · ${voci.join(' · ')}</div>`;
+    }
+
     // Alimentatore della scheda diverso da quello che va comprato oggi (Antonio 29/09, ordine MSI LEVIATHAN
     // elaborato con la regola vecchia: DeepCool 600W al posto di MSI 850W). Si confronta solo l'alimentatore,
     // per potenza e per marca MSI: gli altri pezzi hanno nomi diversi tra scheda e listini (codici Tier One,
@@ -996,7 +1007,7 @@
             ? `<div class="acc-avvisi">⚠ ${auto.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'ordine è stato comprato così: controlla la distinta prima di ordinare.</small></div>` : '';
         if (!vendita) {
             el.className = 'acc-utile';
-            el.innerHTML = `<div class="riga"><span>Costo pezzi (manuale)</span><span class="forte">${eur(costo)}</span></div>` +
+            el.innerHTML = rigaNonPagate(auto) + `<div class="riga"><span>Costo pezzi (manuale)</span><span class="forte">${eur(costo)}</span></div>` +
                 `<div class="mancanti">Prezzo di vendita non trovato per questo ordine: utile non calcolabile.</div>` + avvisi;
             return;
         }
@@ -1048,7 +1059,7 @@
         ].filter(Boolean);
         const aperta = sezioni.some(x => x.id === sezioniAperte[orderId]) ? sezioniAperte[orderId] : null;
         el.innerHTML =
-            rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ pezzi acquistati</div>' : '') +
+            rigaNonPagate(auto) + rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ pezzi acquistati</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
             (auto ? `<button type="button" data-vai="${esc(String(orderId).split('.')[0])}" title="Apri quest'ordine nella pagina Automatico">↗ Automatico</button>` : '') + `</div>` +
@@ -1683,7 +1694,7 @@
         for (const pc of o.pc) {
             const c = contiPc(pc, salvati);
             const cls = c.mancanti.length ? 'incompleto' : (c.utile.lordo < 0 ? 'neg' : 'pos');
-            html += `<div class="acc-pc-titolo"><b>${esc(pc.build)}</b> · ${esc(pc.titolo)}${pc.gpu ? ` · alimentatore per ${esc(pc.gpu)}` : ''}</div>`;
+            html += `<div class="acc-pc-titolo"><b>${esc(pc.build)}</b> · ${esc(pc.titolo)}${pc.gpu ? ` · alimentatore per ${esc(pc.gpu)}` : ''}</div>` + rigaNonPagate(pc);
             if (pc.avvisi && pc.avvisi.length) {
                 html += `<div class="acc-avvisi">⚠ ${pc.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'automatico segue quello che il cliente ha comprato.</small></div>`;
             }
@@ -2449,7 +2460,7 @@
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
-        cambio, ricercaPerCambio, righeOpzioniScheda, corpoPezzi, sezioniAperte, fornitoreVago, mostraUtile };
+        cambio, ricercaPerCambio, righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

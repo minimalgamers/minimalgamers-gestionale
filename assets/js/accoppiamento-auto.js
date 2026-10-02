@@ -657,10 +657,30 @@
         altro: 'stimato: stesso pezzo, prezzo di un altro fornitore',
         stima: 'stimato col pezzo consigliato: questo non ha un prezzo di listino' };
 
+    // Come si paga un pezzo (Antonio 02/10: «il prezzo qua è iva esclusa o iva inclusa in base a se intermediario o
+    // meno»). Il costo nei conti e' sempre netto (IVA esclusa), con le regole di GPU Watch: ACTION, OMEGA, TIER ONE e
+    // CASEKING tramite l'intermediario = listino + 10% pagato IVA inclusa (netto = pagato / 1,22); le loro CPU dirette
+    // in reverse charge (art. 17) = listino; i distributori italiani = listino + IVA 22% detraibile.
+    const CANALE_INT = ['ACTION', 'OMEGA', 'TIER ONE', 'CASEKING'];
+    const CANALE_DIST = ['ABACO', 'RUNNER', 'ESPRINET', 'BREVI', 'FOCELDA', 'NAVY BLUE'];
+    function comeSiPaga(fornitore, tipo, netto) {
+        const f = String(fornitore || '').toUpperCase().trim();
+        if (netto == null || isNaN(Number(netto))) return '';
+        const n = Number(netto);
+        if (CANALE_INT.includes(f)) {
+            if ((TIPI[tipo] || tipo) === 'CPU') return `CPU diretta da ${f} (art. 17, reverse charge): costo = listino, senza IVA`;
+            const pagato = tonda(n * IVA);
+            return `tramite intermediario: si pagano ${eur(pagato)} IVA inclusa (listino ${f} ${eur(tonda(pagato / 1.10))} + 10%)`;
+        }
+        if (CANALE_DIST.includes(f)) return `si pagano ${eur(n)} + IVA 22% = ${eur(tonda(n * IVA))} (IVA detraibile)`;
+        return '';
+    }
+
     // Pezzo per pezzo (aperto a richiesta): quanto costa oggi, da dove viene il numero e se c'e' di meglio
-    function corpoPezzi(righeConto, confermato) {
+    function corpoPezzi(righeConto, confermato, conCambio) {
         if (!righeConto.length) return '<div class="acc-nota">Nessun pezzo nella scheda.</div>';
-        return `<div class="acc-nota">${confermato ? 'Prezzi netti pagati' : 'Prezzi netti di oggi'}, pezzo per pezzo</div>` + righePezziConto(righeConto);
+        return `<div class="acc-nota">${confermato ? 'Prezzi netti pagati' : 'Prezzi netti di oggi'} (IVA esclusa), pezzo per pezzo</div>` +
+            righePezziConto(righeConto, conCambio && !confermato);
     }
 
     function dettaglioPezzi(righeConto, confermato) {
@@ -669,18 +689,23 @@
         return `<details class="acc-dettaglio"><summary>🔍 Pezzo per pezzo (${confermato ? 'prezzi netti pagati' : 'prezzi netti di oggi'})</summary>${corpo}</details>`;
     }
 
-    function righePezziConto(righeConto) {
-        return righeConto.map(r => {
-            const nome = r.nome || r.ean || '';
+    function righePezziConto(righeConto, conCambio) {
+        return righeConto.map((r, i) => {
+            const nome = r.descrizione || r.nome || r.ean || '';
             const val = r.costo == null ? '<span class="acc-incompleto">manca</span>' : `${r.fonte === 'stima' || r.fonte === 'altro' ? '≈ ' : ''}${eur(r.costo)}`;
-            let sotto = NOME_FONTE[r.fonte] ? `<small>${esc(NOME_FONTE[r.fonte])}</small>` : '';
+            const info = [r.ean && chiave(r.ean) !== chiave(nome) ? `codice ${esc(r.ean)}` : '',
+                r.fonte === 'listino' ? esc(comeSiPaga(r.fornitore, r.tipo, r.costo)) : ''].filter(Boolean).join(' · ');
+            let sotto = [info, NOME_FONTE[r.fonte] ? esc(NOME_FONTE[r.fonte]) : ''].filter(Boolean).map(x => `<small>${x}</small>`).join('<br>');
             const c = r.consigliato;
             if (c && r.costo != null && r.costo - c.costo >= 1 && r.fonte !== 'stima') {
                 const d = String(c.descrizione || '');
                 sotto += `${sotto ? '<br>' : ''}<small>💡 consigliato: ${esc(c.fornitore)} ${esc(d.length > 48 ? d.slice(0, 47) + '…' : d)} a ${eur(c.costo)} ` +
                     `(<b>−${eur(tonda(r.costo - c.costo))}</b>)</small>`;
             }
-            return `<div class="acc-pezzo"><div class="riga"><span><b>${esc(r.tipo)}</b> · ${esc(r.fornitore || '')} ${esc(nome)}</span><span>${val}</span></div>${sotto ? `<div>${sotto}</div>` : ''}</div>`;
+            const cambia = conCambio && r.ean && !SENZA_PEZZO.test(String(r.ean).trim()) && r.fonte !== 'acquistato'
+                ? `<button type="button" class="acc-cambia" data-cambia="${i}" title="Scegli un altro pezzo dal Buyer Desk: per questo ordine o anche per gli altri con lo stesso pezzo">🔁 Cambia</button>` : '';
+            return `<div class="acc-pezzo"><div class="riga"><span><b>${esc(r.tipo)}</b> · ${esc(r.fornitore || '')} ${esc(nome)}</span><span>${val}</span></div>` +
+                `${sotto || cambia ? `<div class="acc-pezzo-sotto"><div>${sotto}</div>${cambia}</div>` : ''}</div>`;
         }).join('');
     }
 
@@ -802,6 +827,8 @@
 .acc-conto .riga.forte{border-top:1px solid rgba(255,255,255,.35);margin-top:2px}
 .acc-dettaglio{margin:6px 0}.acc-dettaglio summary{cursor:pointer;font-weight:600}
 .acc-pezzo{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.12)}
+.acc-pezzo-sotto{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+.acc-cambia{flex:none;font-size:.85em;padding:1px 6px;border-radius:5px;border:1px solid rgba(52,152,219,.6);background:rgba(52,152,219,.18);color:#fff;cursor:pointer}
 .acc-consiglio{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.35)}
 .acc-barra{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.15)}
 .acc-barra button{padding:9px 14px;border-radius:8px;font-weight:800;cursor:pointer;border:1px solid rgba(255,255,255,.35);color:#fff;background:rgba(52,152,219,.35)}
@@ -1042,8 +1069,14 @@
             else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; stima = true; fonte = 'stima'; }
             else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; fonte = 'stima'; }
             else if (costoEquivalente(auto, tipo, salvati) != null) { costo = costoEquivalente(auto, tipo, salvati); stima = true; fonte = 'stima'; }
+            // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
+            // scheda); la scheda dell'assemblatore resta generica (chipset), qui serve a chi compra
+            const stessoCodice = (m) => m && m.descrizione && chiave(m.codice) === chiave(man.ean) ? m.descrizione : '';
+            const salvatoRiga = componentiSalvati(orderId).find(x => x.type === tipo && chiave(x.ean) === chiave(man.ean));
+            const descrizione = stessoCodice(vStesso && vStesso.manuale) || stessoCodice(pRiga && pRiga.manuale) ||
+                (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
             conti.righe.push({ tipo, ean: man.ean, fornitore: daCodice ? delCodice.fornitore : man.fornitore,
-                nome: man.nome, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
+                nome: man.nome, descrizione, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
             else { conti.man += costo; if (stima) conti.stime++; }
         }
@@ -1136,7 +1169,7 @@
         const nAvvisi = lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length + (consiglio ? 1 : 0);
         const sezioni = [
             { id: 'conto', nome: '💶 Conto', html: `<div class="acc-conto">${contoOrdine({ ...vendita, data: vendita.data || (auto && auto.data) }, costi, nMancanti, auto ? auto.obiettivo : null)}${oggi}</div>` + acquistato },
-            { id: 'pezzi', nome: '🔍 Pezzi', html: corpoPezzi(conti.righe, conti.confermato) + nonDisponibile },
+            { id: 'pezzi', nome: '🔍 Pezzi', html: corpoPezzi(conti.righe, conti.confermato, true) + nonDisponibile },
             extraLista.length ? { id: 'opzioni', nome: `➕ Opzioni (${extraLista.length})`, html: righeExtra(extraLista) } : null,
             nAvvisi ? { id: 'avvisi', nome: `⚠ Avvisi (${nAvvisi})`, allerta: lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length > 0,
                 html: mancanti + mancantiOpzioni + righePezziDiversi(diversi, nMancanti ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi + consiglio } : null
@@ -1197,6 +1230,10 @@
         el.querySelectorAll('[data-vai]').forEach(a => a.addEventListener('click', (ev) => {
             ev.stopPropagation();
             apriAutomatico(a.dataset.vai);
+        }));
+        el.querySelectorAll('[data-cambia]').forEach(b => b.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            apriCambioPezzo(orderId, conti.righe[parseInt(b.dataset.cambia, 10)]);
         }));
     }
 
@@ -2620,19 +2657,126 @@
             !!cambio.riga && Date.now() - cambio.aperto < 60 * 60 * 1000;
     }
 
-    async function applicaScelta(d) {
-        const riga = cambio.riga;
-        if (!riga) return;
-        const pezzi = riga.pezzi.filter(p => p && p.id && p.tipo);
+    // ================================================================ CAMBIO DAL RIQUADRO DI UN ORDINE (Antonio 02/10)
+    // «cambiare un pezzo col BUYER DESK e poi, una volta scelto il pezzo, un popup che chiede se quel pezzo lo voglio
+    // cambiare per tutti gli altri ordini che hanno lo stesso identico pezzo (o chipset corrispondente, cosi' facciamo
+    // un cambio massivo rapido) oppure solo per quell'ordine; deve cambiare anche nell'elenco finale dei pezzi».
+    // Equivalente = stesso requisito dell'Automatico (stesso chip e VRAM, stessa capacita', stesso processore, stessi
+    // watt…, colore e marca compresi). Non si toccano i PC con il pezzo gia' acquistato o preso dal magazzino.
+    function chiaveEquivalenza(p) {
+        const r = String((p && p.requisito) || '').replace(/,?\s*CL qualsiasi \(venduta CL\d+\)/i, '').replace(/\s+/g, ' ').trim();
+        return p && r && !/^stesso prodotto/i.test(r) ? `${p.tipo}|${r.toUpperCase()}` : '';
+    }
+
+    function pezzoAutoDelTipo(auto, tipo) {
+        const t = TIPI[tipo] || tipo;
+        return auto && Array.isArray(auto.pezzi) ? auto.pezzi.find(x => x.tipo === t) || null : null;
+    }
+
+    // PC elaborati (tutte le scrivanie, non finalizzati) dalla cache del gestionale
+    function schedeElaborate() {
+        let cache = {};
+        try { cache = (typeof processedOrdersCache !== 'undefined' && processedOrdersCache) || {}; } catch (e) { cache = {}; }
+        return Object.keys(cache).map(id => {
+            const o = cache[id] || {};
+            return { id, nome: o.orderIdFlip || o.order_id_flip || `#${id}`, foglio: o.foglioDiLavoro || o.foglio_di_lavoro || 1,
+                stato: o.stato || 'elaborati', components: Array.isArray(o.components) ? o.components : [] };
+        }).filter(x => x.stato === 'elaborati');
+    }
+
+    // Gli altri PC con lo stesso pezzo (stesso codice) e quelli con un pezzo equivalente
+    function pezziSimili(dati, origine, schede) {
+        const k = chiave(origine.ean);
+        const pO = pezzoAutoDelTipo(pcAutomatico(dati, origine.id), origine.tipo);
+        const eq = chiaveEquivalenza(pO);
+        const out = { uguali: [], equivalenti: [], requisito: eq ? String(pO.requisito || '') : '' };
+        for (const s of schede || []) {
+            if (String(s.id) === String(origine.id)) continue;
+            const comp = (s.components || []).find(c => c && c.type === origine.tipo && !c.isCustom && c.ean);
+            if (!comp) continue;
+            const auto = pcAutomatico(dati, s.id);
+            const uguale = chiave(comp.ean) === k;
+            if (!uguale && !(eq && chiaveEquivalenza(pezzoAutoDelTipo(auto, origine.tipo)) === eq)) continue;
+            const acquistato = comp.price !== null && comp.price !== undefined && comp.price !== '';
+            const magazzino = !acquistato && costoMagazzino(auto, origine.tipo, comp.ean) != null;
+            (uguale ? out.uguali : out.equivalenti).push({ id: s.id, ordine: s.nome, foglio: s.foglio, tipo: comp.type, ean: comp.ean,
+                fornitore: comp.supplier || '', nome: comp.name || '', bloccato: acquistato || magazzino,
+                nota: acquistato ? 'già acquistato' : (magazzino ? 'a magazzino' : '') });
+        }
+        const ordina = (a, b) => (a.foglio - b.foglio) || String(a.ordine).localeCompare(String(b.ordine));
+        out.uguali.sort(ordina);
+        out.equivalenti.sort(ordina);
+        return out;
+    }
+
+    function apriCambioPezzo(orderId, r) {
+        if (!r || !r.ean) return;
+        let nomeOrdine = '';
+        try { nomeOrdine = (processedOrdersCache[orderId] || {}).orderIdFlip || ''; } catch (e) { nomeOrdine = ''; }
+        if (!nomeOrdine) nomeOrdine = ((stato.dati && stato.dati.ordini && stato.dati.ordini[String(orderId).split('.')[0]]) || {}).nome || `#${orderId}`;
+        apriCambio({ codice: r.ean, descrizione: r.descrizione || r.nome || r.ean,
+            // la ricerca nel Buyer Desk parte dal nome generico della scheda (es. «RTX 5060 Ti 8GB»): tutte le marche
+            pezzi: [{ id: orderId, tipo: r.tipo, ean: r.ean, fornitore: r.fornitore || '', nome: r.nome || r.descrizione || '', ordine: nomeOrdine }],
+            origine: { id: orderId, tipo: r.tipo, ean: r.ean, fornitore: r.fornitore || '', ordine: nomeOrdine } });
+    }
+
+    function htmlSceltaScheda(riga, d, simili) {
+        const o = riga.origine;
         const nuovo = `${esc(d.fornitore)} <b>${esc(d.codice)}</b> ${esc(d.descrizione || '')}${d.prezzo != null && !isNaN(Number(d.prezzo)) ? ` · <b>${eur(Number(d.prezzo))}</b> netti` : ''}` +
             `${d.disponibilita ? ` <small>${esc(d.disponibilita)}</small>` : ''}`;
-        const corpo = `<p>Al posto di <b>${esc(riga.codice || '')}</b> ${esc(riga.descrizione || '')} metto:</p><p>${nuovo}</p>` +
-            `<p>Nelle schede di questi PC:</p>` + pezzi.map((p, i) => `<div class="acc-fin-riga"><label><input type="checkbox" data-pc="${i}" checked> ` +
-                `<b>${esc(p.ordine || p.id)}</b> · ${esc(p.tipo)}: ${esc(p.fornitore)} ${esc(p.ean)}</label></div>`).join('') +
-            `<p><small>Se un pezzo l'hai già comprato, togli la spunta a quel PC.</small></p>`;
-        const c = await finestra(`🔁 Cambia ${esc(riga.codice || 'pezzo')}`, corpo, 'Cambia nelle schede', 'Annulla');
-        if (!c) { cambio.riga = null; return; }                // annullato: per cambiare si riparte da «Cambia»
-        const scelti = Array.from(c.querySelectorAll('input[data-pc]')).filter(x => x.checked).map(x => pezzi[parseInt(x.dataset.pc, 10)]);
+        const voce = (p, gruppo, i) => `<div class="acc-fin-riga"><label><input type="checkbox" data-gruppo="${gruppo}" data-i="${i}"` +
+            `${p.bloccato ? ' disabled' : ' checked'}> <b>${esc(p.ordine)}</b> <small>E${esc(p.foglio)}</small> · ${esc(p.fornitore)} ${esc(p.ean)}` +
+            `${p.nota ? ` <small>(${esc(p.nota)})</small>` : ''}</label></div>`;
+        const liberi = (l) => l.filter(p => !p.bloccato).length;
+        return `<p>Al posto di <b>${esc(o.ean)}</b> ${esc(riga.descrizione || '')} <small>(${esc(o.ordine)})</small> metto:</p><p>${nuovo}</p>` +
+            `<p><b>Dove lo cambio?</b></p>` +
+            `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="solo" checked> Solo in <b>${esc(o.ordine)}</b></label></div>` +
+            (simili.uguali.length ? `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="uguali"> Anche negli altri ordini con lo stesso pezzo ` +
+                `<b>${esc(o.ean)}</b> (${liberi(simili.uguali)} PC)</label></div>` : '') +
+            (simili.equivalenti.length ? `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="equivalenti"> Anche negli ordini con un pezzo equivalente ` +
+                `<small>(${esc(simili.requisito)})</small> (${liberi(simili.uguali) + liberi(simili.equivalenti)} PC)</label></div>` : '') +
+            `<div data-lista="uguali" hidden>${simili.uguali.length ? '<p><small>Stesso pezzo:</small></p>' : ''}${simili.uguali.map((p, i) => voce(p, 'uguali', i)).join('')}</div>` +
+            `<div data-lista="equivalenti" hidden>${simili.equivalenti.length ? '<p><small>Pezzo equivalente:</small></p>' : ''}${simili.equivalenti.map((p, i) => voce(p, 'equivalenti', i)).join('')}</div>` +
+            `<p><small>Togli la spunta ai PC che non vuoi cambiare. I PC con il pezzo già acquistato o preso dal magazzino restano come sono. ` +
+            `Il riepilogo dei pezzi da ordinare si aggiorna da solo.</small></p>`;
+    }
+
+    // Quali PC cambiare secondo la scelta della finestra
+    function pcDaCambiare(corpo, riga, simili) {
+        const dove = (corpo.querySelector('input[name="acc-dove"]:checked') || {}).value || 'solo';
+        const o = riga.origine;
+        const scelti = [{ id: o.id, tipo: o.tipo, ean: o.ean, fornitore: o.fornitore, ordine: o.ordine }];
+        const gruppi = dove === 'uguali' ? ['uguali'] : (dove === 'equivalenti' ? ['uguali', 'equivalenti'] : []);
+        for (const g of gruppi) {
+            for (const x of Array.from(corpo.querySelectorAll(`input[data-gruppo="${g}"]`))) {
+                const p = simili[g][parseInt(x.dataset.i, 10)];
+                if (x.checked && p && !p.bloccato) scelti.push(p);
+            }
+        }
+        return scelti;
+    }
+
+    async function applicaSceltaScheda(d, riga) {
+        let dati = null;
+        try { dati = await carica(); } catch (e) { dati = null; }
+        const simili = pezziSimili(dati, riga.origine, schedeElaborate());
+        const promessa = finestra(`🔁 Cambia ${esc(riga.origine.tipo)} ${esc(riga.origine.ordine)}`, htmlSceltaScheda(riga, d, simili), 'Cambia', 'Annulla');
+        const ovs = document.querySelectorAll('.acc-finestra');
+        const ov = ovs[ovs.length - 1];
+        if (ov) {
+            ov.querySelectorAll('input[name="acc-dove"]').forEach(r => r.addEventListener('change', () => {
+                const v = (ov.querySelector('input[name="acc-dove"]:checked') || {}).value;
+                const u = ov.querySelector('[data-lista="uguali"]'), e = ov.querySelector('[data-lista="equivalenti"]');
+                if (u) u.hidden = v === 'solo';
+                if (e) e.hidden = v !== 'equivalenti';
+            }));
+        }
+        const c = await promessa;
+        if (!c) { cambio.riga = null; return; }
+        return salvaCambio(d, pcDaCambiare(c, riga, simili));
+    }
+
+    async function salvaCambio(d, scelti) {
         let fatti = 0;
         for (const p of scelti) {
             const ok = typeof updateProcessedOrderComponent === 'function'
@@ -2651,9 +2795,10 @@
         if (!fatti) return;
         try {
             if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
+            const n = riepilogo.n || (typeof getActiveWorksheetTab === 'function' ? getActiveWorksheetTab() : null);
             if (typeof renderProcessedOrders === 'function' && typeof getFilteredProcessedOrdersMap === 'function'
-                && typeof processedOrdersMap !== 'undefined' && riepilogo.n) {
-                await renderProcessedOrders(getFilteredProcessedOrdersMap(processedOrdersMap, riepilogo.n));
+                && typeof processedOrdersMap !== 'undefined' && n) {
+                await renderProcessedOrders(getFilteredProcessedOrdersMap(processedOrdersMap, n));
             }
             const inizio = Date.now();                        // le schede caricano i pezzi: si aspetta (massimo 20 secondi)
             while (Date.now() - inizio < 20000 && typeof isProcessedOrdersViewLoading === 'function' && isProcessedOrdersViewLoading()) {
@@ -2661,6 +2806,23 @@
             }
         } catch (e) { console.warn('[ACCOPPIAMENTO] ricarica schede', e); }
         if (riepilogo.modo === 'auto') renderRiepilogoAuto();
+    }
+
+    async function applicaScelta(d) {
+        const riga = cambio.riga;
+        if (!riga) return;
+        if (riga.origine) return applicaSceltaScheda(d, riga);
+        const pezzi = riga.pezzi.filter(p => p && p.id && p.tipo);
+        const nuovo = `${esc(d.fornitore)} <b>${esc(d.codice)}</b> ${esc(d.descrizione || '')}${d.prezzo != null && !isNaN(Number(d.prezzo)) ? ` · <b>${eur(Number(d.prezzo))}</b> netti` : ''}` +
+            `${d.disponibilita ? ` <small>${esc(d.disponibilita)}</small>` : ''}`;
+        const corpo = `<p>Al posto di <b>${esc(riga.codice || '')}</b> ${esc(riga.descrizione || '')} metto:</p><p>${nuovo}</p>` +
+            `<p>Nelle schede di questi PC:</p>` + pezzi.map((p, i) => `<div class="acc-fin-riga"><label><input type="checkbox" data-pc="${i}" checked> ` +
+                `<b>${esc(p.ordine || p.id)}</b> · ${esc(p.tipo)}: ${esc(p.fornitore)} ${esc(p.ean)}</label></div>`).join('') +
+            `<p><small>Se un pezzo l'hai già comprato, togli la spunta a quel PC.</small></p>`;
+        const c = await finestra(`🔁 Cambia ${esc(riga.codice || 'pezzo')}`, corpo, 'Cambia nelle schede', 'Annulla');
+        if (!c) { cambio.riga = null; return; }                // annullato: per cambiare si riparte da «Cambia»
+        const scelti = Array.from(c.querySelectorAll('input[data-pc]')).filter(x => x.checked).map(x => pezzi[parseInt(x.dataset.pc, 10)]);
+        return salvaCambio(d, scelti);
     }
 
     if (typeof window !== 'undefined' && window.addEventListener) {
@@ -2717,7 +2879,8 @@
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
-        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice };
+        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
+        comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

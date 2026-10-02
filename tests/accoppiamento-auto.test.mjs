@@ -705,7 +705,7 @@ A.cambio.riga = null;
 const exScelta = A.extraOrdine({ pezzi: [{ tipo: 'VENTOLE', nome_tipo: 'Ventole', cliente: 'Build full ventole (prova)', manuale: {},
   fisso: { descrizione: 'Ventole RGB (prova)', fornitore: '', costo: 20 } }, { tipo: 'WIFI', nome_tipo: 'Connettività', cliente: 'Wi-Fi prova', manuale: {} }] }, [], [], {});
 assert.deepEqual(J(exScelta).map(x => [x.scelta, x.pezzo, x.accoppiata]), [['Build full ventole (prova)', 'Ventole RGB (prova)', true], ['Wi-Fi prova', '', false]]);
-assert.match(A.corpoPezzi([{ tipo: 'CPU', fornitore: 'AAA', nome: 'CPU', ean: '1', costo: 10, fonte: 'listino' }], false), /Prezzi netti di oggi, pezzo per pezzo/);
+assert.match(A.corpoPezzi([{ tipo: 'CPU', fornitore: 'AAA', nome: 'CPU', ean: '1', costo: 10, fonte: 'listino' }], false), /Prezzi netti di oggi \(IVA esclusa\), pezzo per pezzo/);
 // 01/10 (#4812, #4822): opzione scelta ma non pagata, riga rossa in testa al riquadro
 assert.equal(A.rigaNonPagate({ non_pagate: [] }), '');
 assert.equal(A.rigaNonPagate(null), '');
@@ -830,3 +830,60 @@ assert.equal(rigaMon.codice, 'MONLG-GAM0046');
 assert.match(rigaMon.descrizione, /LG 34G630A-B/);
 assert.equal(rigaMon.disponibilita, '2 pz');
 console.log('ok monitor #4821');
+
+// --- 02/10: «nei pezzi i nomi precisi con fornitore e prezzo (IVA esclusa o inclusa, intermediario o no)» ---
+assert.match(A.comeSiPaga('ACTION', 'GPU', 392.18), /^tramite intermediario: si pagano 478,46\s€ IVA inclusa \(listino ACTION 434,96\s€ \+ 10%\)$/);
+assert.match(A.comeSiPaga('TIER ONE', 'CPU', 121), /CPU diretta da TIER ONE \(art\. 17, reverse charge\): costo = listino, senza IVA/);
+assert.match(A.comeSiPaga('ABACO', 'PSU', 28.69), /si pagano 28,69\s€ \+ IVA 22% = 35,00\s€ \(IVA detraibile\)/);
+assert.equal(A.comeSiPaga('AMAZON', 'CASE', 49.18), '');
+assert.equal(A.comeSiPaga('ACTION', 'GPU', null), '');
+const pz = A.righePezziConto([
+  { tipo: 'GPU', fornitore: 'ACTION', nome: 'RTX 5060 Ti 8GB WHITE', descrizione: 'Karta graf. INNO3D RTX 5060 Ti Twin X2 8GB', ean: 'VGAIN3NVD0156', costo: 392.18, fonte: 'listino' },
+  { tipo: 'PSU', fornitore: 'ABACO', nome: 'DEEPCOOL PF-600X', ean: 'DEEPCOOL PF-600X 80+ BRONZE', costo: 28.69, fonte: 'magazzino' },
+  { tipo: 'GPU', fornitore: 'AAA', nome: 'X', ean: 'INTEGRATA', costo: 0, fonte: 'listino' }], true);
+assert.match(pz, /GPU<\/b> · ACTION Karta graf\. INNO3D RTX 5060 Ti Twin X2 8GB<\/span>/);       // nome preciso, non il chipset
+assert.match(pz, /codice VGAIN3NVD0156 · tramite intermediario: si pagano 478,46/);
+assert.match(pz, /data-cambia="0"/);
+assert.match(pz, /data-cambia="1"/);                                                          // anche il pezzo a magazzino si puo' cambiare
+assert.doesNotMatch(pz, /data-cambia="2"/);                                                   // riga senza pezzo
+assert.doesNotMatch(A.righePezziConto([{ tipo: 'CPU', fornitore: 'A', ean: 'C1', costo: 10, fonte: 'acquistato' }], true), /data-cambia/);
+assert.doesNotMatch(A.corpoPezzi([{ tipo: 'CPU', fornitore: 'A', ean: 'C1', costo: 10, fonte: 'listino' }], true, true), /data-cambia/);   // acquisto confermato
+
+// --- 02/10: cambio dal riquadro: stesso pezzo o pezzo equivalente negli altri ordini ---
+assert.equal(A.chiaveEquivalenza({ tipo: 'RAM', requisito: '16GB DDR5 6000MHz o superiore, CL qualsiasi (venduta CL30), 2x8GB se costa poco' }),
+  A.chiaveEquivalenza({ tipo: 'RAM', requisito: '16GB DDR5 6000MHz o superiore, CL qualsiasi (venduta CL36), 2x8GB se costa poco' }));
+assert.equal(A.chiaveEquivalenza({ tipo: 'CASE', requisito: 'stesso prodotto (stesso codice produttore/EAN)' }), '');   // non e' un'equivalenza
+assert.equal(A.chiaveEquivalenza(null), '');
+const reqGpu = 'RTX 5060 TI 8GB, stesso chip e VRAM, bianca';
+const datiCambio = { ordini: {
+  '1': { nome: '#1', pc: [{ build: 'A', quantita: 1, pezzi: [{ tipo: 'GPU', requisito: reqGpu, manuale: { codice: 'G1' } }] }] },
+  '2': { nome: '#2', pc: [{ build: 'A', quantita: 1, pezzi: [{ tipo: 'GPU', requisito: reqGpu, manuale: { codice: 'G1' } }] }] },
+  '3': { nome: '#3', pc: [{ build: 'A', quantita: 1, pezzi: [{ tipo: 'GPU', requisito: reqGpu, manuale: { codice: 'G2' } }] }] },
+  '4': { nome: '#4', pc: [{ build: 'A', quantita: 1, pezzi: [{ tipo: 'GPU', requisito: 'RTX 5070 12GB, stesso chip e VRAM', manuale: { codice: 'G9' } }] }] },
+  '5': { nome: '#5', pc: [{ build: 'A', quantita: 1, pezzi: [{ tipo: 'GPU', requisito: reqGpu, manuale: { codice: 'G1' } }] }] },
+  '6': { nome: '#6', pc: [{ build: 'A', quantita: 1, pezzi: [{ tipo: 'GPU', requisito: reqGpu, manuale: { codice: 'G3' } }] }] } } };
+const schedeCambio = [
+  { id: '1', nome: '#1', foglio: 3, components: [{ type: 'GPU', ean: 'G1', supplier: 'ACTION' }] },
+  { id: '2', nome: '#2', foglio: 1, components: [{ type: 'GPU', ean: 'g-1', supplier: 'ACTION' }] },        // stesso codice
+  { id: '3', nome: '#3', foglio: 2, components: [{ type: 'GPU', ean: 'G2', supplier: 'TIER ONE' }] },      // equivalente
+  { id: '4', nome: '#4', foglio: 3, components: [{ type: 'GPU', ean: 'G9', supplier: 'OMEGA' }] },         // altro chip
+  { id: '5', nome: '#5', foglio: 3, components: [{ type: 'GPU', ean: 'G1', supplier: 'ACTION', price: 380 }] },   // gia' acquistato
+  { id: '6', nome: '#6', foglio: 4, components: [{ type: 'GPU', ean: 'G3', supplier: 'OMEGA', isCustom: true }] } ];
+const sim = J(A.pezziSimili(datiCambio, { id: '1', tipo: 'GPU', ean: 'G1' }, schedeCambio));
+assert.deepEqual(sim.uguali.map(x => [x.ordine, x.bloccato, x.nota]), [['#2', false, ''], ['#5', true, 'già acquistato']]);
+assert.deepEqual(sim.equivalenti.map(x => x.ordine), ['#3']);
+assert.equal(sim.requisito, reqGpu);
+// finestra: solo quest'ordine / stesso pezzo / equivalenti (con le spunte)
+const rigaC = { descrizione: 'INNO3D RTX 5060 Ti', origine: { id: '1', tipo: 'GPU', ean: 'G1', fornitore: 'ACTION', ordine: '#1' } };
+const hs = A.htmlSceltaScheda(rigaC, { fornitore: 'TIER ONE', codice: 'T9', descrizione: 'Gigabyte RTX 5060 Ti', prezzo: 380, disponibilita: '3 pz' }, sim);
+assert.match(hs, /value="solo" checked> Solo in <b>#1<\/b>/);
+assert.match(hs, /value="uguali"> Anche negli altri ordini con lo stesso pezzo <b>G1<\/b> \(1 PC\)/);
+assert.match(hs, /value="equivalenti"> Anche negli ordini con un pezzo equivalente <small>\(RTX 5060 TI 8GB, stesso chip e VRAM, bianca\)<\/small> \(2 PC\)/);
+assert.match(hs, /data-gruppo="uguali" data-i="1" disabled>/);                               // gia' acquistato: non si tocca
+const finta = (dove, spunte) => ({ querySelector: (sel) => sel.includes(':checked') ? { value: dove } : null,
+  querySelectorAll: (sel) => { const g = /data-gruppo="(\w+)"/.exec(sel)[1]; return (spunte[g] || []).map((c, i) => ({ checked: c, dataset: { i: String(i) } })); } });
+assert.deepEqual(J(A.pcDaCambiare(finta('solo', { uguali: [true, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1']);
+assert.deepEqual(J(A.pcDaCambiare(finta('uguali', { uguali: [true, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1', '2']);
+assert.deepEqual(J(A.pcDaCambiare(finta('equivalenti', { uguali: [true, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1', '2', '3']);
+assert.deepEqual(J(A.pcDaCambiare(finta('equivalenti', { uguali: [false, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1', '3']);
+console.log('ok cambio dal riquadro');

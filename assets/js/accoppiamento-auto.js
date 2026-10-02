@@ -411,7 +411,7 @@
     function righeVendita(vendita, data, listinoOggi) {
         const quando = dataBreve(data);
         let html = `<div class="riga"><span>Venduto${quando ? ` il ${quando}` : ''} a (IVA incl.)</span><span>${eur(vendita.totale)}` +
-            `${vendita.opzioni ? ` <small>(PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)})</small>` : ''}</span></div>`;
+            `${vendita.opzioni || vendita.accessori || vendita.spedizione || vendita.sconti ? ` <small>(${dettaglioVendita(vendita)})</small>` : ''}</span></div>`;
         if (listinoOggi != null && !isNaN(Number(listinoOggi)) && Math.abs(Number(listinoOggi) - vendita.pc) >= 1) {
             const d = tonda(Number(listinoOggi) - vendita.pc);
             html += `<div class="riga"><small>Oggi la build è a ${eur(Number(listinoOggi))} sul sito ` +
@@ -613,7 +613,9 @@
         const iva = tonda(p - p / IVA), comm = tonda(p * COMMISSIONI);
         const riga = (testo, valore, classe) => `<div class="riga${classe ? ' ' + classe : ''}"><span>${testo}</span><span class="val">${valore}</span></div>`;
         let h = riga(`Pagato dal cliente${dataBreve(vendita.data) ? ` il ${dataBreve(vendita.data)}` : ''}`, eur(p), 'pagato') +
-            (vendita.opzioni ? `<div class="riga nota"><span>PC ${eur(vendita.pc)} + opzioni ${eur(vendita.opzioni)}</span></div>` : '') +
+            (vendita.opzioni || vendita.accessori || vendita.spedizione || vendita.sconti ? `<div class="riga nota"><span>${dettaglioVendita(vendita)}</span></div>` : '') +
+            ((vendita.altri || []).length ? `<div class="riga nota"><span>⚠ Nell'ordine anche: ${vendita.altri.map(a => `${esc(a.nome)} (${eur(a.prezzo)})`).join(', ')} — non contati qui: il costo non è nella scheda</span></div>` : '') +
+            (vendita.rimborsato ? `<div class="riga nota"><span>⚠ Ordine con un rimborso su Shopify: controlla l'importo</span></div>` : '') +
             riga('− IVA 22%', eur(-iva), 'meno') +
             riga('− Scalapay e commissioni 4,5%', eur(-comm), 'meno');
         for (const c of costi) if (c.valore || c.sempre) h += riga(`− ${c.testo}`, eur(-c.valore), 'meno');
@@ -676,34 +678,79 @@
         return out;
     }
 
-    // Prezzo IVA inclusa del PC dell'ordine (riga del PC + righe «OPZIONI» collegate a quel PC)
+    // Quanto ha pagato davvero il cliente per questo PC (IVA inclusa). Antonio 02/10 (#4821: «vedi su Shopify a quanto è
+    // stato realmente venduto»): riga del PC + righe «OPZIONI» collegate, meno gli sconti; + kit gaming e monitor che il
+    // gestionale mette nella scheda di questo PC (stessa regola di multi-order-handler: un PC prende tutti, piu' PC
+    // uno a testa); + spedizione pagata dal cliente (diviso tra i PC dell'ordine). Gli altri articoli dell'ordine non
+    // entrano: il loro costo non e' nella scheda (si elencano per non perderli di vista).
     function prezzoVendita(orderId, ordini) {
         const [idBase, n] = String(orderId).split('.');
         const ord = (ordini || []).find(o => String(o.id) === idBase);
         if (!ord || !Array.isArray(ord.line_items)) return null;
+        const nomeLi = (li) => li.name || li.title || '';
         const ePc = (li) => {
-            const nome = li.name || li.title || '';
+            const nome = nomeLi(li);
             if (/^OPZIONI\b/i.test(nome)) return false;
             if (nome.toUpperCase().includes('PC GAMING')) return true;
             return typeof identifyPCConfig === 'function' && identifyPCConfig(nome, true, li.product_id ?? li.productId) !== null;
         };
+        const quante = (li) => Math.max(0, parseInt(li.quantity, 10) || (li.quantity === 0 ? 0 : 1));
+        const sconto = (li) => (Array.isArray(li.discount_allocations) ? li.discount_allocations : [])
+            .reduce((t, d) => t + (parseFloat(d.amount) || 0), 0);
+        const lordo = (li) => (parseFloat(li.price) || 0) * quante(li);
+        const netto = (li) => lordo(li) - sconto(li);                                         // riga intera, sconti tolti
         const pcs = [];
-        for (const li of ord.line_items) if (ePc(li)) for (let i = 0; i < (li.quantity || 1); i++) pcs.push(li);
-        const pc = pcs[(parseInt(n, 10) || 1) - 1];
+        for (const li of ord.line_items) if (ePc(li)) for (let i = 0; i < quante(li); i++) pcs.push(li);
+        const indice = (parseInt(n, 10) || 1) - 1;
+        const pc = pcs[indice];
         if (!pc) return null;
+        const usate = new Set(pcs);
         const gruppo = proprieta(pc)._gpo_product_group;
-        let opzioni = 0;
+        let opzioni = 0, sconti = sconto(pc) / (quante(pc) || 1);
         const righeOpzioni = [];
-        if (gruppo) {
-            for (const li of ord.line_items) {
-                if (li === pc || proprieta(li)._gpo_parent_product_group !== gruppo) continue;
-                const q = (li.quantity || 1) / (pc.quantity || 1);
-                opzioni += (parseFloat(li.price) || 0) * q;
-                righeOpzioni.push(li.name || li.title || '');
-            }
+        for (const li of ord.line_items) {
+            const padre = proprieta(li)._gpo_parent_product_group;
+            if (padre) usate.add(li);
+            if (!gruppo || li === pc || padre !== gruppo) continue;
+            const q = 1 / (quante(pc) || 1);                                            // quota di un PC
+            opzioni += lordo(li) * q;
+            sconti += sconto(li) * q;
+            righeOpzioni.push(nomeLi(li));
         }
+        // kit gaming e monitor: come li assegna il gestionale alle schede
+        const eKit = (li) => !ePc(li) && !proprieta(li)._gpo_parent_product_group && (typeof isKitGamingLineItem === 'function'
+            ? isKitGamingLineItem(nomeLi(li), li.product_id ?? li.productId) : /\bKIT\s+GAMING\b/i.test(nomeLi(li)));
+        const eMonitor = (li) => !ePc(li) && !eKit(li) && !proprieta(li)._gpo_parent_product_group && (typeof isMonitorLineItem === 'function'
+            ? isMonitorLineItem(li) : /\bMONITOR\b/i.test(nomeLi(li)));
+        let accessori = 0;
+        const righeAccessori = [];
+        for (const tipo of [eKit, eMonitor]) {
+            const unitaAcc = [];
+            for (const li of ord.line_items) if (tipo(li)) { usate.add(li); for (let i = 0; i < quante(li); i++) unitaAcc.push(li); }
+            const mie = pcs.length === 1 ? unitaAcc : (unitaAcc[indice] ? [unitaAcc[indice]] : []);
+            for (const li of mie) { accessori += parseFloat(li.price) || 0; sconti += sconto(li) / (quante(li) || 1); righeAccessori.push(nomeLi(li)); }
+        }
+        // spedizione (e altri costi dell'ordine pagati dal cliente): totale dell'ordine meno le righe
+        const totaleOrdine = parseFloat(ord.total_price);
+        const righeTot = ord.line_items.reduce((t, li) => t + netto(li), 0);
+        const spedizione = !isNaN(totaleOrdine) && totaleOrdine - righeTot > 0.005 ? (totaleOrdine - righeTot) / (pcs.length || 1) : 0;
+        const altri = ord.line_items.filter(li => !usate.has(li) && quante(li) > 0).map(li => ({ nome: nomeLi(li), prezzo: tonda(netto(li)) }));
         const base = parseFloat(pc.price) || 0;
-        return { totale: tonda(base + opzioni), pc: base, opzioni: tonda(opzioni), righeOpzioni, data: ord.created_at || '' };
+        const rimborsato = !isNaN(totaleOrdine) && ord.current_total_price != null && parseFloat(ord.current_total_price) < totaleOrdine - 0.005;
+        return { totale: tonda(base + opzioni + accessori + spedizione - sconti), pc: tonda(base), opzioni: tonda(opzioni),
+            accessori: tonda(accessori), spedizione: tonda(spedizione), sconti: tonda(sconti), righeOpzioni, righeAccessori, altri,
+            rimborsato, data: ord.created_at || '' };
+    }
+
+    // «PC 1197,00 € + opzioni 113,00 € + kit e monitor 570,90 € + spedizione 24,90 € − sconti 7,00 €»
+    function dettaglioVendita(v) {
+        const parti = [`PC ${eur(v.pc)}`];
+        if (v.opzioni) parti.push(`opzioni ${eur(v.opzioni)}`);
+        if (v.accessori) parti.push(`${(v.righeAccessori || []).length === 1 ? 'accessorio' : 'kit/monitor'} ${eur(v.accessori)}`);
+        if (v.spedizione) parti.push(`spedizione ${eur(v.spedizione)}`);
+        let t = parti.join(' + ');
+        if (v.sconti) t += ` − sconti ${eur(v.sconti)}`;
+        return t;
     }
 
     const costoManualeSalvato = (tipo, ean) => leggiLS(K_COSTI, {})[`${tipo}|${chiave(ean)}`];
@@ -1022,16 +1069,22 @@
             ? `<div class="mancanti">Mancano i costi di: ${lista.map((m, i) =>
                 `<a data-i="${i}" title="Inserisci il costo netto di questo pezzo">${esc(m.tipo)}</a>`).join(', ')} <small>(clic sul nome per inserire il costo netto)</small>.${perche}</div>`
             : '';
-        const ca = auto ? contiPc(auto, leggiLS(K_FISSI, {})) : null;
         let acquistato = '', consiglio = '';
         if (conti.confermato) {
             const senzaPrezzo = conti.righe.filter(r => r.fonte !== 'acquistato').length;
             acquistato = `<div class="acc-acquistato">✅ Pezzi acquistati: nei conti ci sono i prezzi pagati` +
                 (senzaPrezzo ? ` <small>(${senzaPrezzo === 1 ? '1 pezzo cambiato dopo, a prezzo di oggi' : `${senzaPrezzo} pezzi cambiati dopo, a prezzo di oggi`})</small>` : '') +
                 ` · <a class="acc-link" data-sblocca="1" title="I prezzi pagati si cancellano e si torna ai prezzi di oggi">annulla conferma</a></div>`;
-        } else if (auto && !nMancanti && !ca.mancanti.length && ca.utile.srl - u.srl >= 5) {
-            consiglio = `<div class="acc-consiglio">💡 Con i pezzi consigliati dall'Automatico l'utile SRL sarebbe <b>${eur(ca.utile.srl)}</b> ` +
-                `(+${eur(tonda(ca.utile.srl - u.srl))}), se non li hai ancora comprati: «AGGIORNA PREZZI PRODOTTO» li propone</div>`;
+        } else if (auto && !nMancanti) {
+            // 02/10 (#4821): si confronta pezzo per pezzo con lo stesso incasso, non con il conto dell'Automatico (che non ha
+            // kit, monitor e voci della scheda): prima diceva +195 € su un ordine col monitor
+            const risparmio = tonda(conti.righe.reduce((t, r) => t + (r.consigliato && r.costo != null && r.fonte !== 'stima'
+                && r.costo - r.consigliato.costo >= 1 ? r.costo - r.consigliato.costo : 0), 0));
+            const uAlt = utile(vendita.totale, costo - risparmio);
+            if (risparmio && uAlt.srl - u.srl >= 5) {
+                consiglio = `<div class="acc-consiglio">💡 Con i pezzi consigliati dall'Automatico l'utile SRL sarebbe <b>${eur(uAlt.srl)}</b> ` +
+                    `(+${eur(tonda(uAlt.srl - u.srl))}), se non li hai ancora comprati: «AGGIORNA PREZZI PRODOTTO» li propone</div>`;
+            }
         }
         const nonDisponibile = !auto && stato.errore && !conti.mancanti.length
             ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '';
@@ -2605,7 +2658,7 @@
     }
 
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
-        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico, parteDellUnita,
+        idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico, parteDellUnita, dettaglioVendita,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,
         valutaObiettivo, rigaObiettivo, righeVendita, rigaUtile, dataBreve, rigaEsito, pezziDiversi,

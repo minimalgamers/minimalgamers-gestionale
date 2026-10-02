@@ -412,6 +412,28 @@ console.log('✅ Alimentatore per scheda video (26/09) registrato');
 console.log('✅ normalizeDisplayName v35 registrata');
 
 
+// Antonio 02/10 (#4821): nome leggibile di un codice della scheda che i cataloghi non conoscono (es. il monitor
+// MONLG-GAM0046 = SKU della riga Shopify e codice ACTION): prima la riga dell'ordine con quello SKU, poi il listino
+// dell'automatico. Funziona anche se l'automatico non si carica (solo il nome dall'ordine).
+async function nomeLeggibileDelCodice(orderId, codice) {
+    const k = String(codice || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!k) return null;
+    let ordine = null;
+    try {
+        const idBase = String(orderId).split('.')[0];
+        ordine = (JSON.parse(sessionStorage.getItem('shopify_orders') || '[]') || []).find(o => String(o.id) === idBase) || null;
+    } catch (e) { ordine = null; }
+    const A = window.AccoppiamentoAuto;
+    let dati = null;
+    try { if (A && typeof A.carica === 'function') dati = await A.carica(); } catch (e) { dati = null; }
+    if (A && typeof A.nomeDaCodice === 'function') return A.nomeDaCodice(dati, codice, ordine);
+    const li = ordine && Array.isArray(ordine.line_items)
+        ? ordine.line_items.find(l => String((l && l.sku) || '').toUpperCase().replace(/[^A-Z0-9]/g, '') === k) : null;
+    return li && (li.name || li.title) ? { nome: String(li.name || li.title).trim(), fornitore: '', fonte: 'ordine' } : null;
+}
+window.nomeLeggibileDelCodice = nomeLeggibileDelCodice;
+
+
 // v21: deriva una label leggibile per il MONITOR a partire dal line_item Shopify.
 // Priorità in cascata:
 //   1) SKU pulito (se non UUID e non vuoto)
@@ -4506,6 +4528,19 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
                             if (salvato) {
                                 display.textContent = salvato.name;
                                 display.title = `EAN: ${displayEan}`;
+                                risolto = true;
+                            }
+                        }
+                        // Antonio 02/10 (#4821: «l'assemblatore vede solo MONLG-GAM0046 … se deve spedire il monitor
+                        // insieme al pc non capisce»): il codice e' lo SKU della riga Shopify (o il codice di un listino):
+                        // si mostra il nome del prodotto dell'ordine, altrimenti la descrizione del listino.
+                        if (!risolto) {
+                            const n = await nomeLeggibileDelCodice(orderId, displayEan);
+                            if (n && n.nome) {
+                                const daSpedire = String(componentType || '').toUpperCase() === 'MONITOR';
+                                display.textContent = daSpedire ? `📦 ${n.nome}` : n.nome;
+                                display.title = `Codice: ${displayEan}${n.fornitore ? ` (${n.fornitore})` : ''}` +
+                                    (daSpedire ? '\nDa spedire insieme al PC' : '');
                                 risolto = true;
                             }
                         }

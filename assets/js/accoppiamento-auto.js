@@ -1067,6 +1067,13 @@
                 if (p > 0) extra += p * (parseInt(it.quantity ?? it.quantita, 10) || 1);
             }
         } catch (e) { /* voci personalizzate non leggibili */ }
+        // 02/10: mentre la scheda si ridisegna (cambio di scrivania) le righe dei pezzi possono non esserci ancora:
+        // senza pezzi il conto darebbe tutto il pagato come utile (es. #4821 «1002,81 € in target» per qualche secondo)
+        if (!(conti && conti.righe && conti.righe.length) && !vociPers.length) {
+            el.className = 'acc-utile';
+            el.innerHTML = '<div class="riga"><span>⏳ Conto in calcolo…</span></div>';
+            return;
+        }
         const auto = pcAutomatico(dati, orderId);
         const servizi = tonda(serviziPc(auto).reduce((t, x) => t + (x.costo || 0), 0));
         const extraLista = extraOrdine(auto, righe(orderId).map(row => row.dataset.componentType), vociPers, leggiLS(K_FISSI, {}));

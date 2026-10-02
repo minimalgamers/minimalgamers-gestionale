@@ -2112,22 +2112,22 @@
         return { contatti: c, invii: invii.filter(x => x.pezzi), senza: Object.values(senza) };
     }
 
-    function rigaEmail(r) {
+    function rigaEmail(r, lingua) {
         const k = chiave(r.codice);
-        const cod = [r.codice ? `cod. ${r.codice}` : '', r.ean && chiave(r.ean) !== k ? `EAN ${r.ean}` : '',
+        const cod = [r.codice ? `${lingua === 'en' ? 'code' : 'cod.'} ${r.codice}` : '', r.ean && chiave(r.ean) !== k ? `EAN ${r.ean}` : '',
             r.mpn && chiave(r.mpn) !== k && chiave(r.mpn) !== chiave(r.ean) ? `P/N ${r.mpn}` : ''].filter(Boolean).join(' · ');
         return `- ${r.quantita} x ${String(r.descrizione || r.codice || '').trim()}${cod ? ` — ${cod}` : ''}`;
     }
 
     // Pezzi di un fornitore, categoria per categoria (CPU, GPU, MOBO, ...) e per descrizione
-    function sezioneEmail(g) {
+    function sezioneEmail(g, lingua) {
         const cats = [];
         for (const r of g.righe) if (!cats.includes(r.categoria || '')) cats.push(r.categoria || '');
         cats.sort((a, b) => posizione(a) - posizione(b) || a.localeCompare(b));
         return cats.map(cat => {
             const righe = g.righe.filter(r => (r.categoria || '') === cat)
                 .sort((a, b) => String(a.descrizione).localeCompare(String(b.descrizione)));
-            return (cats.length > 1 && cat ? `${cat}\n` : '') + righe.map(rigaEmail).join('\n');
+            return (cats.length > 1 && cat ? `${cat}\n` : '') + righe.map(r => rigaEmail(r, lingua)).join('\n');
         }).join('\n');
     }
 
@@ -2135,6 +2135,12 @@
         const c = contattiOrdini(contatti) || {};
         const data = oggi || new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' });
         const firma = c.firma || 'MINIMAL GAMERS S.R.L.';
+        if (x.lingua === 'en') {                           // 02/10: fornitori esteri (ACTION, OMEGA, CASEKING) in inglese
+            return { a: (x.a || []).join('; '), oggetto: `Order Minimal Gamers — ${data}`,
+                corpo: `Hello,\n\nplease find below our order:\n\n${x.gruppi.map(g => sezioneEmail(g, 'en')).join('\n')}\n\n` +
+                    `Total: ${x.pezzi === 1 ? '1 pc' : `${x.pezzi} pcs`}.\n\nCould you please confirm availability and delivery time ` +
+                    `and send us the proforma invoice?\n\nThank you,\n${firma}` };
+        }
         const tot = `Totale: ${x.pezzi === 1 ? '1 pezzo' : `${x.pezzi} pezzi`}.`;
         const oggetto = `Ordine Minimal Gamers del ${data}` + (x.intermediario ? ` — ${x.gruppi.map(g => g.nome).join(', ')}` : '');
         const corpo = x.intermediario

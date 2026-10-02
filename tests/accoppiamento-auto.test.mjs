@@ -764,3 +764,15 @@ assert.ok(A.avvisiEmail(em.invii[2], { cambi: 2 }).some(t => /2 pezzi sono diver
 const latoEm = A.htmlLatoDaOrdinare(rEm, 3, '10:00', 'categorie', null, contattiProva);
 assert.match(latoEm, /data-rf-email="T1_CPU"[\s\S]*data-rf-email="INTER"[\s\S]*Senza email: AMAZON 1 pz/);
 assert.doesNotMatch(A.htmlLatoDaOrdinare(rEm, 3, '10:00'), /data-rf-email/);           // senza contatti nel file: niente pulsanti
+
+// --- 02/10: CPU sempre dirette (anche ACTION), email in inglese per i fornitori esteri ---
+const contattiCpu = { firma: 'Prova Firma', invii: [
+  { id: 'ACTION_CPU', nome: 'ACTION CPU', a: ['kiryl@action.example'], fornitori: ['ACTION'], solo_categorie: ['CPU'], lingua: 'en' },
+  ...contattiProva.invii] };
+const emCpu = J(A.ordiniEmail(rEm, contattiCpu));
+assert.deepEqual(emCpu.invii.map(x => [x.id, x.pezzi]), [['ACTION_CPU', 1], ['T1_CPU', 1], ['INTER', 2], ['ABACO', 1]]);
+assert.doesNotMatch(A.testoEmail(emCpu.invii[2], contattiCpu, '02/10/2026').corpo, /9700X/);   // la CPU di ACTION non passa dall'intermediario
+const tEn = A.testoEmail(emCpu.invii[0], contattiCpu, '02/10/2026');
+assert.equal(tEn.oggetto, 'Order Minimal Gamers — 02/10/2026');
+assert.match(tEn.corpo, /^Hello,\n\nplease find below our order:\n\n- 1 x AMD Ryzen 7 9700X — code PROAMDRYZ0301\n\nTotal: 1 pc\./);
+assert.match(tEn.corpo, /proforma invoice\?\n\nThank you,\nProva Firma$/);

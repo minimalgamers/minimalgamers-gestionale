@@ -7512,17 +7512,18 @@ async function updateSupplierLogDisplay() {
         
         let html = '';
         logs.forEach((log) => {
-            const date = new Date(log.timestamp);
+            const date = new Date(log.timestamp || log.created_at);   // 02/10: con Supabase c'e' created_at
             const formattedDate = date.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
             const formattedTime = date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
             
             
-            const formattedOrders = log.orderIds.map(id => `#${String(id).padStart(4, '0')}`).join(', ');
+            const formattedOrders = (Array.isArray(log.orderIds) ? log.orderIds : []).map(id => `#${String(id).padStart(4, '0')}`).join(', ');
+            const conteggio = log.count != null ? log.count : (log.order_count != null ? log.order_count : '');
             
             html += `
                 <div class="suppliers-log-item" data-log-id="${log.id}" title="Ordini: ${formattedOrders}" style="cursor: pointer;">
                     <span class="suppliers-log-time">${formattedDate} ${formattedTime}</span>
-                    <span class="suppliers-log-count">${log.count} ordini</span>
+                    <span class="suppliers-log-count">${conteggio} ordini</span>
                 </div>
             `;
         });

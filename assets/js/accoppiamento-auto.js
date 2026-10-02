@@ -1951,10 +1951,12 @@
             const c = cat[categoria] || (cat[categoria] = {});
             const f = c[forn] || (c[forn] = {});
             const k = chiave(x.codice) || `~${String(x.descrizione || '').toUpperCase().trim()}`;
-            const r = f[k] || (f[k] = { codice: x.codice || '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
+            const r = f[k] || (f[k] = { codice: x.codice || '', ean: '', mpn: '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
                 link: forn === 'AMAZON' || forn === DA_SCEGLIERE ? linkAmazon(x.codice, x.descrizione, categoria) : null });
             if (x.pezzo) r.pezzi.push(x.pezzo);
+            if (!r.ean && x.ean) r.ean = String(x.ean).trim();          // 02/10: per l'ordine via email
+            if (!r.mpn && x.mpn) r.mpn = String(x.mpn).trim();
             // la spiegazione piu' chiara vince sul solo codice (es. «CASE ATX BLACK» -> budget del case ATX)
             if (x.descrizione && x.descrizione !== x.codice && (!r.descrizione || r.descrizione === r.codice)) r.descrizione = x.descrizione;
             r.quantita += x.quantita;
@@ -1980,7 +1982,7 @@
                 const pezzo = { id: s.id, tipo: r.tipo, ean: r.ean, fornitore: r.fornitore || '', nome: r.nome || '', ordine: s.nome };
                 if (p && p.auto && p.auto.codice) {                   // l'automatico oggi prende un altro pezzo
                     out.cambi++;
-                    aggiungi(categoria, { fornitore: p.auto.fornitore, codice: p.auto.codice, descrizione: p.auto.descrizione,
+                    aggiungi(categoria, { fornitore: p.auto.fornitore, codice: p.auto.codice, ean: p.auto.ean, mpn: p.auto.mpn, descrizione: p.auto.descrizione,
                         quantita: parseInt(p.auto.quantita, 10) || quantita, costo: p.auto.costo != null ? p.auto.costo : null,
                         disponibilita: p.auto.disponibilita, daConfermare: !!p.auto.da_confermare,
                         scheda: `${r.fornitore || ''} ${r.ean}`.trim(), pezzo }, s.nome);
@@ -2001,6 +2003,8 @@
                 const fisso = pr && !pr.auto && pr.fisso ? pr.fisso : null;
                 const vago = fornitoreVago(r.fornitore);
                 aggiungi(categoria, { fornitore: aTerra ? 'MAGAZZINO' : (vago && fisso && fisso.fornitore ? fisso.fornitore : r.fornitore), codice: r.ean,
+                    ean: (uguale && uguale.auto.ean) || (sch && sch.ean) || (/^\d{8,14}$/.test(String(r.ean || '').trim()) ? String(r.ean).trim() : ''),
+                    mpn: (uguale && uguale.auto.mpn) || (sch && sch.mpn) || '',
                     descrizione: (uguale && uguale.auto.descrizione) || (listino && listino.descrizione) ||
                         (vago && fisso && fisso.descrizione) || (salvato && salvato.name) || r.nome || r.ean,
                     quantita, costo: r.costo != null ? r.costo : null, stimato: r.fonte === 'stima' || r.fonte === 'altro',
@@ -2066,6 +2070,151 @@
         return c.fornitori.map(f => f.righe.map(r => `x${r.quantita} | ${f.nome} | ${r.codice || '—'} - ${r.descrizione}`).join('\n')).join('\n');
     }
 
+    // ================================================================ ORDINI VIA EMAIL (Antonio 02/10)
+    // «Un pulsante rapido che apra il nostro Outlook via Chrome (info@minimalgamers.it) che raggruppi EAN o ID o SKU di
+    // ogni prodotto per fornitore (in maniera precisa e ordinata) e il quantitativo di pezzi che servono»: TIER ONE solo
+    // CPU direttamente a T1; TIER ONE (no CPU), OMEGA, ACTION e CASEKING all'intermediario; ABACO, RUNNER, ... ai loro
+    // commerciali. A chi scrivere sta in «contatti_ordini» del file cifrato (LISTINI accoppiamento/contatti_ordini.json),
+    // non in questo repo pubblico. L'email si compone dall'ultimo riepilogo: se cambi un pezzo dal Buyer Desk, cambia anche
+    // l'email. Il gestionale non manda niente: apre la bozza in Outlook e Antonio controlla e preme «Invia».
+    const URL_OUTLOOK = 'https://outlook.office.com/mail/deeplink/compose';
+    const MAX_URL_OUTLOOK = 7500;                          // oltre, il testo va incollato (resta negli appunti)
+
+    function contattiOrdini(contatti) {
+        const c = contatti || (stato.dati && stato.dati.contatti_ordini) || null;
+        return c && Array.isArray(c.invii) ? c : null;
+    }
+
+    // Righe del riepilogo divise per email: il primo invio che corrisponde (fornitore e categoria) vince
+    function ordiniEmail(r, contatti) {
+        const c = contattiOrdini(contatti);
+        const invii = c ? c.invii.map(x => ({ ...x, gruppi: [], pezzi: 0 })) : [];
+        const senza = {};
+        for (const f of (r && r.fornitori) || []) {
+            if (f.nome === 'MAGAZZINO' || f.nome === DA_SCEGLIERE) continue;
+            for (const riga of f.righe || []) {
+                const cat = riga.categoria || '';
+                const x = invii.find(i => (i.fornitori || []).some(n => String(n).toUpperCase().trim() === f.nome) &&
+                    (!(i.solo_categorie || []).length || i.solo_categorie.includes(cat)) && !(i.escludi_categorie || []).includes(cat));
+                if (!x) {
+                    const z = senza[f.nome] || (senza[f.nome] = { nome: f.nome, pezzi: 0,
+                        motivo: (c && c.senza_email && c.senza_email[f.nome]) || 'contatto da indicare' });
+                    z.pezzi += riga.quantita;
+                    continue;
+                }
+                let g = x.gruppi.find(y => y.nome === f.nome);
+                if (!g) { g = { nome: f.nome, righe: [], pezzi: 0 }; x.gruppi.push(g); }
+                g.righe.push(riga);
+                g.pezzi += riga.quantita;
+                x.pezzi += riga.quantita;
+            }
+        }
+        return { contatti: c, invii: invii.filter(x => x.pezzi), senza: Object.values(senza) };
+    }
+
+    function rigaEmail(r) {
+        const k = chiave(r.codice);
+        const cod = [r.codice ? `cod. ${r.codice}` : '', r.ean && chiave(r.ean) !== k ? `EAN ${r.ean}` : '',
+            r.mpn && chiave(r.mpn) !== k && chiave(r.mpn) !== chiave(r.ean) ? `P/N ${r.mpn}` : ''].filter(Boolean).join(' · ');
+        return `- ${r.quantita} x ${String(r.descrizione || r.codice || '').trim()}${cod ? ` — ${cod}` : ''}`;
+    }
+
+    // Pezzi di un fornitore, categoria per categoria (CPU, GPU, MOBO, ...) e per descrizione
+    function sezioneEmail(g) {
+        const cats = [];
+        for (const r of g.righe) if (!cats.includes(r.categoria || '')) cats.push(r.categoria || '');
+        cats.sort((a, b) => posizione(a) - posizione(b) || a.localeCompare(b));
+        return cats.map(cat => {
+            const righe = g.righe.filter(r => (r.categoria || '') === cat)
+                .sort((a, b) => String(a.descrizione).localeCompare(String(b.descrizione)));
+            return (cats.length > 1 && cat ? `${cat}\n` : '') + righe.map(rigaEmail).join('\n');
+        }).join('\n');
+    }
+
+    function testoEmail(x, contatti, oggi) {
+        const c = contattiOrdini(contatti) || {};
+        const data = oggi || new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' });
+        const firma = c.firma || 'MINIMAL GAMERS S.R.L.';
+        const tot = `Totale: ${x.pezzi === 1 ? '1 pezzo' : `${x.pezzi} pezzi`}.`;
+        const oggetto = `Ordine Minimal Gamers del ${data}` + (x.intermediario ? ` — ${x.gruppi.map(g => g.nome).join(', ')}` : '');
+        const corpo = x.intermediario
+            ? `Buongiorno,\n\nvi chiediamo di ordinare per nostro conto i seguenti prodotti, divisi per fornitore:\n\n` +
+                x.gruppi.map(g => `${g.nome} — ${g.pezzi === 1 ? '1 pezzo' : `${g.pezzi} pezzi`}\n${sezioneEmail(g)}`).join('\n\n') +
+                `\n\n${tot}\n\nCi confermate disponibilità e tempi di consegna?\n\nGrazie,\n${firma}`
+            : `Buongiorno,\n\nvi inviamo il nostro ordine:\n\n${x.gruppi.map(sezioneEmail).join('\n')}\n\n${tot}\n\n` +
+                `Ci confermate disponibilità e tempi di consegna?\n\nGrazie,\n${firma}`;
+        return { a: (x.a || []).join('; '), oggetto, corpo };
+    }
+
+    function urlOutlook(a, oggetto, corpo) {
+        const base = `${URL_OUTLOOK}?to=${encodeURIComponent(a)}&subject=${encodeURIComponent(oggetto)}`;
+        const pieno = `${base}&body=${encodeURIComponent(corpo)}`;
+        if (pieno.length <= MAX_URL_OUTLOOK) return { url: pieno, incolla: false };
+        return { url: `${base}&body=${encodeURIComponent("[Incolla qui l'elenco dei pezzi: Ctrl+V]")}`, incolla: true };
+    }
+
+    // Avvisi da vedere prima di ordinare: pezzi non allineati alle schede, pochi pezzi, contatto da confermare
+    function avvisiEmail(x, r) {
+        const out = [];
+        if (x.da_confermare) out.push(`Contatto da confermare: ${(x.a || []).join(', ')}`);
+        if (r && r.cambi) out.push(`${r.cambi === 1 ? '1 pezzo è diverso' : `${r.cambi} pezzi sono diversi`} dalle schede: l'email ordina ` +
+            `quelli del riepilogo (i più convenienti oggi). Allinea le schede con «AGGIORNA PREZZI PRODOTTO».`);
+        for (const g of x.gruppi) for (const riga of g.righe) {
+            if (riga.nonDisponibile) out.push(`${g.nome} ${riga.codice}: oggi non disponibile`);
+            else if (riga.poco != null) out.push(`${g.nome} ${riga.codice}: ne ha solo ${riga.poco} su ${riga.quantita}`);
+            if (riga.daConfermare) out.push(`${g.nome} ${riga.codice}: disponibilità da confermare`);
+        }
+        return out;
+    }
+
+    function htmlEmailOrdini(r, contatti) {
+        const em = ordiniEmail(r, contatti);
+        if (!em.contatti) return '';
+        if (!em.invii.length && !em.senza.length) return '';
+        return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Ordini via email: si apre la bozza in Outlook (info@), la controlli e premi Invia</div>` +
+            em.invii.map(x => `<button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
+                `✉️ ${esc(x.nome)} · ${x.pezzi} pz${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
+                `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>`).join('') +
+            (em.senza.length ? `<div class="acc-nota">Senza email: ${em.senza.map(z => `${esc(z.nome)} ${z.pezzi} pz (${esc(z.motivo)})`).join(' · ')}</div>` : '') +
+            `</div>`;
+    }
+
+    function apriEmailOrdine(id, r) {
+        const em = ordiniEmail(r);
+        const x = em.invii.find(i => i.id === id);
+        if (!x) return avvisa('Niente da ordinare per questo contatto', 'warning');
+        stile();
+        const t = testoEmail(x, em.contatti);
+        const avvisi = avvisiEmail(x, r);
+        const ov = document.createElement('div');
+        ov.className = 'acc-finestra';
+        ov.innerHTML = `<div class="acc-finestra-box"><h3>✉️ Ordine · ${esc(x.nome)} · ${x.pezzi} pz</h3><div class="acc-finestra-corpo">` +
+            (avvisi.length ? `<div class="acc-rf-avviso">${avvisi.map(esc).join('<br>')}</div>` : '') +
+            `<label class="acc-nota">A</label><input data-em-a type="text" style="width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff">` +
+            `<label class="acc-nota">Oggetto</label><input data-em-oggetto type="text" style="width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff">` +
+            `<label class="acc-nota">Testo (modificabile)</label><textarea data-em-corpo style="width:100%;box-sizing:border-box;min-height:46vh;margin-top:2px;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff;font-family:monospace;font-size:.85em"></textarea>` +
+            `</div><div class="acc-finestra-bottoni"><button type="button" data-no>Annulla</button><button type="button" data-copia-em>📋 Copia testo</button>` +
+            `<button type="button" data-si>✉️ Apri in Outlook</button></div></div>`;
+        document.body.appendChild(ov);
+        ov.querySelector('[data-em-a]').value = t.a;
+        ov.querySelector('[data-em-oggetto]').value = t.oggetto;
+        ov.querySelector('[data-em-corpo]').value = t.corpo;
+        const valori = () => ({ a: ov.querySelector('[data-em-a]').value.trim(), oggetto: ov.querySelector('[data-em-oggetto]').value,
+            corpo: ov.querySelector('[data-em-corpo]').value });
+        ov.querySelector('[data-no]').addEventListener('click', () => ov.remove());
+        ov.querySelector('[data-copia-em]').addEventListener('click', () => copia(valori().corpo));
+        ov.querySelector('[data-si]').addEventListener('click', () => {
+            const v = valori();
+            try { navigator.clipboard.writeText(v.corpo); } catch (e) { /* appunti non disponibili */ }
+            const u = urlOutlook(v.a, v.oggetto, v.corpo);
+            const w = window.open(u.url, '_blank');
+            if (!w) return avvisa('Il browser ha bloccato la finestra di Outlook: consenti i pop-up per il gestionale.', 'warning');
+            avvisa(u.incolla ? 'Testo lungo: nella bozza di Outlook incolla l\'elenco con Ctrl+V (è negli appunti)'
+                : 'Bozza aperta in Outlook (il testo è anche negli appunti): controlla e premi Invia', u.incolla ? 'warning' : 'success');
+            ov.remove();
+        });
+    }
+
     function htmlRigaDaOrdinare(r, colore, magazzino, categoria) {
         const disp = r.disponibilita ? `${r.disponibilita}${r.daConfermare && !/confermare/i.test(r.disponibilita) ? ' · da confermare' : ''}` : '';
         const costo = r.senzaCosto && !r.costo ? 'costo —' : `${r.stimato ? '≈ ' : ''}${eur(r.costo)}${r.senzaCosto ? ' +' : ''}`;
@@ -2119,7 +2268,7 @@
         }).join('');
     }
 
-    function htmlLatoDaOrdinare(r, n, quando, vista, solo) {
+    function htmlLatoDaOrdinare(r, n, quando, vista, solo, contatti) {
         const v = vista === 'fornitori' ? 'fornitori' : 'categorie';
         return `<div class="acc-rf-tot"><small>Da ordinare · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
             `<b>${eur(r.totale)}</b><small>${r.pezzi} pezzi per ${r.pc === 1 ? '1 PC' : `${r.pc} PC`}` +
@@ -2135,6 +2284,7 @@
                 `${f.nome === 'MAGAZZINO' ? ' a terra' : (f.senzaCosto && !f.costo ? ' · costo —' : ` · ${eur(f.costo)}${f.senzaCosto ? ' +' : ''}`)}</span>` +
                 `${f.nome === 'MAGAZZINO' ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia l'ordine per ${esc(f.nome)}">📋 Copia</button>`}</div>`).join('') +
             (solo ? `<button type="button" class="acc-rf-copia" data-rf-vedi="">↩ Tutti i fornitori</button>` : '') +
+            htmlEmailOrdini(r, contatti) +
             `<button type="button" class="acc-rf-copia" data-rf-ricalcola="1">🔄 Ricalcola con gli ultimi dati</button>`;
     }
 
@@ -2331,6 +2481,7 @@
         }));
         tutti('[data-rf-cambia]').forEach(b => b.addEventListener('click', () => apriCambio(r.righe[parseInt(b.dataset.rfCambia, 10)])));
         tutti('[data-rf-ricalcola]').forEach(b => b.addEventListener('click', () => renderRiepilogoAuto(true)));
+        tutti('[data-rf-email]').forEach(b => b.addEventListener('click', () => apriEmailOrdine(b.dataset.rfEmail, riepilogo.ultimo)));
     }
 
     // ================================================================ CAMBIA UN PEZZO DAL BUYER DESK (Antonio 01/10)
@@ -2460,7 +2611,8 @@
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
-        cambio, ricercaPerCambio, righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile };
+        cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
+        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

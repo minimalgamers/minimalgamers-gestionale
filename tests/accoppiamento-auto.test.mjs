@@ -715,3 +715,52 @@ assert.match(np, /🔴 OPZIONE NON PAGATA · CPU CPU PROVA &lt;X&gt; \(\+50,00\s
 assert.match(A.rigaNonPagate({ non_pagate: [{ menu: 'GPU', scelta: 'G', prezzo: 10, pc: 2, pagate: 1 }] }), /pagata per 1 PC su 2/);
 
 console.log('accoppiamento-auto: tutti i test passati');
+
+// --- 02/10: ordini via email (contatti di prova: quelli veri stanno solo nel file cifrato) ---
+const contattiProva = {
+  firma: 'Prova Firma',
+  invii: [
+    { id: 'T1_CPU', nome: 'T1 CPU', a: ['uno@t1.example', 'due@t1.example'], fornitori: ['TIER ONE'], solo_categorie: ['CPU'] },
+    { id: 'INTER', nome: 'Intermediario', a: ['b2b@inter.example'], fornitori: ['TIER ONE', 'ACTION', 'OMEGA', 'CASEKING'], intermediario: true },
+    { id: 'ABACO', nome: 'ABACO', a: ['abaco@example.com'], fornitori: ['ABACO'], da_confermare: true }
+  ],
+  senza_email: { AMAZON: 'si compra sul sito' }
+};
+const datiEm = { ordini: {
+  '950': { nome: '#9950', pc: [{ build: 'PC PROVA', quantita: 1, pezzi: [] }] } } };
+const schedeEm = [{ id: '950', nome: '#9950', righe: [
+  rigaRf('CPU', '1298', 'TIER ONE', 150, 'listino', 'AMD Ryzen 5 9600X Tray'),
+  rigaRf('MOBO', '2855', 'TIER ONE', 70, 'listino', 'ASRock B650M-HDV/M.2'),
+  rigaRf('CPU', 'PROAMDRYZ0301', 'ACTION', 200, 'listino', 'AMD Ryzen 7 9700X'),
+  rigaRf('GPU', 'VGAASRATI0106', 'ACTION', 330, 'listino', 'Asrock RX 9060 XT 16GB'),
+  rigaRf('CASE', 'DPCG5304F', 'ABACO', 49.72, 'listino', 'DeepCool CG530 4F'),
+  rigaRf('COOLER', 'ASIN B0G39F6MQH (nero)', 'AMAZON', 40, 'fisso', 'Dissipatore 360'),
+  rigaRf('PSU', 'PSU-MAG', 'ABACO', 60, 'magazzino', 'Alimentatore a terra')] }];
+const rEm = J(A.daOrdinare(datiEm, schedeEm, {}));
+const em = J(A.ordiniEmail(rEm, contattiProva));
+assert.deepEqual(em.invii.map(x => [x.id, x.pezzi]), [['T1_CPU', 1], ['INTER', 3], ['ABACO', 1]]);
+assert.deepEqual(em.invii[1].gruppi.map(g => g.nome).sort(), ['ACTION', 'TIER ONE']);   // TIER ONE senza CPU all'intermediario
+assert.deepEqual(em.senza, [{ nome: 'AMAZON', pezzi: 1, motivo: 'si compra sul sito' }]);  // magazzino escluso
+const tT1 = A.testoEmail(em.invii[0], contattiProva, '02/10/2026');
+assert.equal(tT1.a, 'uno@t1.example; due@t1.example');
+assert.equal(tT1.oggetto, 'Ordine Minimal Gamers del 02/10/2026');
+assert.match(tT1.corpo, /- 1 x AMD Ryzen 5 9600X Tray — cod\. 1298\n\nTotale: 1 pezzo\./);
+assert.match(tT1.corpo, /Grazie,\nProva Firma$/);
+const tInt = A.testoEmail(em.invii[1], contattiProva, '02/10/2026');
+assert.match(tInt.oggetto, /— (ACTION, TIER ONE|TIER ONE, ACTION)$/);
+assert.match(tInt.corpo, /ACTION — 2 pezzi\nCPU\n- 1 x AMD Ryzen 7 9700X — cod\. PROAMDRYZ0301\nGPU\n- 1 x Asrock RX 9060 XT 16GB — cod\. VGAASRATI0106/);
+assert.match(tInt.corpo, /TIER ONE — 1 pezzo\n- 1 x ASRock B650M-HDV\/M\.2 — cod\. 2855/);
+assert.doesNotMatch(tInt.corpo, /9600X/);                                            // la CPU di TIER ONE va diretta
+assert.equal(A.rigaEmail({ quantita: 2, descrizione: 'Pezzo', codice: 'ABC1', ean: '8001234567890', mpn: 'MPN-9' }),
+  '- 2 x Pezzo — cod. ABC1 · EAN 8001234567890 · P/N MPN-9');
+assert.equal(A.rigaEmail({ quantita: 1, descrizione: 'Pezzo', codice: '8001234567890', ean: '8001234567890', mpn: '' }),
+  '- 1 x Pezzo — cod. 8001234567890');
+const corto = A.urlOutlook('a@x.example; b@x.example', 'Ogg', 'riga1\nriga2');
+assert.equal(corto.incolla, false);
+assert.match(corto.url, /^https:\/\/outlook\.office\.com\/mail\/deeplink\/compose\?to=a%40x\.example%3B%20b%40x\.example&subject=Ogg&body=riga1%0Ariga2$/);
+assert.equal(A.urlOutlook('a@x.example', 'Ogg', 'x'.repeat(9000)).incolla, true);       // troppo lungo: si incolla
+assert.ok(A.avvisiEmail(em.invii[2], { cambi: 2 }).some(t => /Contatto da confermare/.test(t)));
+assert.ok(A.avvisiEmail(em.invii[2], { cambi: 2 }).some(t => /2 pezzi sono diversi dalle schede/.test(t)));
+const latoEm = A.htmlLatoDaOrdinare(rEm, 3, '10:00', 'categorie', null, contattiProva);
+assert.match(latoEm, /data-rf-email="T1_CPU"[\s\S]*data-rf-email="INTER"[\s\S]*Senza email: AMAZON 1 pz/);
+assert.doesNotMatch(A.htmlLatoDaOrdinare(rEm, 3, '10:00'), /data-rf-email/);           // senza contatti nel file: niente pulsanti

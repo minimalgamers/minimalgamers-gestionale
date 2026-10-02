@@ -409,6 +409,17 @@ async function enrichMissingNames(supplierData) {
                 } catch (error) {
                     console.error(`Errore ricerca ${lookup.ean}:`, error);
                 }
+                // 02/10 (Antonio: «tutti i prodotti di cui non accoppia»): codice preso dal Buyer Desk che il database
+                // dei componenti non conosce (es. PROAMDRYZ0301, 2520): nome del listino di quel fornitore, dal file
+                // dell'automatico, invece del solo codice
+                try {
+                    const A = window.AccoppiamentoAuto;
+                    if (A && typeof A.carica === 'function' && typeof A.costoScheda === 'function') {
+                        const d = await A.carica();
+                        const voce = A.costoScheda(d, lookup.ean, supplierHint);
+                        if (voce && voce.descrizione) return voce.descrizione;
+                    }
+                } catch (error) { /* automatico non disponibile: resta il codice */ }
                 return lookup.ean;
             })();
 

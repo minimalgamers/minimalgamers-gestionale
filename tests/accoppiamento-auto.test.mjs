@@ -807,3 +807,26 @@ const a1 = J(A.prezzoVendita('4900.1', [o2])), a2 = J(A.prezzoVendita('4900.2', 
 assert.deepEqual([a1.totale, a1.accessori, a1.spedizione], [1365, 150, 15]);
 assert.deepEqual([a2.totale, a2.accessori], [1365, 150]);
 assert.deepEqual(a1.altri, [{ nome: 'Garanzia estesa', prezzo: 30 }]);
+
+// --- 02/10 (#4821): «nella scheda l'assemblatore vede solo MONLG-GAM0046» ---
+const datiMon = { per_codice: { '|MONLGGAM0046': { costo: 228.77, descrizione: 'LG 34G630A-B computer monitor 86.4 cm (34 ) 3440 x 1440 pixels Black',
+  fornitore: 'ACTION', codice: 'MONLG-GAM0046', mpn: '34G630A-B', ean: '', fonte: 'listino ACTION', disponibilita: '2 pz' },
+  '|KITGAMINGWHITE': { costo: 40.98, descrizione: 'Kit', fornitore: 'ACTION', codice: 'ALTRO-CODICE', fonte: 'listino ACTION' } } };
+const ordMon = { id: 4821, line_items: [{ name: 'LG 34G630A-B - Monitor gaming 34" UltraWide QHD', sku: 'MONLG-GAM0046', price: '471.90', quantity: 1 }] };
+assert.equal(J(A.pezzoDelCodice(datiMon, 'MONLG-GAM0046')).fornitore, 'ACTION');
+assert.equal(A.pezzoDelCodice(datiMon, 'KIT GAMING WHITE'), null);              // codice diverso: non e' quel pezzo
+assert.deepEqual(J(A.nomeDaCodice(datiMon, 'MONLG-GAM0046', ordMon)),
+  { nome: 'LG 34G630A-B - Monitor gaming 34" UltraWide QHD', fornitore: 'ACTION', fonte: 'ordine' });   // il nome venduto
+assert.equal(J(A.nomeDaCodice(datiMon, 'MONLG-GAM0046', null)).nome, datiMon.per_codice['|MONLGGAM0046'].descrizione);
+assert.equal(J(A.nomeDaCodice(null, 'MONLG-GAM0046', ordMon)).nome, 'LG 34G630A-B - Monitor gaming 34" UltraWide QHD');   // senza listini
+assert.equal(A.nomeDaCodice(datiMon, 'SCONOSCIUTO-1', ordMon), null);
+// riepilogo fornitori: il monitor (fornitore dal codice) va con ACTION, nome e disponibilita' del listino
+const rfMon = J(A.daOrdinare(datiMon, [{ id: '4821', nome: '#4821',
+  righe: [rigaRf('MONITOR', 'MONLG-GAM0046', 'ACTION', 228.77, 'listino', '📦 LG 34G630A-B - Monitor gaming 34" UltraWide QHD')] }], {}));
+const monRf = rfMon.categorie.flatMap(c => c.fornitori || []).find(f => f.nome === 'ACTION');
+assert.ok(monRf, 'il monitor deve stare sotto ACTION');
+const rigaMon = monRf.righe[0];
+assert.equal(rigaMon.codice, 'MONLG-GAM0046');
+assert.match(rigaMon.descrizione, /LG 34G630A-B/);
+assert.equal(rigaMon.disponibilita, '2 pz');
+console.log('ok monitor #4821');

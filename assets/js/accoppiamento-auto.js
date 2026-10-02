@@ -511,6 +511,27 @@
         return dati.per_codice[`${String(fornitore || '').toUpperCase().trim()}|${c}`] || null;
     }
 
+    // Antonio 02/10 (#4821: «nella scheda l'assemblatore vede solo MONLG-GAM0046»): il monitor venduto a parte entra
+    // nella scheda con lo SKU di Shopify, che e' il codice del fornitore (MONLG-GAM0046 = LG 34G630A-B di ACTION), e
+    // senza fornitore. Se un listino ha proprio quel codice, il pezzo e' quello: fornitore, nome e costo di listino.
+    function pezzoDelCodice(dati, codice) {
+        const s = costoScheda(dati, codice, '');
+        return s && s.fornitore && chiave(s.codice) && chiave(s.codice) === chiave(codice) ? s : null;
+    }
+
+    // Nome leggibile di un codice della scheda: la riga dell'ordine Shopify con quello SKU (es. «LG 34G630A-B -
+    // Monitor gaming 34" UltraWide QHD»), altrimenti la descrizione del listino con lo stesso codice.
+    function nomeDaCodice(dati, codice, ordine) {
+        const k = chiave(codice);
+        if (!k) return null;
+        const pezzo = pezzoDelCodice(dati, codice);
+        const righe = ordine && Array.isArray(ordine.line_items) ? ordine.line_items : [];
+        const li = righe.find(l => chiave(l && l.sku) === k);
+        const nome = li ? String(li.name || li.title || '').trim() : '';
+        if (nome) return { nome, fornitore: pezzo ? pezzo.fornitore : '', fonte: 'ordine' };
+        return pezzo && pezzo.descrizione ? { nome: pezzo.descrizione, fornitore: pezzo.fornitore, fonte: 'listino' } : null;
+    }
+
     // Ultima stima: il pezzo dello stesso tipo che l'automatico sceglie oggi per quest'ordine (stesso chip)
     function costoEquivalente(auto, tipo, salvati) {
         if (!auto || !Array.isArray(auto.pezzi)) return null;
@@ -993,7 +1014,9 @@
             const man = manualeDellaRiga(row);
             const v = dati ? voceAutomatica(dati, ctx, tipo, man.ean, man.fornitore) : null;
             const sch = costoScheda(dati, man.ean, man.fornitore);
-            let costo = null, stima = false, fonte = null;
+            // scheda senza fornitore ma con il codice di un fornitore (es. monitor MONLG-GAM0046 di ACTION): e' quel pezzo
+            const delCodice = fornitoreVago(man.fornitore) ? pezzoDelCodice(dati, man.ean) : null;
+            let costo = null, stima = false, fonte = null, daCodice = false;
             const pagato = prezzoAcquisto(orderId, tipo, man.ean);
             // 30/09 (Antonio: «il gestionale mi ha detto di non sapere il costo del kit»): conta sempre il pezzo scritto
             // nella scheda. La voce dell'opzione del cliente vale solo se la scheda ha proprio quel pezzo; altrimenti
@@ -1012,14 +1035,15 @@
             else if (pRiga && !pRiga.auto && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; fonte = 'fisso'; }
             else if (vStesso && vStesso.fisso && vStesso.fisso.costo != null) { costo = vStesso.fisso.costo; fonte = 'fisso'; }
             else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = sch.costo; fonte = 'listino'; }
+            else if (delCodice && delCodice.costo != null) { costo = delCodice.costo; fonte = 'listino'; daCodice = true; }   // 02/10: monitor #4821
             else if (pRiga && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; stima = true; fonte = 'stima'; }
             else if (sch && sch.costo != null) { costo = sch.costo; stima = true; fonte = 'altro'; }
             else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; stima = true; fonte = 'stima'; }
             else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; stima = true; fonte = 'stima'; }
             else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; fonte = 'stima'; }
             else if (costoEquivalente(auto, tipo, salvati) != null) { costo = costoEquivalente(auto, tipo, salvati); stima = true; fonte = 'stima'; }
-            conti.righe.push({ tipo, ean: man.ean, fornitore: man.fornitore, nome: man.nome, costo, fonte,
-                consigliato: consigliato(auto, tipo, salvati) });
+            conti.righe.push({ tipo, ean: man.ean, fornitore: daCodice ? delCodice.fornitore : man.fornitore,
+                nome: man.nome, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
             else { conti.man += costo; if (stima) conti.stime++; }
         }
@@ -1389,8 +1413,21 @@
         const variants = ctx.variants || {};
         const auto = orderId != null ? pcAutomatico(dati, orderId) : null;
         const autoGiusto = auto && Array.isArray(auto.pezzi) && (!auto.build || auto.build === ctx.configKey) ? auto : null;
+        let ordine = null;
+        try {
+            const idBase = String(orderId).split('.')[0];
+            ordine = (JSON.parse(sessionStorage.getItem('shopify_orders') || '[]') || []).find(o => String(o.id) === idBase) || null;
+        } catch (e) { ordine = null; }
         for (const c of componenti) {
             const tipo = TIPI[c.type] || c.type;
+            // 02/10 (#4821): monitor venduto a parte col codice del fornitore come SKU e senza fornitore: nella scheda
+            // vanno il fornitore del listino e il nome del prodotto, cosi' l'assemblatore sa quale monitor spedire
+            if (tipo === 'MONITOR' && !c.isCustom && !c.is_custom && fornitoreVago(c.supplier)) {
+                const pezzo = pezzoDelCodice(dati, c.ean);
+                const n = nomeDaCodice(dati, c.ean, ordine);
+                if (pezzo) c.supplier = pezzo.fornitore;
+                if (n && n.nome && !c.name) c.name = n.nome;
+            }
             if (!tipo || TIPI_EXTRA.includes(tipo) || tipo === 'MONITOR' || c.isCustom || c.is_custom) continue;
             let a = null;
             if (autoGiusto) {
@@ -2047,8 +2084,10 @@
                 const uguale = auto && Array.isArray(auto.pezzi) ? auto.pezzi.find(x => x.tipo === (TIPI[r.tipo] || r.tipo) && x.auto &&
                     [x.auto.codice, x.auto.mpn].filter(Boolean).map(chiave).includes(chiave(r.ean)) &&
                     String(x.auto.fornitore || '').toUpperCase().trim() === forn) : null;
-                const sch = costoScheda(dati, r.ean, r.fornitore);
-                const listino = sch && sch.fonte === 'listino' ? sch : null;
+                const delCodice = pezzoDelCodice(dati, r.ean);           // 02/10: monitor #4821 (scheda senza fornitore)
+                const sch = costoScheda(dati, r.ean, r.fornitore) ||
+                    (delCodice && String(delCodice.fornitore).toUpperCase().trim() === String(r.fornitore || '').toUpperCase().trim() ? delCodice : null);
+                const listino = sch && (sch.fonte === 'listino' || sch === delCodice) ? sch : null;
                 const aTerra = r.fonte === 'magazzino';
                 // pezzo fuori dai listini (costo fisso dell'automatico): fornitore e spiegazione del budget, se la scheda
                 // non ha un fornitore chiaro (es. dissipatore 240mm bianco -> AMAZON; CASE ATX -> da scegliere)
@@ -2671,7 +2710,7 @@
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
-        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile };
+        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

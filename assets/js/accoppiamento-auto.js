@@ -2673,11 +2673,14 @@
         return auto && Array.isArray(auto.pezzi) ? auto.pezzi.find(x => x.tipo === t) || null : null;
     }
 
-    // PC elaborati (tutte le scrivanie, non finalizzati) dalla cache del gestionale
-    function schedeElaborate() {
-        let cache = {};
+    // PC elaborati nelle scrivanie E1–E4: solo gli ordini ancora da spedire, cioe' quelli caricati da Shopify (nella
+    // cache ci sono anche centinaia di ordini vecchi gia' spediti, rimasti «elaborati»: quelli non si toccano)
+    function schedeElaborate(ordiniShopify) {
+        let cache = {}, aperti = [];
         try { cache = (typeof processedOrdersCache !== 'undefined' && processedOrdersCache) || {}; } catch (e) { cache = {}; }
-        return Object.keys(cache).map(id => {
+        try { aperti = ordiniShopify || JSON.parse(sessionStorage.getItem('shopify_orders') || '[]') || []; } catch (e) { aperti = []; }
+        const daSpedire = new Set(aperti.map(o => String(o && o.id)));
+        return Object.keys(cache).filter(id => daSpedire.has(String(id).split('.')[0])).map(id => {
             const o = cache[id] || {};
             return { id, nome: o.orderIdFlip || o.order_id_flip || `#${id}`, foglio: o.foglioDiLavoro || o.foglio_di_lavoro || 1,
                 stato: o.stato || 'elaborati', components: Array.isArray(o.components) ? o.components : [] };

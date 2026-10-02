@@ -776,3 +776,34 @@ const tEn = A.testoEmail(emCpu.invii[0], contattiCpu, '02/10/2026');
 assert.equal(tEn.oggetto, 'Order Minimal Gamers — 02/10/2026');
 assert.match(tEn.corpo, /^Hello,\n\nplease find below our order:\n\n- 1 x AMD Ryzen 7 9700X — code PROAMDRYZ0301\n\nTotal: 1 pc\./);
 assert.match(tEn.corpo, /proforma invoice\?\n\nThank you,\nProva Firma$/);
+
+// --- 02/10 (#4821): «vedi su Shopify a quanto è stato realmente venduto» ---
+const o4821 = { id: 4821, created_at: '2026-09-29T09:06:30Z', total_price: '1905.80', current_total_price: '1905.80', line_items: [
+  { name: 'KIT GAMING MINIMAL GAMERS 4IN1 – MOUSE RGB + TASTIERA RGB + TAPPETINO + CUFFIE - BIANCO', price: '99.00', quantity: 1, properties: [] },
+  { name: 'LG 34G630A-B - Monitor gaming 34" UltraWide QHD', price: '471.90', quantity: 1, properties: [] },
+  { name: 'PC GAMING STRIKE - RYZEN 5 5500F 2026 + RTX 5060 8GB', price: '1197.00', quantity: 1,
+    properties: [{ name: '_has_gpo', value: '1727063' }, { name: '_gpo_product_group', value: 'G9' }] },
+  { name: 'OPZIONI STRIKE - PROCESSORE - RYZEN 5 5600X', price: '74.00', quantity: 1, properties: [{ name: '_gpo_parent_product_group', value: 'G9' }] },
+  { name: 'OPZIONI STRIKE - DISSIPATORE - DEEPCOOL AK400', price: '39.00', quantity: 1, properties: [{ name: '_gpo_parent_product_group', value: 'G9' }] }] };
+const v4821 = J(A.prezzoVendita('4821', [o4821]));
+assert.equal(v4821.totale, 1905.8);                                   // quanto ha pagato il cliente su Shopify
+assert.deepEqual([v4821.pc, v4821.opzioni, v4821.accessori, v4821.spedizione, v4821.sconti], [1197, 113, 570.9, 24.9, 0]);
+assert.deepEqual(v4821.altri, []);
+assert.match(A.dettaglioVendita(v4821), /PC 1197,00\s€ \+ opzioni 113,00\s€ \+ kit\/monitor 570,90\s€ \+ spedizione 24,90\s€/);
+// sconto di 7 € e spedizione: #4820 (1830,90 € su Shopify)
+const o4820 = { id: 4820, total_price: '1830.90', line_items: [
+  { name: 'PC GAMING PREDATOR', price: '1499.00', quantity: 1, properties: [{ name: '_gpo_product_group', value: 'G1' }],
+    discount_allocations: [{ amount: '7.00' }] },
+  { name: 'OPZIONI PREDATOR - RAM', price: '314.00', quantity: 1, properties: [{ name: '_gpo_parent_product_group', value: 'G1' }] }] };
+const v4820 = J(A.prezzoVendita('4820', [o4820]));
+assert.deepEqual([v4820.totale, v4820.sconti, v4820.spedizione], [1830.9, 7, 24.9]);
+assert.match(A.dettaglioVendita(v4820), /− sconti 7,00\s€/);
+// due PC nello stesso ordine: un monitor a testa e spedizione divisa; un articolo estraneo si segnala e non si conta
+const o2 = { id: 4900, total_price: '2760.00', line_items: [
+  { name: 'PC GAMING REX', price: '1200.00', quantity: 2, properties: [] },
+  { name: 'MONITOR 24 180HZ', price: '150.00', quantity: 2, properties: [] },
+  { name: 'Garanzia estesa', price: '30.00', quantity: 1, properties: [] }] };
+const a1 = J(A.prezzoVendita('4900.1', [o2])), a2 = J(A.prezzoVendita('4900.2', [o2]));
+assert.deepEqual([a1.totale, a1.accessori, a1.spedizione], [1365, 150, 15]);
+assert.deepEqual([a2.totale, a2.accessori], [1365, 150]);
+assert.deepEqual(a1.altri, [{ nome: 'Garanzia estesa', prezzo: 30 }]);

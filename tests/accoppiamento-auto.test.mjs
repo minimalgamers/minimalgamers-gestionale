@@ -886,4 +886,12 @@ assert.deepEqual(J(A.pcDaCambiare(finta('solo', { uguali: [true, true], equivale
 assert.deepEqual(J(A.pcDaCambiare(finta('uguali', { uguali: [true, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1', '2']);
 assert.deepEqual(J(A.pcDaCambiare(finta('equivalenti', { uguali: [true, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1', '2', '3']);
 assert.deepEqual(J(A.pcDaCambiare(finta('equivalenti', { uguali: [false, true], equivalenti: [true] }), rigaC, sim)).map(x => x.id), ['1', '3']);
+// solo gli ordini ancora da spedire (caricati da Shopify), non i vecchi rimasti «elaborati»
+sandbox.processedOrdersCache = { '10': { orderIdFlip: '#10', foglioDiLavoro: 3, stato: 'elaborati', components: [] },
+  '11.2': { orderIdFlip: '#11', foglioDiLavoro: 1, stato: 'elaborati', components: [] },
+  '12': { orderIdFlip: '#12', foglioDiLavoro: 2, stato: 'finalizzati', components: [] },
+  '13': { orderIdFlip: '#13', foglioDiLavoro: 4, stato: 'elaborati', components: [] } };
+vm.runInContext('var processedOrdersCache = globalThis.processedOrdersCache;', sandbox);
+assert.deepEqual(J(A.schedeElaborate([{ id: 10 }, { id: 11 }, { id: 12 }])).map(x => [x.id, x.nome, x.foglio]), [['10', '#10', 3], ['11.2', '#11', 1]]);
+assert.deepEqual(J(A.schedeElaborate([])), []);
 console.log('ok cambio dal riquadro');

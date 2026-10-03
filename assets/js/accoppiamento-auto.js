@@ -1179,7 +1179,7 @@
             rigaNonPagate(auto) + rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ pezzi acquistati</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
-            (auto ? `<button type="button" data-vai="${esc(String(orderId).split('.')[0])}" title="Apri quest'ordine nella pagina Automatico">↗ Automatico</button>` : '') + `</div>` +
+            (auto ? `<button type="button" data-vai="${esc(String(orderId).split('.')[0])}" title="Apri quest'ordine nella Panoramica">↗ Panoramica</button>` : '') + `</div>` +
             sezioni.map(x => `<div class="acc-sez" data-sez="${x.id}"${x.id === aperta ? '' : ' hidden'}>${x.html}</div>`).join('');
         el.querySelectorAll('.acc-menu [data-sez]').forEach(b => b.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -1926,13 +1926,13 @@
         const cont = document.getElementById('automatico-container');
         if (!cont) return;
         stile();
-        if (forza || !stato.dati) cont.innerHTML = `<div class="acc-pagina"><div class="acc-vuoto">Carico l'accoppiamento automatico…</div></div>`;
+        if (forza || !stato.dati) cont.innerHTML = `<div class="acc-pagina"><div class="acc-vuoto">Carico la Panoramica…</div></div>`;
         let dati;
         try {
             dati = await carica(forza);
         } catch (e) {
-            cont.innerHTML = `<div class="acc-pagina"><div class="acc-testa"><h2>Accoppiamento automatico</h2></div>` +
-                `<div class="acc-vuoto">Automatico non disponibile: ${esc(stato.errore)}.<br><small>I dati si preparano con l'aggiornamento dei listini, ogni 30 minuti.</small></div></div>`;
+            cont.innerHTML = `<div class="acc-pagina"><div class="acc-testa"><h2>Panoramica</h2></div>` +
+                `<div class="acc-vuoto">Panoramica non disponibile: ${esc(stato.errore)}.<br><small>I dati si preparano con l'aggiornamento dei listini, ogni 30 minuti.</small></div></div>`;
             return;
         }
         if ((dati.magazzino || []).length) {
@@ -1959,8 +1959,8 @@
         const selezionati = visibili.map(([id]) => id).filter(id => !esclusi[id]);
         const magazzino = boxMagazzino(dati);
         cont.innerHTML = `<div class="acc-pagina">` +
-            `<div class="acc-testa"><h2>Accoppiamento automatico</h2>` +
-            `<span class="acc-info">Listini del ${esc(quando(dati.listini))} · preparato il ${esc(quando(dati.generato))} · ordini da spedire: ${tutti.length}</span>` +
+            `<div class="acc-testa"><h2>Panoramica</h2>` +
+            `<span class="acc-info">Accoppiamento automatico · listini del ${esc(quando(dati.listini))} · preparato il ${esc(quando(dati.generato))} · ordini da spedire: ${tutti.length}</span>` +
             `<button class="acc-btn ${filtro !== 'tutti' ? 'attivo' : ''}" data-filtro="da-fare">Da elaborare</button>` +
             `<button class="acc-btn ${filtro === 'tutti' ? 'attivo' : ''}" data-filtro="tutti">Tutti da spedire</button>` +
             `<input id="acc-cerca" class="acc-cerca" placeholder="# ordine" value="${esc(cerca)}">` +

@@ -3023,7 +3023,9 @@ function renderOrders(ordersMap, containerId, showPrices) {
             </div>
         `;
 
-        
+        // Antonio 03/10/2026: MSI rosse, DeepCool ciano, PC del configuratore viola con l'etichetta
+        if (window.BuildConfiguratore) window.BuildConfiguratore.decoraOrdine(card, order, containerId);
+
         if (containerId === 'finalized-container') {
             const restoreBtn = card.querySelector('.restore-to-pending-btn');
             if (restoreBtn) {
@@ -3272,6 +3274,7 @@ async function renderProcessedOrders(ordersMap) {
         `;
         
         container.appendChild(card);
+        if (window.BuildConfiguratore) window.BuildConfiguratore.decoraScrivania(card, order, config.configKey);
 
         const emailBtn = card.querySelector('.contact-email-btn');
         if (emailBtn) {
@@ -4374,11 +4377,26 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
     }
     
     
+    // Antonio 03/10/2026: nei PC del configuratore il nome e' quello esatto del prodotto scelto dal cliente
+    const ordineSalvato = processedOrdersCache[orderId] || null;
+    const daConfiguratore = !!(ordineSalvato && window.BuildConfiguratore &&
+        window.BuildConfiguratore.eConfigConfiguratore(ordineSalvato.configName));
+
     for (const display of displays) {
         const eanRaw = display.dataset.ean;
         const ean = String(eanRaw || '').trim();
         const displayEan = ean;
         const componentType = display.dataset.componentType;
+
+        if (daConfiguratore) {
+            const salvato = (ordineSalvato.components || []).find(c => String(c.type || '').toUpperCase() === String(componentType || '').toUpperCase()
+                && String(c.ean || '').trim() === displayEan && c.name);
+            if (salvato) {
+                display.textContent = salvato.name;
+                display.title = `Codice: ${displayEan}${salvato.supplier ? ` (${salvato.supplier})` : ''}\nScelto dal cliente nel configuratore`;
+                continue;
+            }
+        }
         
         
         
@@ -4564,7 +4582,7 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
     // v35: passaggio finale — rende generici GPU/SSD/MOBO e aggiunge il colore
     // del case, riusando i nomi già risolti. Non tocca la logica di risoluzione.
     try {
-        if (typeof window.normalizeDisplayName === 'function') {
+        if (typeof window.normalizeDisplayName === 'function' && !daConfiguratore) {
             const displays = document.querySelectorAll(`.component-name-display[data-order-id="${orderId}"]`);
             // colore del case di questo ordine: 1) dal testo, 2) dall'EAN via gpo_mapping
             let caseColor = '';
@@ -5280,7 +5298,20 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                    identifyPCConfig(itemName, true, item.product_id ?? item.productId) !== null;
         });
         
-        if (pcItem) {
+        // Antonio 03/10/2026: PC del configuratore = la lista dei pezzi scelti dal cliente (build-configuratore.js),
+        // mai la distinta di una build con lo stesso nome
+        const daConfiguratore = pcItem && window.BuildConfiguratore
+            ? await window.BuildConfiguratore.componenti(orderId, pcItem) : null;
+        if (daConfiguratore && !daConfiguratore.ok) {
+            showNotification(daConfiguratore.errore, 'error');
+            return;
+        }
+        if (daConfiguratore) {
+            configName = daConfiguratore.configName;
+            componentsToSave = daConfiguratore.components;
+        }
+
+        if (pcItem && !daConfiguratore) {
             
             const config = identifyPCConfig(pcItem.name, false, pcItem.product_id ?? pcItem.productId);
             
@@ -5644,7 +5675,8 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
 
         // Antonio 30/09: nella scheda i pezzi piu' convenienti di oggi con le regole di sempre (Minimal: stesso
         // chipset di qualunque marca; MSI e DeepCool: la loro marca). All'assemblatore resta il chipset.
-        await applicaPezziMigliori(componentsToSave, configName, pcItem, orderId);
+        // (PC del configuratore: i pezzi migliori sono gia' quelli della lista, stesso prodotto)
+        if (!daConfiguratore) await applicaPezziMigliori(componentsToSave, configName, pcItem, orderId);
 
         const success = await saveProcessedOrderToDB(orderId, {
             orderIdFlip: fullOrder?.name || fullOrder?.order_number || null,

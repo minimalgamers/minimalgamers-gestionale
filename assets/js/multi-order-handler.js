@@ -483,20 +483,27 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
     
     console.log(`✅ PC target trovato: ${targetPcItem.name}`);
     
+    // Antonio 03/10/2026: PC del configuratore = la lista dei pezzi scelti dal cliente (build-configuratore.js)
+    const daConfiguratore = window.BuildConfiguratore
+        ? await window.BuildConfiguratore.componenti(orderId, targetPcItem) : null;
+    if (daConfiguratore && !daConfiguratore.ok) {
+        if (typeof showNotification === 'function') showNotification(daConfiguratore.errore, 'error');
+        return false;
+    }
     
-    const config = identifyPCConfig(targetPcItem.name, false, targetPcItem.product_id ?? targetPcItem.productId);
+    const config = daConfiguratore ? null : identifyPCConfig(targetPcItem.name, false, targetPcItem.product_id ?? targetPcItem.productId);
     
-    if (!config) {
+    if (!config && !daConfiguratore) {
         console.error(`❌ Configurazione non trovata per: ${targetPcItem.name}`);
         return false;
     }
     
-    console.log(`✅ Configurazione identificata: ${config.configKey}`);
+    console.log(`✅ Configurazione identificata: ${daConfiguratore ? daConfiguratore.configName : config.configKey}`);
     
     const assignedOperator = counters.countA <= counters.countB ? 'OperatoreA' : 'OperatoreB';
     
-    let componentsToSave = [];
-    let configName = null;
+    let componentsToSave = daConfiguratore ? daConfiguratore.components : [];
+    let configName = daConfiguratore ? daConfiguratore.configName : null;
     
     if (config) {
         configName = config.configKey;
@@ -686,7 +693,8 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
     }
     
     // Antonio 30/09: pezzi piu' convenienti di oggi con le regole di sempre (app.js, applicaPezziMigliori)
-    if (typeof window.applicaPezziMigliori === 'function') {
+    // (PC del configuratore: i pezzi migliori sono gia' quelli della lista, stesso prodotto)
+    if (!daConfiguratore && typeof window.applicaPezziMigliori === 'function') {
         await window.applicaPezziMigliori(componentsToSave, configName, targetPcItem, orderId);
     }
     
@@ -765,10 +773,17 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
         if (assignedOperator === 'OperatoreA') counters.countA++;
         else counters.countB++;
         
-        let componentsToSave = [];
-        let configName = null;
+        // Antonio 03/10/2026: PC del configuratore = la lista dei pezzi scelti dal cliente (build-configuratore.js)
+        const daConfiguratore = window.BuildConfiguratore
+            ? await window.BuildConfiguratore.componenti(orderIdWithSuffix, pcItem) : null;
+        if (daConfiguratore && !daConfiguratore.ok) {
+            if (typeof showNotification === 'function') showNotification(`${orderIdWithSuffix}: ${daConfiguratore.errore}`, 'error');
+            continue;
+        }
+        let componentsToSave = daConfiguratore ? daConfiguratore.components : [];
+        let configName = daConfiguratore ? daConfiguratore.configName : null;
         
-        if (config) {
+        if (config && !daConfiguratore) {
             configName = config.configKey;
             let finalComponents = JSON.parse(JSON.stringify(config.components));
             // v26: rimpiazzo MONITOR generico clonato dalla config con label smart
@@ -959,7 +974,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
         
         
         // Antonio 30/09: pezzi piu' convenienti di oggi con le regole di sempre (app.js, applicaPezziMigliori)
-        if (typeof window.applicaPezziMigliori === 'function') {
+        if (!daConfiguratore && typeof window.applicaPezziMigliori === 'function') {
             await window.applicaPezziMigliori(componentsToSave, configName, pcItem, orderIdWithSuffix);
         }
         

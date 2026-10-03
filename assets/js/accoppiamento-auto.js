@@ -1695,7 +1695,9 @@
         if (!p.excel || p.excel.costo == null) return `<td class="num col-excel"><span class="acc-nota" title="L'Excel non ha il costo di questa scelta">—</span></td>`;
         const e = p.excel.costo;
         const d = costo == null ? null : tonda(costo - e);
-        const titolo = esc(`Nei conti dell'Excel: ${eur(e)} (${p.excel.fonte || ''})`);
+        // 03/10: nei PC del configuratore il confronto e' con il costo di quando il cliente ha comprato
+        const titolo = esc(p.origine === 'configuratore' ? `Costo quando il cliente ha comprato: ${eur(e)}`
+            : `Nei conti dell'Excel: ${eur(e)} (${p.excel.fonte || ''})`);
         if (d != null && d > TOLLERANZA_EXCEL) {
             const mag = p.mag && !pezzoPreso(p) ? ' · a magazzino costa meno' : '';
             return `<td class="num col-excel acc-sopra" title="${titolo}">${eur(e)}<br><small>▲ +${eur(d)}${esc(mag)}</small></td>`;
@@ -1828,11 +1830,18 @@
         for (const pc of o.pc) {
             const c = contiPc(pc, salvati);
             const cls = c.mancanti.length ? 'incompleto' : (c.utile.lordo < 0 ? 'neg' : 'pos');
-            html += `<div class="acc-pc-titolo"><b>${esc(pc.build)}</b> · ${esc(pc.titolo)}${pc.gpu ? ` · alimentatore per ${esc(pc.gpu)}` : ''}</div>` + rigaNonPagate(pc);
+            // 03/10 (Antonio): MSI rosse, DeepCool ciano, PC del configuratore viola con l'etichetta
+            const linea = pc.configuratore ? 'CONFIGURATORE' : String(pc.linea || '').toUpperCase();
+            const tag = linea === 'CONFIGURATORE' ? `<span class="mg-tag-linea configuratore">🧩 BUILD CONFIGURATORE</span>`
+                : (linea === 'MSI' || linea === 'DEEPCOOL' ? `<span class="mg-tag-linea ${linea.toLowerCase()}">${linea}</span>` : '');
+            if (tag && window.BuildConfiguratore) window.BuildConfiguratore.stile();
+            html += `<div class="acc-pc-titolo${linea === 'CONFIGURATORE' || linea === 'MSI' || linea === 'DEEPCOOL' ? ' mg-titolo-' + linea.toLowerCase() : ''}">` +
+                `<b>${esc(pc.configuratore ? 'PC ' + (pc.nome_build || 'PERSONALIZZATO') : pc.build)}</b>${tag} · ${esc(pc.titolo)}` +
+                `${pc.gpu && !pc.configuratore ? ` · alimentatore per ${esc(pc.gpu)}` : ''}</div>` + rigaNonPagate(pc);
             if (pc.avvisi && pc.avvisi.length) {
                 html += `<div class="acc-avvisi">⚠ ${pc.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'automatico segue quello che il cliente ha comprato.</small></div>`;
             }
-            html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="num col-excel">Nei conti Excel</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
+            html += `<table class="acc-tabella"><thead><tr><th>Pezzo</th><th class="col-cliente">Scelto dal cliente</th><th>Da ordinare</th><th class="num">Costo netto</th><th class="num col-excel">${pc.configuratore ? 'Quando ha comprato' : 'Nei conti Excel'}</th><th class="col-disp">Disponibilità</th></tr></thead><tbody>` +
                 pc.pezzi.map(p => rigaPezzo(p, salvati)).join('') + righeServizi(pc) + `</tbody></table>`;
             html += `<div class="acc-utile ${cls}">` +
                 rigaEsito(c.utile, c.mancanti.length, pc.obiettivo) +
@@ -1840,7 +1849,7 @@
                 `<div class="riga"><span>Costo automatico (pezzi + montaggio e spedizione)</span><span>${eur(c.costo)}</span></div>` +
                 rigaUtile(c.utile, c.mancanti.length) +
                 (c.mancanti.length ? '' : rigaObiettivo(c.utile.srl, pc.obiettivo)) +
-                rigaConfrontoExcel(c) +
+                rigaConfrontoExcel(c, pc) +
                 (c.mancanti.length ? `<div class="mancanti">Mancano i costi di: ${c.mancanti.map(p => esc(p.nome_tipo)).join(', ')}: inseriscili qui sopra e l'utile si calcola.</div>` : '') +
                 `</div>`;
         }
@@ -1848,10 +1857,17 @@
     }
 
     // confronto con i conti dell'Excel delle build (stessi pezzi, costo che l'Excel mette in conto)
-    function rigaConfrontoExcel(c) {
+    function rigaConfrontoExcel(c, pc) {
         const e = c.excel;
         if (!e) return '';
         const d = tonda(c.costo - e.costo);
+        if (pc && pc.configuratore) {
+            // 03/10: PC del configuratore, confronto con i costi di quando il cliente ha comprato (stessi pezzi)
+            const esitoConf = d > TOLLERANZA_EXCEL
+                ? `<div class="riga acc-excel-sopra"><span>▲ Oggi i pezzi costano ${eur(d)} più di quando il cliente ha comprato${e.sopra.length ? ` (${e.sopra.map(p => esc(p.nome_tipo)).join(', ')})` : ''}</span></div>`
+                : `<div class="riga acc-excel-ok"><span>✓ In linea con i costi di quando il cliente ha comprato${d < -TOLLERANZA_EXCEL ? ` (${eur(-d)} in meno)` : ''}</span></div>`;
+            return `<div class="riga"><span>Quando il cliente ha comprato</span><span>${eur(e.costo)} · utile ${eur(e.utile.lordo)} · SRL ${eur(e.utile.srl)}</span></div>` + esitoConf;
+        }
         const senza = e.senza.length ? ` <small class="acc-nota">(senza ${e.senza.map(p => esc(p.nome_tipo)).join(', ')}: l'Excel non ne ha il costo)</small>` : '';
         const esito = d > TOLLERANZA_EXCEL
             ? `<div class="riga acc-excel-sopra"><span>▲ Oggi costa ${eur(d)} più dei conti dell'Excel${e.sopra.length ? ` (${e.sopra.map(p => esc(p.nome_tipo)).join(', ')})` : ''}</span></div>`

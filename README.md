@@ -32,7 +32,7 @@ I file principali:
 La vecchia scheda «Configuratore» (`configuratore-ordini.js`, 27/08) è stata tolta il 03/10/2026: leggeva le
 liste dalla tabella Supabase `configuratore_liste_fornitori`, leggibile con la chiave pubblica e non più
 scritta dal configuratore. I PC del configuratore ora passano da Ordini → E1–E4 come le altre build
-(`build-configuratore.js`, vedi sotto) e i loro pezzi sono anche nella pagina Automatico.
+(`build-configuratore.js`, vedi sotto) e i loro pezzi sono anche nella Panoramica.
 
 ## PC del configuratore e colori delle linee (03/10/2026)
 
@@ -47,11 +47,11 @@ I PC creati dai clienti nel configuratore seguono lo stesso percorso delle altre
   Minimal, con codice, nome esatto e fornitore; la grafica integrata ha la sua riga. Niente regole delle
   distinte e niente «pezzi migliori» equivalenti. Se la lista non è ancora arrivata (i listini si aggiornano
   ogni 30 minuti) l'elaborazione si ferma con un avviso;
-- colora le card in Ordini, nelle scrivanie e nella pagina Automatico: **MSI rosse**, **DeepCool ciano**,
+- colora le card in Ordini, nelle scrivanie e nella Panoramica: **MSI rosse**, **DeepCool ciano**,
   **configuratore viola** con l'etichetta «🧩 BUILD CONFIGURATORE». Nei finalizzati resta il colore dello
   stato e la linea si vede dall'anello attorno alla card.
 
-Il riquadro del conto e il riepilogo fornitori funzionano come per le altre build; nella pagina Automatico
+Il riquadro del conto e il riepilogo fornitori funzionano come per le altre build; nella Panoramica
 il confronto non è con l'Excel ma con i costi di quando il cliente ha comprato.
 
 ## Le tre linee di prodotto
@@ -89,15 +89,17 @@ Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verif
 la mappa dei `product_id` (unicità compresa) e la cascata degli scope GPO.
 Vanno eseguiti prima di ogni merge.
 
-## Accoppiamento automatico
+## Accoppiamento automatico e Panoramica
 
-La pagina **Automatico** (accanto a «Ordini») mostra, per ogni ordine ancora da spedire, i pezzi
+La pagina **Panoramica** (accanto a «Ordini»; fino al 03/10/2026 si chiamava «Automatico», il codice
+usa ancora `data-tab="automatico"`) mostra, per ogni ordine ancora da spedire, i pezzi
 scelti dal motore dei listini: fornitori prioritari al costo più basso, e ogni pezzo segue quello
 che quel cliente ha comprato (opzioni scelte e titolo del prodotto nel suo ordine, anche se nel
 frattempo il titolo è cambiato). Per ogni PC riporta costo, utile (prezzo del PC più le opzioni
 collegate, diviso 1,22, meno il 4,5% di commissioni, meno il costo dei pezzi) e gli avvisi quando
 l'ordine non corrisponde alla distinta. In fondo c'è il riepilogo per fornitore. La pagina è in
-sola consultazione: non scrive nel database e non ordina nulla. La pagina «Ordini» resta manuale,
+consultazione e non ordina nulla: l'unica scrittura è il magazzino, quando si conferma «Prendi dal
+magazzino» o «Annulla». La pagina «Ordini» resta manuale,
 con il riquadro dell'utile sotto ogni build.
 
 I dati arrivano da `https://minimal-gamers-listini.pages.dev/accoppiamento.bin`, prodotto dal

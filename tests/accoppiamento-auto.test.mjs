@@ -911,3 +911,10 @@ assert.deepEqual(Object.keys(rConf), ['OMEGA'], 'la grafica integrata non si ord
 assert.equal(rConf.OMEGA[0].codice, 'O87');
 assert.deepEqual(rConf.OMEGA[0].ordini, ['#9100']);
 console.log('ok PC del configuratore nel riepilogo fornitori');
+
+// --- la pagina si chiama «Panoramica» (Antonio 03/10), la chiave interna resta «automatico» ---
+const indice = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+assert.match(indice, /data-tab="automatico"[^>]*>Panoramica<\/button>/);
+assert.match(auto, /↗ Panoramica<\/button>/);
+assert.match(auto, /<h2>Panoramica<\/h2>/);
+console.log('ok Panoramica');

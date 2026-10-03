@@ -895,3 +895,19 @@ vm.runInContext('var processedOrdersCache = globalThis.processedOrdersCache;', s
 assert.deepEqual(J(A.schedeElaborate([{ id: 10 }, { id: 11 }, { id: 12 }])).map(x => [x.id, x.nome, x.foglio]), [['10', '#10', 3], ['11.2', '#11', 1]]);
 assert.deepEqual(J(A.schedeElaborate([])), []);
 console.log('ok cambio dal riquadro');
+
+// --- PC del configuratore nell'Automatico (03/10): i pezzi vanno nel riepilogo fornitori come gli altri ---
+const datiConf = { ordini: { 9100: { nome: '#9100', data: '03/10', pc: [{
+  configuratore: true, product_id: '555', nome_build: 'NEBULA', build: 'CONFIGURATORE', quantita: 1, prezzo: { totale: 1000 },
+  pezzi: [
+    { tipo: 'CPU', nome_tipo: 'Processore', cliente: 'AMD Ryzen 7 8700G', costo: 200,
+      manuale: { codice: 'A87', fornitore: 'ACTION', quantita: 1 },
+      auto: { codice: 'O87', fornitore: 'OMEGA', descrizione: 'AMD RYZEN 7 8700G BOX', quantita: 1, costo: 200 } },
+    { tipo: 'GPU', nome_tipo: 'Scheda video', cliente: 'Grafica integrata', costo: 0, senza_costo: true,
+      manuale: { codice: 'INTEGRATA', fornitore: 'INTEGRATA', quantita: 1 }, auto: null, fisso: { costo: 0 } }
+  ] }] } } };
+const rConf = J(A.riepilogoFornitori(datiConf, ['9100'], {}));
+assert.deepEqual(Object.keys(rConf), ['OMEGA'], 'la grafica integrata non si ordina');
+assert.equal(rConf.OMEGA[0].codice, 'O87');
+assert.deepEqual(rConf.OMEGA[0].ordini, ['#9100']);
+console.log('ok PC del configuratore nel riepilogo fornitori');

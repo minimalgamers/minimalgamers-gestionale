@@ -26,9 +26,13 @@ I file principali:
 | `message-template-engine.js`, `message-templates-page.js` | messaggi ai clienti |
 | `gpo-page-manager.js`, `amazon-products-manager.js`, `api-adapter.js`, `pc-config-parser.js`, `search-fix.js` | pagine e utilità di supporto |
 
-`configuratore-ordini.js`, `operatoreA.js`, `operatoreB.js` e `session-no-timeout.js`
-non sono caricati da `index.html`: restano nel repo come strumenti a sé
-(`configuratore-ordini.js` è superato da `build-configuratore.js`, vedi sotto).
+`session-no-timeout.js` non è in `index.html` ma lo carica `search-fix.js`. `operatoreA.js` e
+`operatoreB.js` non sono caricati: restano nel repo come strumenti a sé.
+
+La vecchia scheda «Configuratore» (`configuratore-ordini.js`, 27/08) è stata tolta il 03/10/2026: leggeva le
+liste dalla tabella Supabase `configuratore_liste_fornitori`, leggibile con la chiave pubblica e non più
+scritta dal configuratore. I PC del configuratore ora passano da Ordini → E1–E4 come le altre build
+(`build-configuratore.js`, vedi sotto) e i loro pezzi sono anche nella pagina Automatico.
 
 ## PC del configuratore e colori delle linee (03/10/2026)
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 // PC del configuratore e colori delle linee (Antonio 03/10/2026): «gli ordini dei PC del configuratore non hanno
@@ -141,5 +141,10 @@ assert.match(app, /if \(!daConfiguratore\) await applicaPezziMigliori/, 'niente 
 assert.match(app, /BuildConfiguratore\.decoraOrdine\(card, order, containerId\)/);
 assert.match(app, /BuildConfiguratore\.decoraScrivania\(card, order, config\.configKey\)/);
 assert.ok(html.indexOf('build-configuratore.js') > html.indexOf('accoppiamento-auto.js'), 'si carica dopo l\'automatico');
+// la vecchia scheda «Configuratore» (tabella Supabase leggibile con la chiave pubblica, non piu' scritta) e' tolta
+const searchFix = readFileSync(new URL('../assets/js/search-fix.js', import.meta.url), 'utf8');
+assert.doesNotMatch(searchFix, /script\.src = 'assets\/js\/configuratore-ordini\.js/, 'nessuna seconda strada per i PC del configuratore');
+assert.equal(existsSync(new URL('../assets/js/configuratore-ordini.js', import.meta.url)), false);
+assert.match(html, /search-fix\.js\?v=2/, 'versione nuova, altrimenti il browser tiene la vecchia scheda');
 
 console.log('PC del configuratore e colori delle linee: verifiche superate');

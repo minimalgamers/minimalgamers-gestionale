@@ -27,7 +27,28 @@ I file principali:
 | `gpo-page-manager.js`, `amazon-products-manager.js`, `api-adapter.js`, `pc-config-parser.js`, `search-fix.js` | pagine e utilità di supporto |
 
 `configuratore-ordini.js`, `operatoreA.js`, `operatoreB.js` e `session-no-timeout.js`
-non sono caricati da `index.html`: restano nel repo come strumenti a sé.
+non sono caricati da `index.html`: restano nel repo come strumenti a sé
+(`configuratore-ordini.js` è superato da `build-configuratore.js`, vedi sotto).
+
+## PC del configuratore e colori delle linee (03/10/2026)
+
+I PC creati dai clienti nel configuratore seguono lo stesso percorso delle altre build: compaiono in
+**Ordini** e si mandano a mano in una scrivania E1–E4. `build-configuratore.js`:
+
+- li riconosce dallo SKU della riga d'ordine (`MG-CFG-<id prodotto>`, messo dal configuratore) o dai dati
+  dei listini (`configuratore` nel file cifrato) per i PC creati prima dello SKU;
+- quando si elaborano, riempie la scheda con la lista dei pezzi che il configuratore salva sul prodotto
+  (metafield `configurator.lista_fornitori`, letto dai listini e consegnato cifrato): per ogni pezzo lo
+  **stesso prodotto** scelto dal cliente, dal fornitore più conveniente di oggi con le regole delle build
+  Minimal, con codice, nome esatto e fornitore; la grafica integrata ha la sua riga. Niente regole delle
+  distinte e niente «pezzi migliori» equivalenti. Se la lista non è ancora arrivata (i listini si aggiornano
+  ogni 30 minuti) l'elaborazione si ferma con un avviso;
+- colora le card in Ordini, nelle scrivanie e nella pagina Automatico: **MSI rosse**, **DeepCool ciano**,
+  **configuratore viola** con l'etichetta «🧩 BUILD CONFIGURATORE». Nei finalizzati resta il colore dello
+  stato e la linea si vede dall'anello attorno alla card.
+
+Il riquadro del conto e il riepilogo fornitori funzionano come per le altre build; nella pagina Automatico
+il confronto non è con l'Excel ma con i costi di quando il cliente ha comprato.
 
 ## Le tre linee di prodotto
 
@@ -57,6 +78,7 @@ node tests/gpo-mapping-scope.test.mjs
 node tests/config-components.test.mjs
 node tests/accoppiamento-auto.test.mjs
 node tests/gpu-psu.test.mjs
+node tests/build-configuratore.test.mjs
 ```
 
 Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verificano

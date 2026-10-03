@@ -5,7 +5,7 @@
 //    quello scelto nelle impostazioni).
 //  - La sessione salvata nel browser (shopify_session) viene rinnovata a
 //    30 giorni all'apertura e poi ogni minuto (prima scadeva dopo 2 ore).
-// Caricato da search-fix.js (stesso meccanismo di configuratore-ordini.js).
+// Caricato da search-fix.js (index.html e' troppo grosso per riscriverlo).
 // Non tocca app.js: se questo file manca, tutto funziona come prima.
 // ============================================================
 (function () {

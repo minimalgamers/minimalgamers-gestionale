@@ -1,5 +1,5 @@
 // ============================================================
-// search-fix.js  (v7)
+// search-fix.js  (v8)
 // FIX ricerca componenti nel popup "Cerca Componente".
 // Avvolge window.fetch (DOPO api-adapter.js) e corregge gli URL
 // di ricerca al volo. Lavora SOLO su stringhe, come l'adapter,
@@ -26,6 +26,10 @@
 // v7: carica anche session-no-timeout.js (18/09/2026): niente auto-logout per
 //     inattivita' e sessione salvata per 30 giorni invece di 2 ore. Stesso
 //     motivo del v5: index.html e' troppo grosso per riscriverlo.
+// v8 (03/10/2026): niente piu' scheda «Configuratore» (configuratore-ordini.js). Leggeva le liste dalla
+//     tabella Supabase configuratore_liste_fornitori, leggibile con la chiave pubblica e non piu' scritta dal
+//     configuratore: i PC del configuratore ora passano da Ordini -> E1-E4 come le altre build, con la card
+//     viola (build-configuratore.js), e i loro pezzi sono anche nella pagina Automatico.
 // ============================================================
 (function () {
     if (window.__searchFixApplied) return;
@@ -35,11 +39,6 @@
 
     function fixUrl(url) {
         let u = String(url);
-
-        // La tabella del configuratore non c'entra con la ricerca componenti:
-        // le sue query non vanno toccate. In particolare non deve perdere
-        // niente dal select, che qui sotto verrebbe ripulito.
-        if (/configuratore_liste_fornitori/i.test(u)) return u;
 
         // (1) togli "fornitore" dal SELECT nelle query REST Supabase
         if (/\/rest\/v1\//i.test(u) && /fornitore/i.test(u)) {
@@ -74,21 +73,6 @@
         return _prevFetch(url, options);
     };
 
-    // Carica la sezione degli ordini del configuratore. Se il file non c'e o
-    // non parte, il gestionale resta esattamente quello di prima: la sezione e
-    // aggiuntiva e non tocca niente di quello che gia funziona.
-    try {
-        const script = document.createElement('script');
-        script.src = 'assets/js/configuratore-ordini.js?v=2';
-        script.async = true;
-        script.onerror = function () {
-            console.warn('Sezione configuratore non caricata: il resto del gestionale non ne risente.');
-        };
-        document.head.appendChild(script);
-    } catch (e) {
-        console.warn('Sezione configuratore non agganciata.', e);
-    }
-
     // Sessione senza scadenza (v7). Se il file manca, il gestionale resta
     // esattamente com'era (timeout da impostazioni, sessione 2 ore).
     try {
@@ -103,5 +87,5 @@
         console.warn('session-no-timeout.js non agganciato.', e);
     }
 
-    console.log('✅ search-fix.js attivo (v7 - no fornitore + custom items senza filtro categoria + sezione configuratore + sessione senza scadenza)');
+    console.log('✅ search-fix.js attivo (v8 - no fornitore + custom items senza filtro categoria + sessione senza scadenza)');
 })();

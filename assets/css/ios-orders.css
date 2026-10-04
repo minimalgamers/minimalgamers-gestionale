@@ -1,0 +1,198 @@
+/* Phase 2: Ordini only. The app retains visibility, classification and handlers.
+   E1–E4, Panoramica, Finalizzati and Nascosti are intentionally not restyled here. */
+:root {
+    --mg-card-surface: rgba(255,255,255,.88);
+    --mg-card-border: rgba(29,32,41,.12);
+    --mg-order-radius: 20px;
+    --mg-order-gap: 18px;
+    --mg-order-header-fill: var(--mg-line-minimal);
+    --mg-order-header-text: var(--mg-white);
+    --mg-order-control-fill: var(--mg-gray-100);
+    --mg-order-control-hover: var(--mg-gray-200);
+    --mg-order-secondary-text: #5b606c;
+}
+
+body.mg-ios #orders-container {
+    grid-template-columns: minmax(0,1fr);
+    gap: var(--mg-order-gap);
+    max-width: 1440px;
+    align-items: start;
+}
+body.mg-ios #orders-container .order-card {
+    container-type: inline-size;
+    min-width: 0;
+    border-radius: var(--mg-order-radius);
+    border: 1px solid var(--mg-card-border);
+    background: var(--mg-card-surface) !important;
+    color: var(--mg-text-primary);
+    box-shadow: var(--mg-shadow) !important;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+body.mg-ios #orders-container .order-card.mg-linea-msi { --mg-order-header-fill: var(--mg-line-msi); }
+body.mg-ios #orders-container .order-card.mg-linea-deepcool {
+    --mg-order-header-fill: var(--mg-line-deepcool);
+    --mg-order-header-text: #083344;
+}
+body.mg-ios #orders-container .order-card.mg-linea-configuratore { --mg-order-header-fill: var(--mg-line-configurator); }
+body.mg-ios #orders-container .card-header {
+    padding: 22px 24px 12px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    border-bottom: 0;
+    background: var(--mg-order-header-fill) !important;
+    color: var(--mg-order-header-text) !important;
+}
+body.mg-ios #orders-container .card-header h2 {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+    color: var(--mg-order-header-text) !important;
+    font-size: 24px;
+    font-weight: 750;
+    letter-spacing: -.5px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+body.mg-ios #orders-container .mg-tag-linea {
+    margin-left: 0;
+    padding: 5px 9px !important;
+    max-width: 100%;
+    box-sizing: border-box;
+    white-space: normal;
+    font-size: 10px !important;
+    font-weight: 750;
+    letter-spacing: .5px;
+    line-height: 1.3;
+    border-radius: 8px;
+    border: 1px solid currentColor;
+    color: var(--mg-order-header-text) !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+body.mg-ios #orders-container .header-icons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+}
+body.mg-ios #orders-container :is(.process-order-btn,.finalize-order-btn) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: var(--mg-touch) !important;
+    min-height: var(--mg-touch) !important;
+    margin: 0 !important;
+    padding: 8px 16px !important;
+    border: 0 !important;
+    border-radius: var(--mg-radius-sm) !important;
+    background: var(--mg-order-control-fill) !important;
+    color: var(--mg-text-primary) !important;
+    box-shadow: none !important;
+    font-family: inherit;
+    font-size: 13px !important;
+    font-weight: 650 !important;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background var(--mg-motion),color var(--mg-motion);
+}
+body.mg-ios #orders-container :is(.process-order-btn,.finalize-order-btn):hover:not(:disabled) {
+    background: var(--mg-order-control-hover) !important;
+    transform: none !important;
+}
+body.mg-ios #orders-container .process-order-btn { padding: 8px 12px !important; }
+body.mg-ios #orders-container :is(.process-order-btn,.finalize-order-btn):active:not(:disabled) { background: var(--mg-gray-300) !important; }
+body.mg-ios #orders-container :is(.process-order-btn,.finalize-order-btn):disabled { opacity: .5; cursor: not-allowed; }
+body.mg-ios #orders-container button:focus-visible {
+    outline: 3px solid var(--mg-white) !important;
+    outline-offset: 3px;
+    box-shadow: inset 0 0 0 2px var(--mg-focus-blue) !important;
+}
+body.mg-ios #orders-container .mg-linea-deepcool button:focus-visible { outline-color: #083344 !important; }
+body.mg-ios #orders-container .card-body { padding: 8px 24px 22px; }
+body.mg-ios #orders-container .line-items {
+    width: 100%;
+    table-layout: fixed;
+    color: var(--mg-text-primary);
+    font-size: 15px;
+    line-height: 1.6;
+}
+body.mg-ios #orders-container .line-items td {
+    padding: 5px 0;
+    overflow-wrap: anywhere;
+    border-bottom: 1px solid var(--mg-border-subtle);
+}
+body.mg-ios #orders-container .line-items tr:last-child td { border-bottom: 0; }
+body.mg-ios #orders-container .item-quantity { color: var(--mg-order-secondary-text); margin-left: 4px; font-size: 12px; }
+body.mg-ios #orders-container .item-config {
+    padding: 10px 12px;
+    margin-top: 12px;
+    background: var(--mg-gray-100);
+    border-radius: var(--mg-radius-sm);
+    font-size: 12px;
+}
+body.mg-ios #orders-container .custom-prop { color: var(--mg-order-secondary-text); line-height: 1.5; }
+body.mg-ios #orders-container .custom-prop strong { color: var(--mg-text-primary); font-size: 11px; }
+body.mg-ios #orders-container .mg-nota-configuratore { color: var(--mg-order-secondary-text); font-size: 12px; line-height: 1.5; }
+body.mg-ios #orders-container .card-footer {
+    padding: 10px 24px 18px;
+    background: transparent !important;
+    border-top: 0 !important;
+    gap: 12px;
+    border-radius: 0 0 var(--mg-order-radius) var(--mg-order-radius);
+}
+body.mg-ios #orders-container .total-label { color: var(--mg-order-secondary-text); font-size: 12px; }
+body.mg-ios #orders-container .total-amount { color: var(--mg-text-primary); font-size: 18px; font-variant-numeric: tabular-nums; }
+/* The existing selection image/handler remains intact. Only its hit area changes. */
+body.mg-ios #orders-container .orders-select-icon {
+    min-width: var(--mg-touch);
+    min-height: var(--mg-touch);
+    box-sizing: border-box;
+    margin: 0 !important;
+}
+body.mg-ios #orders-container .orders-select-icon img {
+    content: url('../icons/check-square.svg');
+    width: 22px !important;
+    height: 22px !important;
+}
+body.mg-ios #orders-container .mg-linea-deepcool .orders-select-icon img { filter: brightness(0) !important; }
+body.mg-ios #orders-container .orders-select-icon[style*="46, 204, 113"] {
+    outline: 2px solid var(--mg-order-header-text);
+    outline-offset: -4px;
+}
+/* Empty state was fixed in the viewport with white text over a light wallpaper. */
+body.mg-ios #orders-container > p {
+    position: static !important;
+    grid-column: 1/-1;
+    transform: none !important;
+    width: auto !important;
+    padding: 32px;
+    margin: 0;
+    color: var(--mg-order-secondary-text) !important;
+    background: var(--mg-card-surface);
+    border-radius: var(--mg-order-radius);
+    font-size: 16px !important;
+    text-align: center;
+}
+@media (min-width: 769px) { body.mg-ios #orders-container { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (min-width: 1280px) { body.mg-ios #orders-container { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (max-width: 768px) {
+    body.mg-ios #orders-container .order-card { border-radius: 17px; margin-bottom: 0 !important; }
+    body.mg-ios #orders-container .card-header { padding: 18px 16px 12px; }
+    body.mg-ios #orders-container .card-header h2 { font-size: 22px; }
+    body.mg-ios #orders-container .card-body { padding: 4px 16px 14px; }
+    body.mg-ios #orders-container .card-footer { padding: 4px 16px 16px; }
+}
+/* The chosen native-sheet reference is compact at narrow card widths,
+   including the three-column desktop grid (not just the phone viewport). */
+@container (max-width: 480px) {
+    body.mg-ios #orders-container .card-header { padding: 18px 18px 12px; }
+    body.mg-ios #orders-container .card-header h2 { font-size: 22px; line-height: 1.35; }
+    body.mg-ios #orders-container .card-body { padding: 4px 18px 18px; }
+    body.mg-ios #orders-container .card-footer { padding: 4px 18px 18px; }
+}
+@media (prefers-reduced-motion: reduce) { body.mg-ios #orders-container * { transition: none !important; animation: none !important; } }

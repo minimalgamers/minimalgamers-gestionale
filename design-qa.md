@@ -1,63 +1,61 @@
-# Design QA — fase 1: base e navigazione
+# Ordini iOS — seconda fase nella repo originale, 04/10/2026
 
-Data: 04/10/2026. Base: `ffd263f` (main). Esito: **passed per il perimetro della PR 1**.
+final result: passed
 
-## Perimetro e decisioni
+## Ambito e stato
 
-Prima delle sette PR richieste dal brief: token, fondo, tipografia, intestazione, strumenti, barra delle schede e filtri. Direzione scelta da Antonio: iOS/macOS chiaro, sfondo montagna originale alleggerito con velo neutro, niente wallpaper multicolore.
+PR #48 approvata da Antonio e mergiata su main: d039150238b61466e7bccb9b3c1cebec052d5244. Pubblicazione GitHub Pages completata con successo (run 37198177929). La fase Ordini è trasferita sul branch codex/gestionale-ios-orders, dalla medesima base verificata. Non è ancora pubblicata: richiede approvazione della seconda PR. Nessun ordine o dato reale modificato.
 
-Le card, il conto, la barra della scrivania, la Panoramica e i popup **non sono ancora ridisegnati da questa PR**. Le differenze in queste regioni rispetto all'anteprima completa sono intenzionali: fasi 2–6. I token già approvati per le linee (DeepCool cyan, MSI red, configuratore fuchsia, Minimal black) e l'utile sotto obiettivo hot orange sono predisposti, ma qui non sovrascrivono ancora i colori delle card.
+Riferimento: opzione iOS «Schede native», con precisazioni successive dell'utente: card chiare leggermente trasparenti, sfondo originale con velo neutro, sola intestazione colorata — Minimal nero, MSI hot red, DeepCool hot cyan, Configuratore hot fuchsia. La palette verde/rosso/arancione trasparente degli esiti dell'utile resta il target della fase scrivanie; questo CSS non tocca i conti.
 
-Non vengono cambiate formule, importi, autenticazione, query, eventi, stati, mappature o nomi delle schede. Nessun JavaScript applicativo modificato. `data-tab="automatico"` resta la chiave della Panoramica; nessuna vecchia scheda Configuratore reintrodotta.
+## Verifiche automatiche
 
-## Metodo
+- Suite completa sulla repo originale con i file Ordini trasferiti: 17 pass, 0 fail (13 precedenti + 4 nuovi). Esecuzione locale, senza servizi esterni o stampa della configurazione. git diff --check pulito.
+- Quattro nuovi test sulla candidate: 4 pass, 0 fail. Isolamento selettori, contratto di navigazione, griglia 3/2/1, hit area, focus, reduced motion, palette e contrasto.
+- 18 script applicativi sicuri byte-identici tra clone, candidate e anteprime; supabase-config.js e api-adapter.js esclusi dalla copia e dal confronto. Nessuna ispezione manuale dei segreti.
+- index.html differisce solo per il nuovo link CSS. Nessun ID, classe, data attribute, testo o handler dell'app modificato.
+- La suite completa NON va eseguita direttamente sulla preview sanitizzata: due test richiedono gli adapter esclusi intenzionalmente. È stata eseguita sul clone originale; i nuovi test sulla candidate. Non introdotti adapter fittizi per far passare i test.
+- Dati sintetici nelle anteprime, adapter reali esclusi, fetch non-GET e remoto bloccato, form/nuove finestre bloccati e azioni di scrittura intercettate. Nessun flusso reale contattato.
 
-Anteprime prima/dopo isolate fuori dal repository, con risposte sintetiche al posto degli adapter di produzione, connessioni esterne e invii dei form bloccati. Nessuna password usata. Tutti i costi, componenti e ordini negli screenshot sono **fittizi**; non rappresentano listini correnti o acquisti reali.
+## Verifica visuale e interazione
 
-Confronto simultaneo della direzione approvata e dell'implementazione in un'unica pagina locale: vista completa, regione della navigazione e due viste mobile affiancate. L'anteprima completa, i fixture e la pagina di confronto non fanno parte del sito pubblicato.
+- Confronto affiancato prima / riferimento scelto / nuova implementazione con gli stessi sei ordini sintetici, screenshot 1440 e 390 px. Le differenze di masthead/navigazione sono intenzionali: la prima PR è già la fondazione di questa fase, non viene riscritta.
+- Desktop 1440: tre card; tablet ~1023: due; 767, 390 e 374: una. Nessun overflow orizzontale rilevato né contenuto della card tagliato.
+- Tutti i pulsanti Ordini: area minima 44 × 44 CSS px (tolleranza di subpixel nel browser). Nessun pulsante di elaborazione/finalizzazione premuto.
+- Seleziona → selezione del primo ordine → conteggio/azioni E1–E4 mostrati → uscita da selezione: comportamento originale preservato. Area selezione 44 × 44, SVG locale e indicatore aggiuntivo per lo stato selezionato. Nessun ordine mosso.
+- Navigazione verso E3: Ordini torna display:none e la scrivania grid. Nessuna forzatura della visibilità dei tab, autenticazione o pannelli.
+- Stato vuoto: testo originale «Nessun ordine trovato.», nel flusso e leggibile; non sovrappone gli altri controlli.
+- Fixture con titoli lunghi: testo va a capo, non viene troncato. Fixture con 30 pulsanti disabilitati: 30/30 disabilitati, no overflow.
+- Focus da tastiera testato tramite Tab, senza eseguire comandi: contorno esterno e bordo interno contrastanti. Hover senza salto della card e reduced motion esplicito.
+- Console browser: nessun errore applicativo osservato nella prova Ordini.
+- Contrasto testate: Minimal 20,38:1; MSI 4,53:1; DeepCool 7,75:1; Configuratore 4,63:1. Testi secondari leggermente scuriti per >=4,5:1 anche sul composito conservativo #e0e0e0.
 
-Viewport CSS verificati: 1440×1023 e 390×900. Controlli aggiuntivi: 375×900, 768×909, 1024×909 e 844×390 (orizzontale). Il motore di screenshot esclude alcune barre di scorrimento: i JPEG non hanno necessariamente larghezza identica al viewport CSS, che è stato letto direttamente dalla pagina. Font di sistema, zoom host 1,1; nessun font esterno aggiunto.
+## Correzioni prima del pass
 
-## Confronto per superficie
+1. Dimensioni interne dei contenitori stretti allineate alla proposta scelta, sia su desktop a tre colonne sia su telefono; senza forzare l'altezza della card.
+2. Stato vuoto prima fisso e chiaro su fondo chiaro: ora nel flusso con testo scuro, nessun cambio alla condizione che lo produce.
+3. Selezione: classe reale orders-select-icon, non un nome inventato; min 44 px, icona locale e stato selezionato leggibile anche sul cyan.
+4. Per la fixture disabilitata, gestiti i successivi render asincroni solo nel harness di prova; nessuna modifica al codice dell'app.
 
-| Superficie | Risultato |
-| --- | --- |
-| Caratteri | Stack di sistema Apple/Segoe UI, titoli compatti, controlli leggibili. Rimosso dal titolo del sito il solo marcatore «anteprima con dati finti», che appartiene al fixture. Nessun testo operativo riscritto. |
-| Spazi e layout | Intestazione e schede in flusso, strumenti allineati, filtri nella parte destra della barra desktop; al telefono le azioni restano sotto le schede. Comandi non tagliati e nessuno scroll orizzontale nelle prove indicate. |
-| Colori | Chrome grigio chiaro, scheda attiva bianca e testo scuro. Wallpaper originale preservato; il velo non sostituisce `background-image`, quindi il selettore di sfondi dell'app rimane operativo. |
-| Asset e icone | AVIF e logo originali, SVG Phosphor locali con licenza MIT. Icone selezione sempre visibili; modalità selezione riconoscibile anche dopo il ripristino del filtro bianco legacy. Nessuna illustrazione finta o CDN aggiunta. |
-| Contenuti | Numero ordini, Ordini/Panoramica/E1–E4 e filtri conservati. Stesse classi, ID, data attribute e handler inline originali verificati con impronta del contratto DOM. |
-| Stati | Selezione attiva/disattiva, scheda attiva, controlli nascosti e disabilitati conservati. Il CSS non forza visibile il contenitore delle schede mentre il codice lo nasconde in selezione. |
+Nessun problema P0/P1/P2 aperto nel perimetro della fase Ordini. La sequenza dei sette rilasci non cambia: prima PR già approvata e pubblicata; questa seconda fase richiede la sua approvazione prima del merge. Niente auto-merge.
 
-## Verifiche interattive e accessibilità
+## File pronti e prossima fase
 
-- Navigazione Ordini, E1, E2, E3, E4 e Panoramica: contenuto attivo corretto, senza eseguire pulsanti di elaborazione.
-- Entrata/uscita dalla selezione E3 su mobile: schede `none`/`flex`, azioni `flex`/`none`, nessun ordine finalizzato o spostato.
-- Strumenti e controlli delle barre: altezza CSS circa 44 px, anche a 375 px e in orizzontale.
-- Focus via tastiera sulla scheda E4: contorno blu presente. Regola per riduzione movimento presente e coperta da test statico; preferenza di sistema non modificata.
-- Contrasti dei token del chrome: testo schede 6,40:1; testo secondario sul fondo neutro 5,15:1; testo strumenti 14,28:1; focus blu su bianco 6,07:1. **Non è una certificazione AA dell'intero gestionale**, le altre regioni saranno verificate nelle loro PR.
-- Accesso a 390 px: modulo visibile senza password o invio. Corretto il solo difetto grafico legacy che lo nascondeva sotto 768 px; meccanismo di accesso invariato.
-- Console: nessun errore JavaScript nelle prove finali. Avviso atteso per il caricamento template esterno bloccato dal fixture (HTTP 403); nessuna chiamata autorizzata verso servizi reali.
+File di progetto: assets/css/ios-orders.css, tests/ios-orders.test.mjs e il solo link in index.html. Report della prima fase conservato in docs/design-phase-1/design-qa.md. In docs/design-phase-2/ sono trasferiti solo sei screenshot sintetici selezionati. Harness, dati fittizi, adapter e directory candidate non pubblicati.
 
-## Correzioni emerse durante la verifica
+Rimane la fase E1–E4 con conti/componenti/pulsanti e i tre colori trasparenti dell'utile, poi Panoramica, popup, pagine secondarie e audit mobile generale. Non dichiarare il tool intero completato né pubblicato.
 
-1. P2 — icona di selezione bianca su fondo chiaro: sostituita da asset locale e stato attivo visibile.
-2. P2 — il `flex: 1` inline comprimeva le schede mobile: corretto il dimensionamento senza forzare `display`, preservando la modalità selezione.
-3. P2 — filtri in una riga desktop aggiuntiva e selezione troppo distante: riallineati alla direzione approvata.
-4. P2 — modulo di accesso nascosto dal CSS mobile precedente: visibile nello stato non caricato, senza modifiche a password o handler.
+## Evidenza e superfici di fedeltà
 
-Tutti risolti e riesaminati nel confronto finale. Nessun P0/P1/P2 aperto nel perimetro. Nota: le vecchie card e i loro pulsanti sono ancora presenti in questa fase, non indicano il completamento delle fasi successive.
+- Source visual truth: docs/design-phase-2/reference-desktop.jpg e reference-mobile.jpg.
+- Implementazione: docs/design-phase-2/after-desktop.jpg e after-mobile.jpg; prima: before-desktop.jpg e before-mobile.jpg.
+- CSS viewport desktop 1440×~1024; screenshot 1584×1126, stesso fattore 1,1. Mobile CSS 390×900, screenshot 429×990. Confronti alla stessa densità e con gli stessi sei ordini sintetici.
+- Confronto completo riletto affiancato in comparison.html; regioni card, pulsanti e testo leggibili nel confronto mobile. Nessuna immagine sostitutiva o grafica inventata.
+- Font/typography: font di sistema, gerarchia e wrapping allineati alla proposta; nessuna famiglia remota.
+- Spacing/layout: compattezza delle card e gap coerenti, tre/due/una colonne responsive, niente altezze rigide.
+- Colors/tokens: testate hot approvate e superfici bianche traslucide; palette degli esiti non applicata anticipatamente a E1–E4.
+- Image quality: sfondo montagna originale preservato; icone Phosphor locali MIT. Nessuna asset demo inclusa nel runtime.
+- Copy/content: testi, ID e handler invariati; differenza di masthead della fondazione intenzionale e già approvata.
+- Trasferimento: index.html e CSS coincidono con la candidate già verificata (normalizzando solo CRLF/LF); 18 script applicativi sicuri invariati, file segreti esclusi dalle letture/confronti. Nessuna modifica agli altri tab.
 
-## Prove prima/dopo con dati finti
-
-[Desktop prima — viewport 1440](docs/design-phase-1/before-desktop.jpg) · [Desktop dopo](docs/design-phase-1/after-desktop.jpg)
-
-[Mobile prima — viewport 390](docs/design-phase-1/before-mobile.jpg) · [Mobile dopo](docs/design-phase-1/after-mobile.jpg)
-
-## Test e rilascio
-
-`node --test tests/*.test.mjs`: 13 pass, 0 fail (otto file di test funzionali esistenti e cinque controlli di fondazione). `git diff --check`: pulito. Diff applicativo limitato a `index.html`, nuovo CSS e icone locali; nessuna modifica agli script o alla configurazione di Supabase.
-
-File della PR: `index.html`, `assets/css/ios-foundation.css`, `assets/icons/` (11 SVG e licenza), `tests/ios-foundation.test.mjs`, questo report e quattro JPEG in `docs/design-phase-1/`.
-
-**Nessun merge né pubblicazione automatica.** Antonio approva la PR prima del merge. La fase seguente è la card di Ordini, seguita dalle scrivanie e dal conto, mantenendo il layout affiancato approvato.
+Final result: passed.

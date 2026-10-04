@@ -1,0 +1,332 @@
+/* PR 1: visual foundation only. Visibility, authentication and business states
+   remain owned by the existing application. No display overrides for auth controls. */
+:root {
+    /* Primitives */
+    --mg-paper: #f5f4f1;
+    --mg-white: #ffffff;
+    --mg-ink: #1d2029;
+    --mg-muted: #626773;
+    --mg-gray-100: #eff0f3;
+    --mg-gray-200: #e3e4e8;
+    --mg-gray-300: #dedfe3;
+    --mg-focus-blue: #005bd5;
+    --mg-hot-cyan: #00d9ed;
+    --mg-hot-red: #ed0028;
+    --mg-hot-fuchsia: #e10084;
+    --mg-black: #050505;
+    --mg-hot-orange-light: #ffbc80;
+    --mg-orange-ink: #6b2d07;
+    --mg-touch: 44px;
+    --mg-radius-sm: 10px;
+    --mg-radius-md: 14px;
+    --mg-space-1: 4px;
+    --mg-space-2: 8px;
+    --mg-space-3: 16px;
+    --mg-space-4: 32px;
+    --mg-motion: 140ms;
+    --mg-shadow: 0 2px 6px rgba(29, 32, 41, .06);
+    /* Semantics (brand/profit tokens reserved for the next card PRs). */
+    --mg-page-surface: var(--mg-paper);
+    --mg-text-primary: var(--mg-ink);
+    --mg-text-secondary: var(--mg-muted);
+    --mg-surface-chrome: rgba(255, 255, 255, .88);
+    --mg-border-subtle: var(--mg-gray-200);
+    --mg-line-deepcool: var(--mg-hot-cyan);
+    --mg-line-msi: var(--mg-hot-red);
+    --mg-line-configurator: var(--mg-hot-fuchsia);
+    --mg-line-minimal: var(--mg-black);
+    --mg-profit-warning-fill: var(--mg-hot-orange-light);
+    --mg-profit-warning-text: var(--mg-orange-ink);
+    /* Components */
+    --mg-nav-fill: #ededf0;
+    --mg-nav-selected-fill: var(--mg-white);
+    --mg-nav-selected-text: var(--mg-text-primary);
+    --mg-tool-fill: var(--mg-gray-100);
+    --mg-tool-hover: var(--mg-gray-300);
+    --mg-tool-text: var(--mg-text-primary);
+    --mg-tool-radius: 12px;
+    --mg-page-gutter: var(--mg-space-4);
+}
+
+body.mg-ios {
+    isolation: isolate;
+    background-color: var(--mg-page-surface);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* A neutral veil above the original wallpaper. Unlike background-image:
+   !important, this also preserves the existing custom-wallpaper selector. */
+body.mg-ios::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(to bottom,
+        rgba(245, 244, 241, .94) 0%, rgba(245, 244, 241, .90) 12%,
+        rgba(245, 244, 241, .55) 52%, rgba(245, 244, 241, .65) 100%);
+}
+
+body.mg-ios.orders-loaded { padding: 0; }
+
+.mg-masthead {
+    box-sizing: border-box;
+    height: 72px;
+    padding: 20px var(--mg-page-gutter) 0;
+    color: var(--mg-text-primary);
+    pointer-events: none;
+}
+.mg-masthead h2 {
+    margin: 0;
+    font-size: 23px;
+    font-weight: 750;
+    line-height: 1.25;
+    letter-spacing: -.7px;
+}
+.mg-masthead p {
+    margin: 5px 0 0;
+    font-size: 10px;
+    font-weight: 650;
+    line-height: 1.5;
+    letter-spacing: 1px;
+    color: var(--mg-text-secondary);
+}
+
+body.mg-ios .top-actions-container {
+    position: absolute;
+    top: 22px;
+    right: var(--mg-page-gutter);
+    gap: var(--mg-space-2);
+    z-index: 100;
+}
+body.mg-ios .top-actions-container button {
+    box-sizing: border-box;
+    position: static;
+    width: var(--mg-touch);
+    height: var(--mg-touch);
+    min-width: var(--mg-touch);
+    padding: 0;
+    border: 0;
+    border-radius: var(--mg-tool-radius);
+    background: var(--mg-tool-fill);
+    color: var(--mg-tool-text);
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transform: none;
+    cursor: pointer;
+    transition: background-color var(--mg-motion), box-shadow var(--mg-motion);
+}
+body.mg-ios .top-actions-container button:hover { background: var(--mg-tool-hover); transform: none; }
+body.mg-ios .top-actions-container button:disabled { opacity: .5; cursor: not-allowed; }
+body.mg-ios .top-actions-container img { width: 21px; height: 21px; object-fit: contain; }
+body.mg-ios #gpo-mapping-btn span { color: var(--mg-tool-text); font-size: 12px; }
+
+/* Keep the CSS visibility of the original login, including .loaded, untouched. */
+body.mg-ios #fixed-header {
+    box-sizing: border-box;
+    background: var(--mg-surface-chrome);
+    border-color: var(--mg-border-subtle);
+    box-shadow: 0 8px 32px rgba(29, 32, 41, .08);
+}
+body.mg-ios #fixed-header h1 {
+    color: var(--mg-text-primary);
+    text-shadow: none;
+    font-size: 22px;
+    font-weight: 650;
+    line-height: 1.3;
+    letter-spacing: -.5px;
+}
+body.mg-ios #fixed-header .controls { color: var(--mg-text-primary); }
+body.mg-ios #fixed-header input[type="password"] {
+    background: var(--mg-gray-100);
+    border-color: var(--mg-border-subtle);
+    color: var(--mg-text-primary);
+}
+body.mg-ios #fixed-header input[type="password"]::placeholder { color: var(--mg-text-secondary); }
+body.mg-ios #fixed-header .submit-arrow { filter: brightness(0); }
+
+body.mg-ios #tabs-container {
+    position: relative;
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+    width: auto;
+    max-width: none;
+    margin: 14px var(--mg-page-gutter) 0 !important;
+    padding: 5px;
+    box-sizing: border-box;
+    border: 0;
+    border-radius: var(--mg-radius-md);
+    background: var(--mg-nav-fill);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+    z-index: 50;
+}
+body.mg-ios #tabs-container > .tabs { flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: var(--mg-space-2); }
+body.mg-ios #tabs-buttons-container { flex: none !important; flex-wrap: wrap; gap: var(--mg-space-2) !important; min-width: 0; max-width: 100%; }
+body.mg-ios #tabs-container button { min-height: var(--mg-touch); }
+body.mg-ios .tab-button {
+    box-sizing: border-box;
+    flex: none;
+    min-height: var(--mg-touch);
+    min-width: 44px;
+    padding: 9px 20px;
+    border: 0;
+    border-radius: var(--mg-radius-sm);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #505560;
+    background: transparent;
+    transition: background-color var(--mg-motion), box-shadow var(--mg-motion);
+}
+body.mg-ios .tab-button:hover { background: var(--mg-gray-200); color: var(--mg-text-primary); }
+body.mg-ios .tab-button.active {
+    background: var(--mg-nav-selected-fill);
+    color: var(--mg-nav-selected-text);
+    box-shadow: var(--mg-shadow);
+    font-weight: 700;
+}
+body.mg-ios #tabs-container :is(#hidden-orders-btn, #select-orders-btn, #select-processed-btn, #select-finalized-btn) {
+    box-sizing: border-box;
+    min-width: var(--mg-touch);
+    min-height: var(--mg-touch);
+    padding: 8px !important;
+    margin: 0 !important;
+    border-radius: var(--mg-radius-sm) !important;
+}
+body.mg-ios #tabs-container :is(#hidden-orders-btn, #select-orders-btn, #select-processed-btn, #select-finalized-btn) img { width: 21px; height: 21px; filter: brightness(0) !important; }
+/* Existing selection code changes the image opacity: preserve a visible state
+   even after its legacy white-icon filter is applied on exit. */
+body.mg-ios #tabs-container :is(#select-orders-btn, #select-processed-btn, #select-finalized-btn):has(img[style*="opacity: 1;"]) { background: #dff1e5 !important; }
+body.mg-ios #bulk-replace-btn { font-size: 0 !important; min-width: var(--mg-touch); min-height: var(--mg-touch); margin: 0 !important; }
+body.mg-ios #bulk-replace-btn::before {
+    content: '';
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    vertical-align: middle;
+    background: var(--mg-text-primary);
+    mask: url('../icons/magnifying-glass.svg') center / contain no-repeat;
+    -webkit-mask: url('../icons/magnifying-glass.svg') center / contain no-repeat;
+}
+body.mg-ios #tabs-container :is(#orders-counter, #processed-counter, #status-box) {
+    padding: 10px !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--mg-text-primary) !important;
+    font-size: 13px !important;
+}
+
+body.mg-ios #since-id-filter-container {
+    position: absolute !important;
+    top: 22px !important;
+    left: 300px !important;
+    width: fit-content;
+    margin: 0;
+}
+body.mg-ios #since-id-filter-container > .tabs {
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+}
+body.mg-ios #since-id-filter-container label { color: var(--mg-text-secondary) !important; font-size: 12px !important; }
+body.mg-ios #since-id-input {
+    box-sizing: border-box;
+    min-height: var(--mg-touch);
+    width: 108px !important;
+    background: var(--mg-gray-100) !important;
+    color: var(--mg-text-primary) !important;
+    border: 1px solid var(--mg-border-subtle) !important;
+    border-radius: var(--mg-radius-sm) !important;
+}
+body.mg-ios #operator-filter-container {
+    position: relative;
+    top: auto !important;
+    left: auto !important;
+    right: auto;
+    width: auto;
+    margin: 12px var(--mg-page-gutter) 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+body.mg-ios #operator-filter-container .tabs { flex-wrap: wrap; justify-content: flex-start; gap: var(--mg-space-2); }
+body.mg-ios #operator-filter-container button {
+    box-sizing: border-box;
+    flex: none;
+    min-height: var(--mg-touch);
+    min-width: var(--mg-touch);
+    padding: 8px 14px;
+    border: 0;
+    border-radius: var(--mg-radius-sm);
+    background: #e9eaed;
+    color: #4e5360;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    box-shadow: none;
+    transform: none;
+}
+body.mg-ios #operator-filter-container button:hover { background: var(--mg-gray-200); transform: none; }
+body.mg-ios #operator-filter-container button.active { background: var(--mg-white); color: var(--mg-text-primary); box-shadow: var(--mg-shadow); }
+body.mg-ios #operator-filter-container button:disabled { opacity: .5; cursor: not-allowed; }
+body.mg-ios #operator-filter-container img { width: 18px !important; height: 18px !important; }
+
+/* Change spacing, not display: .tab-content.active remains the app's switch. */
+body.mg-ios .tab-content { box-sizing: border-box; margin: 22px auto 0; padding: 0 var(--mg-page-gutter) 36px; }
+body.mg-ios :is(#orders-container, #processed-container, #finalized-container, #hidden-container)::before { content: none; }
+
+body.mg-ios :is(button, a, input, select, textarea):focus-visible {
+    outline: 3px solid var(--mg-focus-blue) !important;
+    outline-offset: 3px;
+}
+
+/* Approved desktop toolbar: filters sit at the right of the segmented bar.
+   Reserve space only while the existing app exposes those filters. */
+@media (min-width: 1101px) {
+    body.mg-ios:has(#operator-filter-container[style*="display: block"]) #tabs-container { padding-right: 456px; }
+    body.mg-ios #operator-filter-container { position: absolute; top: 93px !important; right: 40px; left: auto !important; margin: 0; z-index: 51; }
+    body.mg-ios #operator-filter-container .tabs { gap: 4px; flex-wrap: nowrap; }
+    body.mg-ios #operator-filter-container button { padding: 8px 10px; }
+}
+@media (min-width: 1101px) and (max-width: 1279px) {
+    body.mg-ios:has(#operator-filter-container[style*="display: block"]) #tabs-container { padding-right: 392px; }
+    body.mg-ios #operator-filter-container button { padding: 8px; font-size: 11px; }
+}
+@media (max-width: 1100px) {
+    :root { --mg-page-gutter: 24px; }
+    body.mg-ios #since-id-filter-container { position: relative !important; top: auto !important; left: auto !important; margin: 12px var(--mg-page-gutter) 0; }
+}
+@media (max-width: 768px) {
+    :root { --mg-page-gutter: 16px; }
+    .mg-masthead { height: auto; min-height: 64px; }
+    .mg-masthead h2 { font-size: 21px; }
+    body.mg-ios .top-actions-container { position: relative; top: auto; right: auto; margin: 10px var(--mg-page-gutter) 0; flex-wrap: wrap; justify-content: flex-start; gap: var(--mg-space-1); }
+    /* Undo legacy mobile display:none only when the app itself shows Settings. */
+    body.mg-ios .top-actions-container #settings-btn:not([style*="display: none"]) { display: flex !important; }
+    body.mg-ios #tabs-container { padding: 4px; }
+    body.mg-ios #tabs-buttons-container { order: -1; flex: 1 0 100% !important; gap: var(--mg-space-1) !important; }
+    body.mg-ios .tab-button { padding: 8px 6px !important; font-size: 11px !important; min-width: var(--mg-touch); }
+    body.mg-ios #operator-filter-container .tabs { gap: 6px; }
+    body.mg-ios #operator-filter-container button { padding: 8px 6px !important; font-size: 11px !important; }
+    body.mg-ios #operator-filter-container img { width: 16px !important; height: 16px !important; }
+    body.mg-ios .tab-content { margin-top: 16px !important; padding: 0 var(--mg-page-gutter) 28px; }
+    body.mg-ios :is(#orders-container, #processed-container, #finalized-container) { margin-top: 16px !important; }
+    /* Login was incorrectly suppressed at mobile widths by the legacy CSS. */
+    body.mg-ios #fixed-header:not(.loaded) { display: flex !important; max-height: calc(100dvh - 32px); overflow-y: auto; padding: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.mg-ios *, body.mg-ios *::before, body.mg-ios *::after { transition: none !important; animation: none !important; }
+}

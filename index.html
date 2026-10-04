@@ -7,40 +7,46 @@
     <link rel="icon" type="image/jpeg" href="https://www.minimalgamers.it/cdn/shop/files/LOGO_MINIMAL_GAMERS.jpg?crop=center&height=32&v=1664907101&width=32">
     <link rel="stylesheet" href="assets/css/style.css?v=32">
     <link rel="stylesheet" href="assets/css/style_mobile.css?v=32">
+    <link rel="stylesheet" href="assets/css/ios-foundation.css?v=1">
     <script src="assets/vendor/jspdf.umd.min.js"></script>
     <script src="assets/vendor/jspdf.plugin.autotable.min.js"></script>
     
     <script src="assets/vendor/xlsx.min.js"></script>
 </head>
-<body>
+<body class="mg-ios">
+
+    <header class="mg-masthead" aria-label="Gestionale Minimal Gamers">
+        <h2>GESTIONALE</h2>
+        <p>MINIMAL GAMERS</p>
+    </header>
 
     <div id="top-actions-container" class="top-actions-container">
         <button id="add-manual-order-btn" class="add-manual-order-btn auth-required" title="Aggiungi ordine manuale" style="display: none;">
-            <img src="https://img.icons8.com/?size=512&id=3220&format=png" alt="Aggiungi" style="width: 32px; height: 32px; filter: brightness(0) invert(1);">
+            <img src="assets/icons/plus.svg" alt="Aggiungi">
         </button>
 
         <button id="gpo-mapping-btn" class="gpo-mapping-btn auth-required" title="GPO - Mapping Custom Properties" style="display: none;">
-            <span style="font-weight: 700; font-size: 14px; color: white;">GPO</span>
+            <span style="font-weight: 700;">GPO</span>
         </button>
 
         <button id="custom-components-btn" class="custom-components-btn auth-required" title="Componenti Amazon Personalizzati" style="display: none;">
-            <img src="https://img.icons8.com/?size=512&id=21295&format=png" alt="Componenti" style="width: 32px; height: 32px; filter: brightness(0) invert(1) sepia(1) saturate(5) hue-rotate(5deg);">
+            <img src="assets/icons/cube.svg" alt="Componenti">
         </button>
 
         <button id="export-btn" class="export-btn auth-required" title="Riepilogo Fornitori" style="display: none;">
-            <img src="https://cdn-icons-png.flaticon.com/512/10429/10429223.png" alt="Riepilogo" style="width: 32px; height: 32px;">
+            <img src="assets/icons/truck.svg" alt="Riepilogo">
         </button>
 
         <button id="standard-configs-btn" class="standard-configs-btn auth-required" title="Configurazioni Standard" style="display: none;">
-            <img src="https://img.icons8.com/?size=512&id=eGTjSzMmAhSs&format=png" alt="Configurazioni" style="width: 32px; height: 32px;">
+            <img src="assets/icons/desktop.svg" alt="Configurazioni">
         </button>
 
         <button id="message-templates-btn" class="search-btn auth-required" title="Template Messaggi WhatsApp/Email" style="display: none;">
-            <img src="assets/img/whatsapp.avif" alt="Template Messaggi" style="width: 32px; height: 32px; object-fit: contain;">
+            <img src="assets/icons/chat-circle.svg" alt="Template Messaggi">
         </button>
 
         <button id="settings-btn" class="settings-btn auth-required" title="Impostazioni" style="display: none;">
-            <img src="https://img.icons8.com/?size=96&id=2969&format=png" alt="Impostazioni" style="width: 32px; height: 32px;">
+            <img src="assets/icons/gear-six.svg" alt="Impostazioni">
         </button>
     </div>
     
@@ -79,10 +85,10 @@
 
     <div id="tabs-container" style="display:none;">
         <div class="tabs">
-            <button id="hidden-orders-btn" class="hidden-orders-btn auth-required" title="Visualizza ordini nascosti" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;"><img src="https://img.icons8.com/?size=500&id=60022&format=png" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1);"></button>
+            <button id="hidden-orders-btn" class="hidden-orders-btn auth-required" title="Visualizza ordini nascosti" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;"><img src="assets/icons/archive.svg" alt="Ordini nascosti" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9;"></button>
             <span id="orders-counter" class="auth-required" style="display: none; margin-right: 8px; color: rgba(255,255,255,0.9); font-size: 0.95em; font-weight: 600; background: rgba(102, 126, 234, 0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.4);">0</span>
             <button id="select-orders-btn" class="auth-required" title="Seleziona ordini" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;">
-                <img src="https://img.icons8.com/?size=512&id=3pldZIZvVCVB&format=png" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1); transition: all 0.3s ease;">
+                <img src="assets/icons/check-square.svg" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; transition: all 0.3s ease;">
             </button>
             <div id="process-selected-orders-container" class="auth-required" style="display: none; margin-right: 8px; gap: 6px; align-items: center;">
                 <button class="process-selected-orders-btn" data-worksheet="1" title="Elabora ordini selezionati in E1" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; background: #2f62ff; border: 1px solid #5f86ff; color: #ffffff; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 6px 10px; border-radius: 8px; transition: all 0.2s ease;">E1</button>
@@ -91,7 +97,7 @@
                 <button class="process-selected-orders-btn" data-worksheet="4" title="Elabora ordini selezionati in E4" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; background: #2f62ff; border: 1px solid #5f86ff; color: #ffffff; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 6px 10px; border-radius: 8px; transition: all 0.2s ease;">E4</button>
             </div>
             <span id="processed-counter" class="auth-required" style="display: none; margin-right: 8px; color: rgba(255,255,255,0.9); font-size: 0.95em; font-weight: 600; background: rgba(102, 126, 234, 0.3); padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.4);">0</span>
-            <button id="bulk-replace-btn" class="bulk-replace-btn auth-required" title="Cerca e Sostituisci di massa" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; color: white; font-size: 1.3em; cursor: pointer; padding: 0; transition: all 0.3s ease;">💡</button>
+            <button id="bulk-replace-btn" class="bulk-replace-btn auth-required" title="Cerca e Sostituisci di massa" aria-label="Cerca e Sostituisci di massa" style="display: none; margin-right: 8px; width: auto; height: auto; background: none; border: none; color: white; font-size: 1.3em; cursor: pointer; padding: 0; transition: all 0.3s ease;">💡</button>
             <button id="rielabora-selected-btn" class="auth-required" title="Rielabora ordini selezionati" style="display: none; margin-right: 8px; width: auto; height: auto; background: rgba(46, 204, 113, 0.3); border: 1px solid rgba(46, 204, 113, 0.5); color: #2ecc71; font-size: 0.9em; font-weight: 600; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">🔄 Rielabora</button>
             <button id="hide-selected-btn" class="auth-required" title="Nascondi ordini selezionati" style="display: none; margin-right: 8px; width: auto; height: auto; background: rgba(231, 76, 60, 0.3); border: 1px solid rgba(231, 76, 60, 0.5); color: #e74c3c; font-size: 0.9em; font-weight: 600; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">👁️ Nascondi</button>
             <div id="status-box" class="status" style="display:none; margin-right: 8px; border: 1px solid rgba(255,255,255,0.35); border-radius: 8px; padding: 8px 12px; font-size: 0.9em; color: white; white-space: nowrap; max-width: 380px; overflow: hidden; text-overflow: ellipsis;"></div>
@@ -110,7 +116,7 @@
                 <button class="tab-button" data-tab="suppliers" title="Riepilogo per fornitori" style="display: none;">Fornitori</button>
             </div>
             <button id="select-processed-btn" class="auth-required" title="Seleziona ordini elaborati" style="display: none; margin-left: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;">
-                <img src="https://img.icons8.com/?size=512&id=3pldZIZvVCVB&format=png" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1); transition: all 0.3s ease;">
+                <img src="assets/icons/check-square.svg" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; transition: all 0.3s ease;">
             </button>
             <button id="finalize-selected-processed-btn" class="auth-required" title="Finalizza ordini selezionati" style="display: none; margin-left: 8px; width: auto; height: auto; background: rgba(46, 204, 113, 0.3); border: 1px solid rgba(46, 204, 113, 0.5); color: #111111; font-size: 0.9em; font-weight: 700; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">✅ Finalizza</button>
             <button id="move-to-orders-btn" class="auth-required" title="Sposta in Ordini" style="display: none; margin-left: 8px; width: auto; height: auto; background: rgba(241, 196, 15, 0.3); border: 1px solid rgba(241, 196, 15, 0.5); color: #111111; font-size: 0.9em; font-weight: 700; cursor: pointer; padding: 8px 16px; border-radius: 8px; transition: all 0.3s ease;">📋 Ordini</button>
@@ -121,7 +127,7 @@
                 <button class="move-to-worksheet-btn" data-target-worksheet="4" title="Sposta ordini selezionati in E4" style="display: inline-flex; align-items: center; justify-content: center; min-width: 64px; background: rgba(52, 152, 219, 0.35); border: 1px solid rgba(52, 152, 219, 0.55); color: #111111; font-size: 0.82em; font-weight: 700; cursor: pointer; padding: 7px 10px; border-radius: 8px; transition: all 0.2s ease;">Sposta E4</button>
             </div>
             <button id="select-finalized-btn" class="auth-required" title="Seleziona ordini finalizzati" style="display: none; margin-left: 8px; width: auto; height: auto; background: none; border: none; cursor: pointer; padding: 0; transition: all 0.3s ease;">
-                <img src="https://img.icons8.com/?size=512&id=3pldZIZvVCVB&format=png" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; filter: brightness(0) invert(1); transition: all 0.3s ease;">
+                <img src="assets/icons/check-square.svg" alt="Seleziona" style="width: 24px; height: 24px; vertical-align: middle; opacity: 0.9; transition: all 0.3s ease;">
             </button>
         </div>
     </div>
@@ -621,7 +627,7 @@
 
     <div id="since-id-filter-container" style="display:none; position: fixed; left: 20px; z-index: 100;">
         <div class="tabs" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.2);">
-            <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; font-weight: 600;">Carica ordini da ID:</label>
+            <label for="since-id-input" style="color: rgba(255,255,255,0.8); font-size: 0.9em; font-weight: 600;">Carica ordini da ID:</label>
             <input type="text" id="since-id-input" placeholder="#3500" style="padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(0, 0, 0, 0.3); color: white; font-size: 0.9em; font-weight: 500; width: 90px; transition: all 0.3s ease; outline: none;" title="Inserisci il numero ordine da cui iniziare (es: #3500 o 3500). Verranno mostrati solo ordini >= a questo numero." onfocus="this.style.borderColor='rgba(255, 255, 255, 0.5)'; this.style.background='rgba(0, 0, 0, 0.4)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.3)'; this.style.background='rgba(0, 0, 0, 0.3)'">
         </div>
     </div>
@@ -629,11 +635,11 @@
     <div id="operator-filter-container" style="display:none;">
         <div class="tabs">
             <button id="export-excel-btn" class="export-excel-btn" title="Esporta ordini in Excel" style="display:none;" disabled>
-                <img src="https://img.icons8.com/?size=96&id=117561&format=png" alt="Excel" style="width: 20px; height: 20px;">
+                <img src="assets/icons/file-xls.svg" alt="" style="width: 20px; height: 20px;">
                 <span>Excel</span>
             </button>
             <button id="export-pdf-btn" class="export-excel-btn" title="Esporta ordini in PDF (stampa)" style="display:inline-flex; align-items:center; gap:6px;">
-                <img src="https://img.icons8.com/?size=96&id=13417&format=png" alt="PDF" style="width: 20px; height: 20px;">
+                <img src="assets/icons/file-pdf.svg" alt="" style="width: 20px; height: 20px;">
                 <span>PDF Stampa</span>
             </button>
             <button class="filter-button" data-operator="OperatoreA" title="Filtra ordini per Operatore A">OperatoreA</button>

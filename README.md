@@ -5,6 +5,12 @@ configurazione standard della build e produce le liste di acquisto per fornitore
 
 **Live:** https://minimalgamers.github.io/minimalgamers-gestionale/
 
+## App sulla schermata Home di iPhone
+
+Lo stesso gestionale può aprirsi come web app dalla Home, senza una versione ridotta.
+Servono Internet e il normale accesso. Istruzioni di installazione, sicurezza e prova
+sul telefono in [docs/iphone-home-app.md](docs/iphone-home-app.md).
+
 ## Come è fatto
 
 Non c'è build step: `index.html` carica direttamente gli script da `assets/js/`.

@@ -1,0 +1,28 @@
+{
+  "id": "./",
+  "name": "Minimal Gamers — Gestionale",
+  "short_name": "MG Gestionale",
+  "description": "Lo stesso gestionale ordini Minimal Gamers, installabile dalla schermata Home. Richiede Internet e il normale accesso.",
+  "lang": "it",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f4f1",
+  "theme_color": "#f5f4f1",
+  "icons": [
+    {
+      "src": "assets/app/mg-icon-180.jpg?v=1",
+      "sizes": "180x180",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/app/mg-icon-512.jpg?v=1",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+/* Same online application, not a separate mobile build. No data/visibility rules.
+   env() remains zero on ordinary desktop screens. Insets also work in Safari. */
+:root {
+    --mg-safe-top: env(safe-area-inset-top, 0px);
+    --mg-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --mg-safe-left: env(safe-area-inset-left, 0px);
+    --mg-safe-right: env(safe-area-inset-right, 0px);
+    --mg-safe-side: max(var(--mg-safe-left), var(--mg-safe-right));
+}
+@media (max-width: 1100px) {
+    body.mg-ios {
+        box-sizing: border-box;
+        min-height: 100dvh;
+        padding-top: var(--mg-safe-top) !important;
+        padding-bottom: var(--mg-safe-bottom) !important;
+        --mg-page-gutter: max(24px, var(--mg-safe-side));
+    }
+    body.mg-ios .top-actions-container { top: calc(22px + var(--mg-safe-top)); }
+    body.mg-ios :is(#gpo-mapping-page,#custom-components-page,#standard-configs-page) {
+        height: 100dvh !important;
+        padding-top: calc(80px + var(--mg-safe-top)) !important;
+        padding-bottom: calc(140px + var(--mg-safe-bottom)) !important;
+        padding-left: max(20px, var(--mg-safe-side)) !important;
+        padding-right: max(20px, var(--mg-safe-side)) !important;
+    }
+    body.mg-ios :is(#close-gpo-mapping,#close-custom-components,#close-standard-configs,#save-all-configs-btn) {
+        top: calc(90px + var(--mg-safe-top)) !important;
+    }
+    body.mg-ios :is(#close-gpo-mapping,#close-custom-components,#save-all-configs-btn) {
+        right: calc(20px + var(--mg-safe-side)) !important;
+    }
+    body.mg-ios #close-standard-configs { right: calc(90px + var(--mg-safe-side)) !important; }
+    body.mg-ios :is(#fixed-header,#payment-popup,#component-search-popup,#add-custom-item-popup,#bulk-replace-popup,#supplier-select-popup,#add-manual-order-popup,#finalize-all-popup,.acc-finestra-box) {
+        max-width: calc(100vw - 32px - 2 * var(--mg-safe-side)) !important;
+        max-height: calc(100dvh - 32px - var(--mg-safe-top) - var(--mg-safe-bottom)) !important;
+    }
+    body.mg-ios .acc-finestra-box {
+        width: min(760px, calc(100vw - 32px - 2 * var(--mg-safe-side)));
+    }
+    body.mg-ios #template-priority-popup > div {
+        max-width: calc(100vw - 32px - 2 * var(--mg-safe-side));
+        max-height: calc(100dvh - 32px - var(--mg-safe-top) - var(--mg-safe-bottom));
+    }
+}
+@media (max-width: 768px) {
+    body.mg-ios { --mg-page-gutter: max(16px, var(--mg-safe-side)); }
+    body.mg-ios .top-actions-container { top: auto; }
+    body.mg-ios :is(#close-gpo-mapping,#close-custom-components,#close-standard-configs,#save-all-configs-btn) {
+        top: calc(16px + var(--mg-safe-top)) !important;
+    }
+    body.mg-ios :is(#close-gpo-mapping,#close-custom-components,#save-all-configs-btn) {
+        right: calc(16px + var(--mg-safe-side)) !important;
+    }
+    body.mg-ios #close-standard-configs { right: calc(72px + var(--mg-safe-side)) !important; }
+}

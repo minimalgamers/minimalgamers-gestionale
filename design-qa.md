@@ -49,3 +49,15 @@ Nessun P0/P1/P2 aperto nel perimetro fase 3. Le guide di design hanno influenzat
 Anteprima: `http://127.0.0.1:8776/after/?view=e3&demoGrid=1&costi=0`. Approvazione della PR prima di merge. Poi Panoramica, popup/form, pagine secondarie e audit mobile generale, con rilasci separati.
 
 Final result: passed.
+
+## Ultima verifica: supporto app iPhone — 05-10-2026
+
+Questo è il controllo più recente, successivo alle sette fasi già pubblicate.
+Report completo, fonte, screenshot, dimensioni, confronto e gap di dispositivo in
+`docs/iphone/design-qa.md`. Base visuale main `c77b353`; implementation con la stessa
+grafica e funzioni. Confronti affiancati desktop/mobile a pari stato e scala,
+40 test pass e 66 combinazioni responsive con dati finti. Nessun P0/P1/P2 aperto
+nel perimetro provato; installazione/Safari e operazioni reali restano da verificare
+su iPhone. Main non modificato: rilascio dopo approvazione.
+
+Final result: passed

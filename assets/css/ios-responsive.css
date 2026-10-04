@@ -1,0 +1,14 @@
+/* Phase 7: mobile input legibility; no app visibility, data or flow changes. */
+@media (max-width: 768px) {
+    /* 16px prevents iOS Safari from zooming the document on field focus. */
+    body.mg-ios :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),select,textarea) { font-size: 16px !important; }
+    body.mg-ios :is(#gpo-mapping-page,#custom-components-page,#standard-configs-page) { padding-bottom: max(100px,env(safe-area-inset-bottom)) !important; }
+    body.mg-ios #suppliers-container .acc-rf-forn-riga { flex-wrap: wrap; }
+    body.mg-ios #suppliers-container .acc-rf-forn-riga > span:not(.acc-forn) { min-width: 100px; }
+}
+@media (max-width: 374px) {
+    body.mg-ios #standard-configs-page .component-row > div > div { flex-basis: 100% !important; }
+    body.mg-ios #standard-configs-page .config-supplier-badge { flex: 1; }
+    body.mg-ios #message-templates-container .message-templates-tab { padding: 14px !important; }
+    body.mg-ios #inventory-container .inventory-page { padding: 14px !important; }
+}

@@ -1,0 +1,69 @@
+/* Phase 4: consultation only. Existing tables, values and filters remain intact. */
+body.mg-ios #automatico-container { max-width: 1440px; }
+body.mg-ios #automatico-container .acc-pagina { padding: 24px; border: 1px solid var(--mg-border-subtle); border-radius: 20px; background: rgba(255,255,255,.94); color: var(--mg-ink); box-shadow: var(--mg-shadow); }
+body.mg-ios #automatico-container :is(.acc-ordine,.acc-riepilogo,.acc-totale) { box-sizing: border-box; min-width: 0; border: 1px solid var(--mg-border-subtle); border-radius: 16px; background: rgba(255,255,255,.94); color: var(--mg-ink); box-shadow: var(--mg-shadow); }
+body.mg-ios #automatico-container :is(.acc-ordine,.acc-riepilogo) { padding: 18px; }
+body.mg-ios #automatico-container .acc-testa { gap: 8px; }
+body.mg-ios #automatico-container :is(.acc-testa .acc-info,.acc-totale small,.acc-cod,.acc-nota,.acc-mag,.acc-vuoto) { color: var(--mg-muted); opacity: 1; }
+body.mg-ios #automatico-container .acc-totale { padding: 12px 14px; }
+body.mg-ios #automatico-container .acc-totale b { font-variant-numeric: tabular-nums; }
+body.mg-ios #automatico-container .acc-btn { box-sizing: border-box; min-height: 44px; padding: 10px 14px; border: 0; border-radius: 10px; background: #ededf0; color: #323844; font: inherit; font-size: 13px; font-weight: 600; box-shadow: none; cursor: pointer; }
+body.mg-ios #automatico-container .acc-btn.attivo { background: #fff; color: var(--mg-ink); box-shadow: 0 1px 6px rgba(29,32,41,.12); }
+body.mg-ios #automatico-container .acc-btn:hover:not(:disabled) { background: var(--mg-gray-200); }
+body.mg-ios #automatico-container .acc-btn:disabled { opacity: .5; cursor: not-allowed; }
+body.mg-ios #automatico-container .acc-cerca { box-sizing: border-box; min-height: 44px; max-width: 100%; border: 1px solid #d5d8e0; border-radius: 10px; background: #f4f4f7; padding: 10px 12px; color: var(--mg-ink); font: inherit; font-size: 13px; }
+body.mg-ios #automatico-container input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--mg-focus-blue); }
+body.mg-ios #automatico-container .acc-ordine-testa label { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; }
+body.mg-ios #automatico-container .acc-badge { padding: 4px 9px; border: 0; font-size: 12px; }
+body.mg-ios #automatico-container .acc-badge.fatto { background: #e8effc; color: #16478c; }
+body.mg-ios #automatico-container .acc-badge.da-fare { background: #eaf6ed; color: #146c43; }
+body.mg-ios #automatico-container .acc-pc-titolo { padding: 10px 12px; border-radius: 10px; background: var(--mg-black); color: #fff; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+body.mg-ios #automatico-container .acc-pc-titolo.mg-titolo-msi { background: var(--mg-hot-red); color: #fff; }
+body.mg-ios #automatico-container .acc-pc-titolo.mg-titolo-deepcool { background: var(--mg-hot-cyan); color: #083344; }
+body.mg-ios #automatico-container .acc-pc-titolo.mg-titolo-configuratore { background: var(--mg-hot-fuchsia); color: #fff; }
+body.mg-ios #automatico-container .mg-tag-linea { border: 1px solid currentColor; background: transparent; color: inherit; box-shadow: none; }
+body.mg-ios #automatico-container .acc-tabella { font-size: 13px; table-layout: auto; }
+body.mg-ios #automatico-container .acc-tabella th { background: #f5f5f7; color: #555b68; border-color: var(--mg-border-subtle); padding: 10px; }
+body.mg-ios #automatico-container .acc-tabella td { color: var(--mg-ink); border-color: #e8e9ed; padding: 10px; overflow-wrap: anywhere; }
+body.mg-ios #automatico-container .acc-tabella .num { font-variant-numeric: tabular-nums; }
+body.mg-ios #automatico-container .acc-descr { color: var(--mg-ink); }
+body.mg-ios #automatico-container :is(.acc-disp-ok,.acc-mag.si,.acc-pos,.acc-excel-ok,.acc-tabella td.acc-sotto) { color: #146c43; }
+body.mg-ios #automatico-container :is(.acc-neg,.acc-excel-sopra,.acc-tabella td.acc-sopra) { color: #b42332; }
+body.mg-ios #automatico-container :is(.acc-disp-conf,.acc-riga-vuota td,.acc-avvisi,.acc-utile .mancanti) { color: #795000; }
+body.mg-ios #automatico-container .acc-disp-arr { color: var(--mg-focus-blue); }
+body.mg-ios #automatico-container .acc-vuoto { background: #f4f5f7; }
+body.mg-ios #automatico-container .acc-utile { background: #f8f8fa; border: 0; border-radius: 12px; color: var(--mg-ink); padding: 14px; font-size: 13px; }
+body.mg-ios #automatico-container .acc-utile .riga { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 0; }
+body.mg-ios #automatico-container .acc-utile .riga > span { min-width: 0; overflow-wrap: anywhere; }
+body.mg-ios #automatico-container .acc-utile .riga > span:last-child { font-variant-numeric: tabular-nums; }
+body.mg-ios #automatico-container .acc-esito { border: 0; border-radius: 11px; padding: 12px 16px; font-size: 13px; line-height: 1.4; font-weight: 650; }
+body.mg-ios #automatico-container .acc-esito.pos { background: rgba(0,235,117,.24); color: #075b31; }
+body.mg-ios #automatico-container .acc-esito.neg { background: rgba(255,23,68,.22); color: #930823; }
+body.mg-ios #automatico-container .acc-esito:is(.basso,.incompleto) { background: rgba(255,122,0,.28); color: #743306; }
+body.mg-ios #automatico-container .mg-overview-original-decor { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+body.mg-ios #automatico-container .mg-overview-profit { display: flex; align-items: center; gap: 9px; }
+body.mg-ios #automatico-container .mg-overview-profit::before { content: ''; flex: 0 0 19px; width: 19px; height: 19px; background: currentColor; mask: url('../icons/warning.svg') center / contain no-repeat; -webkit-mask: url('../icons/warning.svg') center / contain no-repeat; }
+body.mg-ios #automatico-container .mg-overview-profit.pos::before { mask-image: url('../icons/check.svg'); -webkit-mask-image: url('../icons/check.svg'); }
+body.mg-ios #automatico-container .mg-overview-profit.neg::before { mask-image: url('../icons/x.svg'); -webkit-mask-image: url('../icons/x.svg'); }
+body.mg-ios #automatico-container :is(button,input,a,[tabindex]):focus-visible { outline: 3px solid var(--mg-focus-blue); outline-offset: 3px; }
+@media (max-width: 768px) {
+    body.mg-ios #automatico-container .acc-pagina { padding: 16px 12px; }
+    body.mg-ios #automatico-container :is(.acc-ordine,.acc-riepilogo) { padding: 12px; }
+    body.mg-ios #automatico-container .acc-testa .acc-info { min-width: 0; flex-basis: 100%; }
+    body.mg-ios #automatico-container .acc-totali { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+    body.mg-ios #automatico-container .acc-totale { min-width: 0; padding: 12px; }
+    /* Stack complete rows; no sideways scrolling or missing columns. */
+    body.mg-ios #automatico-container .acc-tabella { display: block; width: 100%; font-size: 13px; }
+    body.mg-ios #automatico-container .acc-tabella thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    body.mg-ios #automatico-container .acc-tabella tbody { display: block; }
+    body.mg-ios #automatico-container .acc-tabella tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--mg-border-subtle); }
+    body.mg-ios #automatico-container .acc-tabella td { display: block; min-width: 0; max-width: none; border: 0; padding: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+    body.mg-ios #automatico-container .acc-tabella td::before { content: attr(data-mg-col); display: block; font-size: 11px; font-weight: 600; color: var(--mg-muted); margin-bottom: 3px; }
+    body.mg-ios #automatico-container .acc-tabella td.col-excel { min-width: 0; max-width: none; font-size: 13px; }
+    body.mg-ios #automatico-container .acc-ordine td:nth-child(-n+3),body.mg-ios #automatico-container .acc-ordine td:nth-child(6) { grid-column: 1/-1; }
+    body.mg-ios #automatico-container .acc-forn-blocco td:nth-child(-n+2),body.mg-ios #automatico-container .acc-forn-blocco td:nth-child(5) { grid-column: 1/-1; }
+    body.mg-ios #automatico-container .acc-utile .riga { flex-wrap: wrap; gap: 3px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    body.mg-ios #automatico-container *,body.mg-ios #automatico-container *::before { transition: none; animation: none; }
+}

@@ -364,4 +364,7 @@ body.mg-ios #processed-container .acc-pezzo-sotto > div { line-height: 1.35; }
 @media (pointer: fine) {
     body.mg-ios #processed-container .acc-cambia { min-height: 26px; padding: 2px 8px; }
 }
+/* 05/10 (Antonio): i pulsanti della scheda (Conto, Pezzi, Opzioni, Avvisi, Ordine cliente) sempre su una sola riga,
+   tutti della stessa larghezza, anche quando sono 4 o 5. */
+body.mg-ios #processed-container .acc-menu { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); }
 @media (prefers-reduced-motion: reduce) { body.mg-ios #processed-container * { transition: none !important; animation: none !important; } }

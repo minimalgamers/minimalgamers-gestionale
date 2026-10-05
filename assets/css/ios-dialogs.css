@@ -29,6 +29,11 @@ body.mg-ios .acc-finestra-bottoni { gap: 8px; flex-wrap: wrap; }
 body.mg-ios .acc-finestra-corpo label:has(input) { display: block !important; min-height: 44px; padding: 10px 8px; border-radius: 10px; background: #f5f5f7; }
 body.mg-ios .acc-finestra-corpo label input { margin-right: 8px; vertical-align: middle; }
 body.mg-ios .acc-finestra input:is([type="checkbox"],[type="radio"]) { accent-color: var(--mg-focus-blue); }
+/* 05/10: scrivania, scelta pezzo per pezzo (spunte, Buyer Desk, cambia tutti o i selezionati) */
+body.mg-ios .acc-finestra .acc-prop { border-bottom: 1px solid var(--mg-border-subtle); }
+body.mg-ios .acc-finestra .acc-prop > input, body.mg-ios .acc-finestra .acc-prop-testa > input { width: 20px; height: 20px; }
+body.mg-ios .acc-finestra .acc-prop-bd-tag { background: #e8effc; color: #16478c; }
+body.mg-ios .acc-finestra .acc-prop-resta { color: var(--mg-muted); }
 body.mg-ios .mg-modal-close-icon { font-size: 0 !important; }
 body.mg-ios .mg-modal-close-icon::before { content: ''; display: inline-block; width: 19px; height: 19px; background: currentColor; mask: url('../icons/x.svg') center / contain no-repeat; -webkit-mask: url('../icons/x.svg') center / contain no-repeat; }
 body.mg-ios :is(#payment-popup,#component-search-popup,#add-custom-item-popup,#bulk-replace-popup,#supplier-select-popup,#add-manual-order-popup,#finalize-all-popup,#template-priority-popup,.acc-finestra) :is(button,a,input,select,textarea,[tabindex]):focus-visible { outline: 3px solid var(--mg-focus-blue) !important; outline-offset: 3px; }

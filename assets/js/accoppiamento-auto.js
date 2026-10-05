@@ -845,6 +845,23 @@
 .acc-finestra-bottoni button[data-si]{background:rgba(46,204,113,.45)}
 .acc-fin-ordine{margin:8px 0;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.05)}
 .acc-fin-riga{display:flex;justify-content:space-between;gap:10px;padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.1)}
+.acc-finestra-bottoni button:disabled{opacity:.5;cursor:not-allowed}
+.acc-prop-comandi{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.acc-prop-comandi button,.acc-prop-azioni button{padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:inherit;cursor:pointer;font-size:.85em;white-space:nowrap}
+.acc-prop-corpo{flex:1;min-width:0}
+.acc-prop-azioni{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.acc-prop-somma{margin-left:auto;font-weight:700}
+.acc-prop-testa{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.acc-prop{align-items:flex-start;padding:6px 0}
+.acc-prop>input{flex:none;width:18px;height:18px;margin:3px 0 0}
+.acc-prop-testo{display:block;cursor:pointer}
+.acc-prop-lato{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.acc-prop-bd-tag{font-size:.75em;padding:1px 7px;border-radius:999px;background:rgba(52,152,219,.25);white-space:nowrap}
+.acc-prop-resta{display:none;font-size:.8em;font-weight:700}
+.acc-prop-lasciato .acc-prop-testo,.acc-prop-lasciato [data-prop-diff]{opacity:.45}
+.acc-prop-lasciato .acc-prop-resta{display:inline}
+.acc-prop-lasciato .acc-prop-azioni{display:none}
+.acc-prop [hidden]{display:none!important}
 .acc-prezzo{width:90px;padding:3px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;text-align:right}
 .acc-extra{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(52,152,219,.14);border:1px solid rgba(52,152,219,.35)}
 .acc-utile .riga{display:flex;justify-content:space-between;gap:8px}
@@ -1529,6 +1546,238 @@
         return { html, risparmio: tonda(risparmio) };
     }
 
+    // ================================================================ SCELTA PEZZO PER PEZZO (Antonio 05/10)
+    // «Poter scegliere un'alternativa dal Buyer Desk per ogni pezzo, e non cambiarli per forza tutti insieme
+    // massivamente (anche l'opzione massiva ci deve essere) ma poter anche scegliere se lasciare qualcuno come sta.»
+    // Nella finestra di «AGGIORNA PREZZI PRODOTTO» ogni pezzo ha la sua spunta (tolta = resta com'e'), ogni ordine
+    // ha la spunta per tutti i suoi pezzi e ogni pezzo ha «Altro dal Buyer Desk»: l'offerta scelta li' prende il posto
+    // di quella proposta (in quella riga, o anche nelle righe con lo stesso cambio). In fondo: «Lascia così»,
+    // «Cambia tutti» e «Cambia i selezionati».
+
+    // Ricerca breve per il Buyer Desk, che vuole tutte le parole: il modello che conta, non il nome intero del listino
+    function ricercaProposta(x) {
+        const tipo = String((x && x.tipo) || '').toUpperCase();
+        const testo = `${(x && x.a && x.a.descrizione) || ''} ${(x && x.da && x.da.nome) || ''}`.toUpperCase().replace(/[_/]+/g, ' ');
+        let m = null;
+        if (tipo === 'GPU' && (m = /\b(RTX|GTX|RX|ARC)\s*([A-Z]?\d{3,4})\s*(XTX|XT|TI|SUPER|GRE)?\b/.exec(testo))) {
+            const vram = /\b(\d{1,2})\s*GB\b/.exec(testo);
+            return [m[1], m[2], m[3], vram ? `${vram[1]}GB` : ''].filter(Boolean).join(' ');
+        }
+        if (tipo === 'CPU' && (m = /\b(\d{4,5}(?:X3D|[A-Z]{1,3})?|\d{3}[A-Z]{1,2})\b/.exec(testo))) return m[1];
+        if (tipo === 'COOLER' && (m = /\b(A[GKA]\d{2,3}|L[TESC]\d{3}|WRAITH\s+[A-Z]+|CORE\s*FROZR\s+[A-Z0-9]+|CORE\s*LIQUID\s+[A-Z0-9]+)/.exec(testo))) return m[1];
+        if (tipo === 'MOBO' && (m = /\b([ABHXZ]\d{3})/.exec(testo))) return m[1];
+        if (tipo === 'PSU' && (m = /\b(\d{3,4})\s*W\b/.exec(testo))) return `${m[1]}W`;
+        if (tipo === 'RAM' && (m = /\b(\d{1,3})\s*GB\b/.exec(testo))) {
+            const ddr = /\bDDR([345])/.exec(testo);
+            return `${m[1]}GB${ddr ? ` DDR${ddr[1]}` : ''}`;
+        }
+        if (/^SSD/.test(tipo) && (m = /\b(\d+(?:[.,]\d+)?)\s*(TB|GB)\b/.exec(testo))) return `${m[1].replace(',', '.')}${m[2]}${/NVME/.test(testo) ? ' NVMe' : ''}`;
+        const nome = String((x && x.a && x.a.descrizione) || (x && x.da && x.da.nome) || (x && x.da && x.da.ean) || '');
+        return nome.replace(/\b(WHITE|BLACK|BIANCO|BIANCA|NERO|NERA)\b/gi, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 4).join(' ').slice(0, 60);
+    }
+
+    const bersaglio = (x) => (x && x.scelta) || (x && x.a) || {};
+    const stessoBersaglio = (a, b) => !!a && !!b && chiave(a.codice) === chiave(b.codice) &&
+        String(a.fornitore || '').toUpperCase().trim() === String(b.fornitore || '').toUpperCase().trim();
+
+    // Differenza col pezzo della scheda: positiva = si spende meno
+    function differenzaProposta(x) {
+        const t = bersaglio(x);
+        if (!x || !x.da || x.da.costo == null || t.costo == null || isNaN(Number(t.costo))) return null;
+        const d = tonda(Number(x.da.costo) - Number(t.costo));
+        return Math.abs(d) < 0.005 ? null : d;
+    }
+    const htmlDifferenza = (d) => d == null ? '' : `<span class="${d > 0 ? 'acc-pos' : 'acc-neg'}">${d > 0 ? `−${eur(d)}` : `+${eur(-d)}`}</span>`;
+
+    function htmlNuovoProposta(x) {
+        const t = bersaglio(x);
+        return `${esc(t.fornitore)} ${esc(t.descrizione || t.codice)} <b>${eur(t.costo)}</b> <small>${esc(t.disponibilita || '')}</small>` +
+            (x && x.scelta ? ' <span class="acc-prop-bd-tag">scelto dal Buyer Desk</span>' : '');
+    }
+
+    // L'offerta mandata dal Buyer Desk («Scegli»), col prezzo netto se e' confrontabile
+    function sceltaDaBuyerDesk(d) {
+        const prezzo = d && d.prezzo != null && d.prezzo !== '' ? Number(d.prezzo) : NaN;
+        return { codice: String(d.codice), fornitore: String(d.fornitore), descrizione: String(d.descrizione || d.codice),
+            costo: !isNaN(prezzo) && prezzo > 0 ? tonda(prezzo) : null, disponibilita: String(d.disponibilita || ''), daBuyerDesk: true };
+    }
+
+    // Le altre righe con lo stesso cambio (stesso tipo, stesso pezzo nella scheda, stessa proposta)
+    function righeUguali(proposte, i) {
+        const x = proposte[i];
+        if (!x) return [];
+        const out = [];
+        proposte.forEach((y, j) => {
+            if (j !== i && y.tipo === x.tipo && chiave(y.da.ean) === chiave(x.da.ean) && stessoBersaglio(y.a, x.a)) out.push(j);
+        });
+        return out;
+    }
+
+    // Quanti pezzi si cambiano e quanto si risparmia (negativo = si spende di piu')
+    function sommaScelte(proposte, spunte) {
+        let n = 0, diff = 0;
+        proposte.forEach((x, i) => {
+            if (!spunte[i]) return;
+            n++;
+            const d = differenzaProposta(x);
+            if (d != null) diff += d;
+        });
+        return { n, risparmio: tonda(diff) };
+    }
+
+    function testoSomma(s, totale) {
+        const soldi = Math.abs(s.risparmio) < 0.005 ? '' : (s.risparmio > 0
+            ? ` · <span class="acc-pos">${eur(s.risparmio)} in meno</span>` : ` · <span class="acc-neg">${eur(-s.risparmio)} in più</span>`);
+        return `${s.n} di ${totale} da cambiare${soldi}`;
+    }
+
+    function rigaPropostaScelta(x, i, k) {
+        return `<div class="acc-fin-riga acc-prop" data-prop-riga="${i}">` +
+            `<input type="checkbox" id="acc-prop-${i}" data-prop="${i}" data-prop-di="${k}" checked aria-label="Cambia ${esc(x.tipo)} di ${esc(x.ordine)}">` +
+            `<div class="acc-prop-corpo"><label class="acc-prop-testo" for="acc-prop-${i}"><b>${esc(x.tipo)}</b>: ${esc(x.da.fornitore || '')} ${esc(x.da.nome || x.da.ean)}` +
+            `${x.da.costo != null ? ` (${x.da.fonte === 'stima' ? '≈ ' : ''}${eur(x.da.costo)})` : ''}<br>→ <span data-prop-nuovo="${i}">${htmlNuovoProposta(x)}</span></label>` +
+            `<div class="acc-prop-azioni"><button type="button" class="acc-prop-bd" data-prop-bd="${i}" title="Cerca un'alternativa nel Buyer Desk: l'offerta che scegli va al posto di questa proposta">🔁 Altro dal Buyer Desk</button>` +
+            `<button type="button" data-prop-auto="${i}" hidden title="Rimetti il pezzo proposto dall'automatico">↩ Proposta</button>` +
+            `<button type="button" data-prop-copia="${i}" hidden></button></div></div>` +
+            `<span class="acc-prop-lato"><span data-prop-diff="${i}">${htmlDifferenza(differenzaProposta(x))}</span>` +
+            `<span class="acc-prop-resta">resta com'è</span></span></div>`;
+    }
+
+    function htmlProposteScelta(proposte) {
+        const gruppi = [];
+        proposte.forEach((x, i) => {
+            let g = gruppi.find(o => o.nome === x.ordine);
+            if (!g) gruppi.push(g = { nome: x.ordine, righe: [] });
+            g.righe.push(i);
+        });
+        const comandi = `<div class="acc-prop-comandi"><button type="button" data-prop-tutti="1">Seleziona tutti</button>` +
+            `<button type="button" data-prop-tutti="0">Nessuno</button><span class="acc-prop-somma" data-prop-somma>` +
+            `${testoSomma(sommaScelte(proposte, proposte.map(() => true)), proposte.length)}</span></div>`;
+        // la spunta dell'ordine serve solo con piu' pezzi (con uno basta quella del pezzo)
+        return comandi + gruppi.map((g, k) => `<div class="acc-fin-ordine"><div class="acc-prop-testa">` + (g.righe.length > 1
+            ? `<input type="checkbox" id="acc-prop-o${k}" data-prop-ordine="${k}" checked aria-label="Tutti i pezzi di ${esc(g.nome)}">` +
+              `<label for="acc-prop-o${k}"><b>${esc(g.nome)}</b> <small>${g.righe.length} pezzi</small></label>`
+            : `<b>${esc(g.nome)}</b>`) + `</div>` +
+            g.righe.map(i => rigaPropostaScelta(proposte[i], i, k)).join('') + `</div>`).join('');
+    }
+
+    // Finestra della scrivania: risolve null («Lascia così») o { modo: 'tutti' | 'selezionati', scelte: [proposte] }
+    function finestraProposte(titolo, intro, proposte) {
+        return new Promise(resolve => {
+            stile();
+            const ov = document.createElement('div');
+            ov.className = 'acc-finestra acc-finestra-proposte';
+            ov.innerHTML = `<div class="acc-finestra-box"><h3>${titolo}</h3><div class="acc-finestra-corpo">${intro}${htmlProposteScelta(proposte)}</div>` +
+                `<div class="acc-finestra-bottoni"><button type="button" data-no>Lascia così</button>` +
+                `<button type="button" data-prop-cambia="tutti" title="Cambia tutti i pezzi dell'elenco, anche quelli senza spunta">Cambia tutti (${proposte.length})</button>` +
+                `<button type="button" data-si data-prop-cambia="selezionati">Cambia i selezionati (${proposte.length})</button></div></div>`;
+            document.body.appendChild(ov);
+            const q = (s) => ov.querySelector(s);
+            const qq = (s) => Array.from(ov.querySelectorAll(s));
+            const spunte = () => proposte.map((_, i) => { const c = q(`input[data-prop="${i}"]`); return !!(c && c.checked); });
+            const aggiorna = () => {
+                const s = spunte();
+                const somma = sommaScelte(proposte, s);
+                qq('[data-prop-riga]').forEach(r => r.classList.toggle('acc-prop-lasciato', !s[parseInt(r.dataset.propRiga, 10)]));
+                qq('input[data-prop-ordine]').forEach(o => {
+                    const mie = qq(`input[data-prop-di="${o.dataset.propOrdine}"]`);
+                    const su = mie.filter(c => c.checked).length;
+                    o.checked = su === mie.length;
+                    o.indeterminate = su > 0 && su < mie.length;
+                });
+                const sp = q('[data-prop-somma]');
+                if (sp) sp.innerHTML = testoSomma(somma, proposte.length);
+                const b = q('[data-prop-cambia="selezionati"]');
+                if (b) { b.textContent = `Cambia i selezionati (${somma.n})`; b.disabled = !somma.n; }
+            };
+            const ridisegna = (i) => {
+                const x = proposte[i];
+                q(`[data-prop-nuovo="${i}"]`).innerHTML = htmlNuovoProposta(x);
+                q(`[data-prop-diff="${i}"]`).innerHTML = htmlDifferenza(differenzaProposta(x));
+                q(`[data-prop-auto="${i}"]`).hidden = !x.scelta;
+                const copia = q(`[data-prop-copia="${i}"]`);
+                const altre = x.scelta ? righeUguali(proposte, i).filter(j => !stessoBersaglio(proposte[j].scelta, x.scelta)) : [];
+                copia.hidden = !altre.length;
+                copia.textContent = altre.length ? `Anche negli altri ${altre.length} uguali` : '';
+            };
+            const spunta = (i, si) => { const c = q(`input[data-prop="${i}"]`); if (c) c.checked = si; };
+            const chiudi = (esito) => {
+                if (cambio.riga && cambio.riga.proposta) cambio.riga = null;
+                ov.remove();
+                resolve(esito);
+            };
+            ov.addEventListener('change', (ev) => {
+                const o = ev.target.closest('input[data-prop-ordine]');
+                if (o) qq(`input[data-prop-di="${o.dataset.propOrdine}"]`).forEach(c => { c.checked = o.checked; });
+                aggiorna();
+            });
+            ov.addEventListener('click', (ev) => {
+                const b = ev.target.closest('button');
+                if (!b) return;
+                if (b.dataset.propTutti !== undefined) {
+                    qq('input[data-prop]').forEach(c => { c.checked = b.dataset.propTutti === '1'; });
+                    aggiorna();
+                } else if (b.dataset.propBd !== undefined) {
+                    const i = parseInt(b.dataset.propBd, 10);
+                    const x = proposte[i];
+                    apriCambio({ proposta: true, codice: x.da.ean, descrizione: `${x.da.nome || ''} (${x.ordine})`,
+                        pezzi: [{ nome: ricercaProposta(x) }],
+                        applica: (d) => {
+                            if (!ov.isConnected) return;
+                            x.scelta = sceltaDaBuyerDesk(d);
+                            spunta(i, true);
+                            ridisegna(i);
+                            aggiorna();
+                            avvisa(`${x.ordine} · ${x.tipo}: ${x.scelta.fornitore} ${x.scelta.codice} al posto della proposta`, 'success');
+                        } });
+                } else if (b.dataset.propAuto !== undefined) {
+                    const i = parseInt(b.dataset.propAuto, 10);
+                    delete proposte[i].scelta;
+                    ridisegna(i);
+                    aggiorna();
+                } else if (b.dataset.propCopia !== undefined) {
+                    const i = parseInt(b.dataset.propCopia, 10);
+                    const uguali = righeUguali(proposte, i);
+                    for (const j of uguali) {
+                        proposte[j].scelta = { ...proposte[i].scelta };
+                        spunta(j, true);
+                    }
+                    [i, ...uguali].forEach(ridisegna);
+                    aggiorna();
+                } else if (b.dataset.propCambia) {
+                    const tutti = b.dataset.propCambia === 'tutti';
+                    const s = spunte();
+                    chiudi({ modo: tutti ? 'tutti' : 'selezionati', scelte: proposte.filter((_, i) => tutti || s[i]) });
+                } else if (b.hasAttribute('data-no')) {
+                    chiudi(null);
+                }
+            });
+            aggiorna();
+        });
+    }
+
+    // Salva i pezzi scelti nelle schede (come prima); il costo netto del Buyer Desk resta come costo inserito
+    // se i dati automatici non lo conoscono ancora (come «Cambia» del riquadro)
+    async function salvaProposte(scelte) {
+        let fatti = 0;
+        const costi = leggiLS(K_COSTI, {});
+        let nuoviCosti = false;
+        for (const x of scelte) {
+            const t = bersaglio(x);
+            const salvato = typeof updateProcessedOrderComponent === 'function'
+                ? await updateProcessedOrderComponent(x.orderId, x.tipo, t.codice, t.descrizione || t.codice, t.fornitore) : false;
+            if (!salvato) continue;
+            fatti++;
+            pulisciModificheLocali(x.orderId, x.tipo);
+            if (x.scelta && x.scelta.costo != null && x.scelta.costo > 0) {
+                const k = `${x.tipo}|${chiave(t.codice)}`;
+                if (costi[k] == null) { costi[k] = tonda(x.scelta.costo); nuoviCosti = true; }
+            }
+        }
+        if (nuoviCosti) scriviLS(K_COSTI, costi);
+        return fatti;
+    }
+
     // Le modifiche fatte a mano in questo browser (ean_modifications / supplier_modifications di app.js)
     // coprirebbero il pezzo nuovo appena salvato: per quel pezzo si tolgono.
     function pulisciModificheLocali(orderId, tipo) {
@@ -1580,25 +1829,23 @@
                 scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. I pezzi sono già i migliori di oggi.`);
                 return;
             }
-            const t = tabellaProposte(proposte);
-            const corpo = `<p>Listini delle ${esc(quando)}${esc(nota)}. Con le regole di sempre questi pezzi oggi conviene prenderli così` +
-                `${t.risparmio > 0 ? ` (<b>${eur(t.risparmio)} in meno</b> in totale)` : ''}:</p>${t.html}` +
-                `<p><small>I PC con i pezzi già acquistati non si toccano. Se un pezzo l'hai già comprato, premi «Lascia così» e poi «CONFERMA ACQUISTO PEZZI».</small></p>`;
-            const ok = await finestra(`🔄 Scrivania E${n}: ${proposte.length === 1 ? '1 pezzo da cambiare' : `${proposte.length} pezzi da cambiare`}`, corpo, 'Cambia i pezzi', 'Lascia così');
-            if (!ok) { scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. Pezzi lasciati come sono.`); return; }
-            let fatti = 0;
-            for (const x of proposte) {
-                const salvato = typeof updateProcessedOrderComponent === 'function'
-                    ? await updateProcessedOrderComponent(x.orderId, x.tipo, x.a.codice, x.a.descrizione, x.a.fornitore) : false;
-                if (salvato) { fatti++; pulisciModificheLocali(x.orderId, x.tipo); }
-            }
-            scrivi(`E${n}: ${fatti} di ${proposte.length} pezzi cambiati con i listini delle ${quando}. Ricarico le schede…`);
+            const intro = `<p>Listini delle ${esc(quando)}${esc(nota)}. Con le regole di sempre questi pezzi oggi conviene prenderli così. ` +
+                `Togli la spunta ai pezzi che vuoi lasciare come sono; con «🔁 Altro dal Buyer Desk» scegli un'altra offerta per quel pezzo.</p>` +
+                `<p><small>I PC con i pezzi già acquistati non si toccano. Se un pezzo l'hai già comprato, togli la spunta e poi premi «CONFERMA ACQUISTO PEZZI».</small></p>`;
+            const scelta = await finestraProposte(`🔄 Scrivania E${n}: ${proposte.length === 1 ? '1 pezzo da cambiare' : `${proposte.length} pezzi da cambiare`}`, intro, proposte);
+            if (!scelta || !scelta.scelte.length) { scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. Pezzi lasciati come sono.`); return; }
+            const fatti = await salvaProposte(scelta.scelte);
+            const lasciati = proposte.length - scelta.scelte.length;
+            const daBd = scelta.scelte.filter(x => x.scelta).length;
+            scrivi(`E${n}: ${fatti} di ${scelta.scelte.length} pezzi cambiati${daBd ? ` (${daBd} scelti dal Buyer Desk)` : ''}` +
+                `${lasciati ? `, ${lasciati} lasciati come sono` : ''}, listini delle ${quando}. Ricarico le schede…`);
             if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
             if (typeof renderProcessedOrders === 'function' && typeof getFilteredProcessedOrdersMap === 'function'
                 && typeof processedOrdersMap !== 'undefined' && typeof getActiveWorksheetTab === 'function') {
                 await renderProcessedOrders(getFilteredProcessedOrdersMap(processedOrdersMap, getActiveWorksheetTab()));
             }
-            avvisa(`E${n}: ${fatti} pezzi aggiornati${fatti < proposte.length ? ` (${proposte.length - fatti} non salvati: riprova)` : ''}`, fatti === proposte.length ? 'success' : 'error');
+            avvisa(`E${n}: ${fatti} pezzi aggiornati${fatti < scelta.scelte.length ? ` (${scelta.scelte.length - fatti} non salvati: riprova)` : ''}` +
+                `${lasciati ? `, ${lasciati} lasciati come sono` : ''}`, fatti === scelta.scelte.length ? 'success' : 'error');
         } catch (e) {
             scrivi(`E${n}: aggiornamento non riuscito (${e && e.message ? e.message : e}). Riprova.`);
         } finally {
@@ -2830,6 +3077,10 @@
     async function applicaScelta(d) {
         const riga = cambio.riga;
         if (!riga) return;
+        if (riga.proposta) {                                   // finestra della scrivania: la riga prende l'offerta scelta
+            cambio.riga = null;
+            return riga.applica(d);
+        }
         if (riga.origine) return applicaSceltaScheda(d, riga);
         const pezzi = riga.pezzi.filter(p => p && p.id && p.tipo);
         const nuovo = `${esc(d.fornitore)} <b>${esc(d.codice)}</b> ${esc(d.descrizione || '')}${d.prezzo != null && !isNaN(Number(d.prezzo)) ? ` · <b>${eur(Number(d.prezzo))}</b> netti` : ''}` +
@@ -2899,7 +3150,9 @@
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
         righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
-        comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio };
+        comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,
+        ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,
+        finestraProposte, salvaProposte };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

@@ -896,6 +896,76 @@ assert.deepEqual(J(A.schedeElaborate([{ id: 10 }, { id: 11 }, { id: 12 }])).map(
 assert.deepEqual(J(A.schedeElaborate([])), []);
 console.log('ok cambio dal riquadro');
 
+// --- 05/10: finestra della scrivania, pezzo per pezzo (spunta, alternativa dal Buyer Desk, tutti o i selezionati) ---
+const pr = (tipo, daNome, aDescr) => ({ tipo, da: { nome: daNome }, a: { descrizione: aDescr } });
+assert.equal(A.ricercaProposta(pr('GPU', 'RX 9070 XT BLACK', 'VGA Gigabyte Radeon RX 9070 XT GAMING 16GB OC')), 'RX 9070 XT 16GB');
+assert.equal(A.ricercaProposta(pr('GPU', 'RTX 5060 Ti 8GB WHITE', 'INNO3D RTX 5060 Ti Twin X2 8GB')), 'RTX 5060 TI 8GB');
+assert.equal(A.ricercaProposta(pr('CPU', 'AMD Ryzen 7 5700G processor 3.8 GHz 16 MB L3', 'CPU AMD RYZEN7 5700G AM4 3,8GHZ VGA 8CORE BOX 16MB 64BIT 65W RADEON')), '5700G');
+assert.equal(A.ricercaProposta(pr('CPU', 'Intel Core i5-14600KF', '')), '14600KF');
+assert.equal(A.ricercaProposta(pr('CPU', 'AMD Ryzen 7 7800X3D', '')), '7800X3D');
+assert.equal(A.ricercaProposta(pr('CPU', 'Intel Core Ultra 5 225F', '')), '225F');
+assert.equal(A.ricercaProposta(pr('COOLER', 'AMD AM4 + AM5 Wraith Stealth CPU Cooling', 'DEEPCOOL RAFF. CPU AG300 R-AG300-BKNNMN-G')), 'AG300');
+assert.equal(A.ricercaProposta(pr('MOBO', 'B650M-HDV/M.2', '')), 'B650');
+assert.equal(A.ricercaProposta(pr('PSU', 'DEEPCOOL PF-600X 600W 80+ BRONZE', '')), '600W');
+assert.equal(A.ricercaProposta(pr('RAM', '16GB DDR5 6000MHz', '')), '16GB DDR5');
+assert.equal(A.ricercaProposta(pr('SSD', 'SSD 1TB M.2 NVMe', '')), '1TB NVMe');
+assert.equal(A.ricercaProposta(pr('CASE', 'NOUA Vitra M-ATX WHITE ARGB', '')), 'NOUA Vitra M-ATX ARGB');
+// offerta del Buyer Desk: prezzo netto se confrontabile, altrimenti nessun costo (non 0)
+assert.deepEqual(J(A.sceltaDaBuyerDesk({ codice: 'K1', fornitore: 'TIER ONE', descrizione: 'Cooler K', prezzo: 9.456, disponibilita: '5 pz' })),
+  { codice: 'K1', fornitore: 'TIER ONE', descrizione: 'Cooler K', costo: 9.46, disponibilita: '5 pz', daBuyerDesk: true });
+assert.equal(A.sceltaDaBuyerDesk({ codice: 'K2', fornitore: 'X', prezzo: null }).costo, null);
+const wr = { ean: 'WRAITH', fornitore: 'ACTION', nome: 'AMD AM4 + AM5 Wraith Stealth CPU Cooling', costo: 4.4 };
+const ag = { codice: 'DPAG300', fornitore: 'ABACO', descrizione: 'DEEPCOOL RAFF. CPU AG300', costo: 11.3, disponibilita: '7 pz' };
+const propS = [
+  { orderId: '4814', ordine: '#4814', tipo: 'COOLER', da: { ...wr }, a: { ...ag } },
+  { orderId: '4813', ordine: '#4813', tipo: 'GPU', da: { ean: 'G1', fornitore: 'ACTION', nome: 'RX 9070 XT BLACK', costo: 668.09 },
+    a: { codice: 'G2', fornitore: 'OMEGA', descrizione: 'VGA Gigabyte Radeon RX 9070 XT GAMING 16GB OC', costo: 657.75 } },
+  { orderId: '4812', ordine: '#4812', tipo: 'COOLER', da: { ...wr }, a: { ...ag } },
+  { orderId: '4809', ordine: '#4809', tipo: 'COOLER', da: { ...wr }, a: { ...ag } },
+  { orderId: '4809', ordine: '#4809', tipo: 'CPU', da: { ean: 'C1', fornitore: 'ACTION', nome: 'AMD Ryzen 7 5700G', costo: 157.11 },
+    a: { codice: 'C2', fornitore: 'FOCELDA', descrizione: 'CPU AMD RYZEN7 5700G', costo: 291.9 } }];
+assert.equal(A.differenzaProposta(propS[0]), -6.9);
+assert.equal(A.differenzaProposta(propS[1]), 10.34);
+assert.deepEqual(J(A.righeUguali(propS, 0)), [2, 3]);                                   // stesso cambio Wraith -> AG300
+assert.deepEqual(J(A.righeUguali(propS, 1)), []);
+assert.deepEqual(J(A.sommaScelte(propS, [true, true, true, true, true])), { n: 5, risparmio: -145.15 });
+assert.deepEqual(J(A.sommaScelte(propS, [true, true, true, true, false])), { n: 4, risparmio: -10.36 });   // la CPU resta com'e'
+assert.match(A.testoSomma({ n: 4, risparmio: -10.36 }, 5), /^4 di 5 da cambiare · <span class="acc-neg">10,36 € in più<\/span>$/);
+assert.match(A.testoSomma({ n: 1, risparmio: 10.34 }, 5), /<span class="acc-pos">10,34 € in meno<\/span>/);
+const hp = A.htmlProposteScelta(propS);
+assert.equal((hp.match(/<input type="checkbox" id="acc-prop-\d+" data-prop="\d+" data-prop-di="\d+" checked/g) || []).length, 5);   // una spunta per pezzo
+assert.equal((hp.match(/data-prop-ordine="\d+" checked/g) || []).length, 1);                     // solo gli ordini con piu' pezzi (#4809)
+assert.match(hp, /<div class="acc-prop-testa"><b>#4814<\/b><\/div>/);
+assert.match(hp, /data-prop-ordine="3" checked[^>]*><label for="acc-prop-o3"><b>#4809<\/b> <small>2 pezzi<\/small>/);
+assert.equal((hp.match(/data-prop-bd="\d+"/g) || []).length, 5);                                   // Buyer Desk per ogni pezzo
+assert.match(hp, /data-prop-tutti="1">Seleziona tutti/);
+assert.match(hp, /5 di 5 da cambiare · <span class="acc-neg">145,15 € in più<\/span>/);
+assert.match(hp, /<b>COOLER<\/b>: ACTION AMD AM4 \+ AM5 Wraith Stealth CPU Cooling \(4,40 €\)<br>→ <span data-prop-nuovo="0">ABACO DEEPCOOL RAFF\. CPU AG300 <b>11,30 €<\/b> <small>7 pz<\/small>/);
+// scelta dal Buyer Desk su una riga: la proposta cambia solo li'
+propS[0].scelta = A.sceltaDaBuyerDesk({ codice: 'AG300-TO', fornitore: 'TIER ONE', descrizione: 'DeepCool AG300', prezzo: 10.5 });
+assert.equal(A.differenzaProposta(propS[0]), -6.1);
+assert.match(A.htmlProposteScelta(propS), /TIER ONE DeepCool AG300 <b>10,50 €<\/b> <small><\/small> <span class="acc-prop-bd-tag">scelto dal Buyer Desk<\/span>/);
+assert.deepEqual(J(A.righeUguali(propS, 0)), [2, 3]);                                   // le righe uguali restano trovabili
+// il messaggio del Buyer Desk va alla riga della finestra che l'ha chiesto
+const arrivate = [];
+A.cambio.riga = { proposta: true, applica: (d) => arrivate.push(d.codice) };
+await A.applicaScelta({ tipo: 'mg-buyer-scelta', codice: 'Z9', fornitore: 'OMEGA' });
+assert.deepEqual(arrivate, ['Z9']);
+assert.equal(A.cambio.riga, null);
+// salvataggio: il pezzo scelto dal Buyer Desk (col suo costo) o quello proposto; si salvano solo le righe scelte
+const salvati = [];
+const lsScritti = {};
+sandbox.localStorage.getItem = (k) => (k in lsScritti ? lsScritti[k] : null);
+sandbox.localStorage.setItem = (k, v) => { lsScritti[k] = v; };
+vm.runInContext('var updateProcessedOrderComponent = async (id, tipo, codice, nome, fornitore) => { globalThis.__salvati.push([id, tipo, codice, fornitore]); return id !== "KO"; };', Object.assign(sandbox, { __salvati: salvati }));
+assert.equal(await A.salvaProposte([propS[0], propS[1], { ...propS[2], orderId: 'KO' }]), 2);
+assert.deepEqual(J(salvati), [['4814', 'COOLER', 'AG300-TO', 'TIER ONE'], ['4813', 'GPU', 'G2', 'OMEGA'], ['KO', 'COOLER', 'DPAG300', 'ABACO']]);
+assert.equal(JSON.parse(lsScritti.accoppiamento_costi_manuali)['COOLER|AG300TO'], 10.5);   // costo del Buyer Desk ricordato
+assert.equal(JSON.parse(lsScritti.accoppiamento_costi_manuali)['GPU|G2'], undefined);      // la proposta ha gia' il suo costo
+sandbox.localStorage.getItem = () => null;
+sandbox.localStorage.setItem = () => {};
+console.log('ok scrivania pezzo per pezzo');
+
 // --- PC del configuratore nell'Automatico (03/10): i pezzi vanno nel riepilogo fornitori come gli altri ---
 const datiConf = { ordini: { 9100: { nome: '#9100', data: '03/10', pc: [{
   configuratore: true, product_id: '555', nome_build: 'NEBULA', build: 'CONFIGURATORE', quantita: 1, prezzo: { totale: 1000 },

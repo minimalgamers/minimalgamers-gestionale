@@ -11,6 +11,7 @@ const html = read('index.html');
 const manifest = JSON.parse(read('manifest.webmanifest'));
 const css = read('assets/css/ios-installable.css').replace(/\/\*[\s\S]*?\*\//g, '');
 const base = 'c77b35349fce6d989f5f337d869c779095aa2cde';
+const appIphone = '23220f3a9bafe416df80325590d08b30eb8b11e0';   // commit dell'app iPhone (PR #55)
 
 test('installed iPhone app opens the same index inside this repository scope', () => {
     const origin = new URL('https://minimalgamers.github.io/minimalgamers-gestionale/');
@@ -55,10 +56,14 @@ test('local official-brand icons exist at their declared square sizes', () => {
 test('no business script, protected adapter, body markup or handler changes', () => {
     const git = args => execFileSync('git', args, {cwd: root, encoding: 'utf8'});
     const before = git(['show', `${base}:index.html`]);
-    const bodyHash = source => createHash('sha256').update(source.slice(source.indexOf('<body')).replace(/\r\n/g, '\n')).digest('hex');
+    // 05/10 (Claude): i controlli valgono per il lavoro dell'app iPhone (base -> appIphone); dopo, le correzioni del
+    // gestionale possono cambiare gli script e il loro ?v= (cache), ma il markup del body resta identico.
+    const bodyHash = source => createHash('sha256').update(source.slice(source.indexOf('<body')).replace(/\r\n/g, '\n')
+        .replace(/(\.(?:js|css))\?v=\d+/g, '$1')).digest('hex');
     assert.equal(bodyHash(html), bodyHash(before), 'Body markup/handlers must remain identical (LF/CRLF normalized).');
+    assert.equal(bodyHash(git(['show', `${appIphone}:index.html`])), bodyHash(before));
     // Paths only: never open/read/copy protected adapters.
-    assert.equal(git(['diff', '--name-only', base, '--', 'assets/js']), '');
+    assert.equal(git(['diff', '--name-only', base, appIphone, '--', 'assets/js']), '');
     assert.equal(git(['diff', '--name-only', base, '--', 'assets/css/style.css', 'assets/css/style_mobile.css']), '');
     assert(html.indexOf('ios-installable.css?v=1') > html.indexOf('ios-responsive.css?v=1'));
     assert.doesNotMatch(css, /\b(?:display|visibility|pointer-events|content|background|color)\s*:/);

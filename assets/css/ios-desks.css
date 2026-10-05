@@ -349,4 +349,19 @@ body.mg-ios #processed-container .component-name-display { font-size: 13px !impo
 @media (pointer: fine) {
     body.mg-ios #processed-container .supplier-badge-clickable { min-height: 28px; min-width: 40px !important; padding: 0 6px !important; }
 }
+/* 05/10 (Antonio): anche la sezione «Pezzi» piu' stretta. Nome e prezzo sulla stessa riga, sotto i dettagli con
+   «Cambia» accanto; meno spazio tra un pezzo e l'altro. «Cambia» resta da 44px sui touch, piu' basso col mouse. */
+body.mg-ios #processed-container .acc-pezzo { padding: 6px 0; gap: 1px 12px; }
+body.mg-ios #processed-container .acc-pezzo > .riga > span:first-child { line-height: 1.35; }
+body.mg-ios #processed-container .acc-pezzo-sotto > div { line-height: 1.35; }
+@container (max-width: 650px) {
+    body.mg-ios #processed-container .acc-pezzo { grid-template-columns: minmax(0,1fr) 84px; gap: 1px 8px; padding: 6px 0; }
+    body.mg-ios #processed-container .acc-pezzo > .riga > span:first-child { grid-column: 1; grid-row: 1; font-size: 13px; }
+    body.mg-ios #processed-container .acc-pezzo > .riga > span:last-child { grid-column: 2; grid-row: 1; text-align: right; font-size: 14px; }
+    body.mg-ios #processed-container .acc-pezzo-sotto > div { grid-column: 1; grid-row: 2; font-size: 11px; }
+    body.mg-ios #processed-container .acc-cambia { grid-column: 2; grid-row: 2; align-self: start; justify-self: end; min-width: 0; }
+}
+@media (pointer: fine) {
+    body.mg-ios #processed-container .acc-cambia { min-height: 26px; padding: 2px 8px; }
+}
 @media (prefers-reduced-motion: reduce) { body.mg-ios #processed-container * { transition: none !important; animation: none !important; } }

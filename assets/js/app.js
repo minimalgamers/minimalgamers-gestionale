@@ -1077,20 +1077,22 @@ function pickTemplateRuleForChannel(channel, rules = []) {
 // differenza, calcolato dai listini (accoppiamento.bin) con l'utile per Antonio. I consigliati sono gia' spuntati
 // (mai processore, RAM o SSD M.2 piu' grandi; mai in perdita); il messaggio si compone con i testi «UPGRADE ...».
 // ---------------------------------------------------------------------------------------------------------------
+// 07/10: solo le famiglie che si aggiungono dopo l'ordine della merce (mai schede madri, case, CPU, GPU, RAM, SSD, PSU)
 async function upgradeDellOrdine(order) {
     const A = window.AccoppiamentoAuto;
     if (!A || typeof A.carica !== 'function' || typeof A.pcAutomatico !== 'function') return null;
     try {
         const dati = await A.carica();
         const pc = A.pcAutomatico(dati, order?.id);
-        return pc && Array.isArray(pc.upgrade) ? pc.upgrade : null;
+        if (!pc || !Array.isArray(pc.upgrade)) return null;
+        return { pc, upgrades: typeof A.upgradeAmmessi === 'function' ? A.upgradeAmmessi(pc.upgrade) : pc.upgrade };
     } catch (error) {
         console.warn('⚠️ Upgrade GPO non disponibili:', error?.message || error);
         return null;
     }
 }
 
-function scegliUpgradeWhatsApp(order, upgrades) {
+function scegliUpgradeWhatsApp(order, upgrades, pc) {
     const E = window.MessageTemplateEngine;
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const euro = (x) => (x == null || isNaN(x)) ? '—' : Number(x).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -1123,14 +1125,47 @@ function scegliUpgradeWhatsApp(order, upgrades) {
             <label style="display:flex; gap:8px; align-items:center; padding:4px 0 10px 0; font-size:0.86em;"><input type="checkbox" data-fps checked> FPS BOOSTER in coda</label>
             ${righe}</div>
             <div style="display:flex; flex-direction:column; gap:8px;"><textarea data-testo style="flex:1; min-height:52vh; width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.3); color:white; font-family:monospace; font-size:0.82em;"></textarea>
+            <div data-stato-pagina style="font-size:0.8em; color:#cbd5e1; min-height:1em;"></div>
             <div style="display:flex; gap:8px;"><button type="button" data-annulla style="flex:1; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.34); background:rgba(255,255,255,0.15); color:white; cursor:pointer;">Annulla</button>
+            <button type="button" data-pagina title="Crea (o aggiorna) la pagina personale del cliente con gli upgrade spuntati e mette il link nel messaggio" style="flex:2; padding:10px; border-radius:8px; border:1px solid rgba(96,165,250,0.7); background:rgba(59,130,246,0.32); color:white; cursor:pointer; font-weight:600;">🔗 Pagina personale</button>
             <button type="button" data-invia style="flex:2; padding:10px; border-radius:8px; border:1px solid rgba(34,197,94,0.7); background:rgba(34,197,94,0.35); color:white; cursor:pointer; font-weight:600;">Apri WhatsApp</button></div></div>`;
         const testo = popup.querySelector('[data-testo]');
+        const A = window.AccoppiamentoAuto;
+        const statoPagina = popup.querySelector('[data-stato-pagina]');
+        const bottonePagina = popup.querySelector('[data-pagina]');
+        const spuntati = () => Array.from(popup.querySelectorAll('[data-up]')).filter(x => x.checked).map(x => upgrades[Number(x.dataset.up)]);
+        let conLink = false;                       // dopo «Pagina personale» il testo e' il messaggio corto con il link
         const ricomponi = () => {
-            const scelti = Array.from(popup.querySelectorAll('[data-up]')).filter(x => x.checked).map(x => upgrades[Number(x.dataset.up)]);
-            testo.value = E.buildUpgradeMessage(order, scelti, { fps: popup.querySelector('[data-fps]').checked });
+            if (conLink) { statoPagina.textContent = 'Spunte cambiate: premi di nuovo «🔗 Pagina personale» per aggiornare la pagina.'; return; }
+            testo.value = E.buildUpgradeMessage(order, spuntati(), { fps: popup.querySelector('[data-fps]').checked });
         };
         popup.querySelectorAll('input[type="checkbox"]').forEach(x => x.addEventListener('change', ricomponi));
+        if (!A || typeof A.creaPaginaUpgrade !== 'function') bottonePagina.style.display = 'none';
+        else {
+            A.statoPaginaUpgrade(order).then(s => { if (s && !conLink) statoPagina.textContent = A.testoStatoPaginaUpgrade(s); })
+                .catch(() => {});
+            bottonePagina.addEventListener('click', async () => {
+                const scelti = spuntati().filter(u => u.utile != null && u.utile >= 0);
+                const fps = popup.querySelector('[data-fps]').checked;
+                if (!scelti.length && !fps) { statoPagina.textContent = 'Spunta almeno un upgrade (o il FPS BOOSTER).'; return; }
+                bottonePagina.disabled = true;
+                statoPagina.textContent = 'Creo la pagina…';
+                try {
+                    const r = await A.creaPaginaUpgrade(order, pc, scelti, fps);
+                    conLink = true;
+                    testo.value = A.messaggioPaginaUpgrade(order, r.url);
+                    statoPagina.textContent = `🔗 Pagina pronta: ${r.proposte} proposte${r.fps ? ' + FPS BOOSTER' : ''}, valida 21 giorni.` +
+                        (r.avviso ? ' ⚠️ ' + r.avviso : '');
+                } catch (error) {
+                    const motivi = { non_autorizzato: 'password del gestionale non valida', nessuna_proposta: 'nessuna proposta ammessa',
+                        ordine_non_trovato: 'ordine non trovato su Shopify', ordine_annullato: 'ordine annullato su Shopify' };
+                    statoPagina.textContent = '⚠️ Pagina non creata: ' + (motivi[error?.message] || error?.message || 'errore') +
+                        '. Puoi mandare il messaggio lungo come sempre.';
+                } finally {
+                    bottonePagina.disabled = false;
+                }
+            });
+        }
         const chiudi = (v) => { overlay.remove(); popup.remove(); resolve(v); };
         overlay.addEventListener('click', () => chiudi(null));
         popup.querySelector('[data-annulla]').addEventListener('click', () => chiudi(null));
@@ -1143,9 +1178,10 @@ function scegliUpgradeWhatsApp(order, upgrades) {
 
 async function contactWithTemplateSelection(channel, order, components = []) {
     if (channel === 'whatsapp') {
-        const upgrades = window.MessageTemplateEngine?.buildUpgradeMessage ? await upgradeDellOrdine(order) : null;
+        const r = window.MessageTemplateEngine?.buildUpgradeMessage ? await upgradeDellOrdine(order) : null;
+        const upgrades = r ? r.upgrades : null;
         if (upgrades && upgrades.length) {
-            const testo = await scegliUpgradeWhatsApp(order, upgrades);
+            const testo = await scegliUpgradeWhatsApp(order, upgrades, r.pc);
             return testo ? openWhatsAppDesktop(order?.phone, testo) : false;
         }
         return await openWhatsAppForOrder(order, components);
@@ -3002,9 +3038,16 @@ function renderOrders(ordersMap, containerId, showPrices) {
         const finalHeaderTextColor = containerId === 'finalized-container' ? headerTextColor : orderNameColor;
         const iconFilterStyle = containerId === 'finalized-container' && headerIconFilter ? `filter: ${headerIconFilter};` : '';
         
+        // 07/10: ordine nato dalla pagina upgrade del cliente (righe «AGGIORNAMENTO ORDINE #xxxx — …»): i pezzi vanno
+        // sul PC dell'ordine originale (l'automatico li porta li' quando l'upgrade e' pagato)
+        const upgradeDi = (() => {
+            const righe = (order.items || []).map(i => String(i.name || '').match(/^AGGIORNAMENTO ORDINE (#\d+)/));
+            return righe.length && righe.every(Boolean) ? righe[0][1] : '';
+        })();
+        const badgeUpgrade = upgradeDi ? ` <span title="Upgrade pagato dal cliente sulla sua pagina personale: i pezzi vanno sul PC dell'ordine ${upgradeDi}" style="display:inline-block; vertical-align:middle; font-size:0.45em; font-weight:700; letter-spacing:0.03em; padding:3px 8px; border-radius:999px; background:rgba(59,130,246,0.85); color:white;">⬆ UPGRADE DI ${upgradeDi}</span>` : '';
         card.innerHTML = `
             <div class="card-header" style="${headerStyle}">
-                <h2 style="margin: 0; color: ${finalHeaderTextColor};">${order.name}</h2>
+                <h2 style="margin: 0; color: ${finalHeaderTextColor};">${order.name}${badgeUpgrade}</h2>
                 <div class="header-icons" style="${iconFilterStyle}">
                     ${finalizeButtonHtml}
                     ${processButtonHtml}

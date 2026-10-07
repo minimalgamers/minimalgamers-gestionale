@@ -435,12 +435,23 @@
 
     // 01/10 (#4812, #4822): il cliente ha tolto dal carrello la riga OPZIONI di una scelta a pagamento.
     // Il file dell'automatico porta per ogni PC «non_pagate» (guardia_opzioni dei listini): riga rossa in testa.
+    // 07/10: upgrade pagati dal cliente sulla sua pagina personale (ordine «AGGIORNAMENTO ORDINE #xxxx»): l'automatico li
+    // ha gia' messi nei pezzi e nel prezzo di questo PC
+    function rigaUpgradePagati(pc) {
+        const up = (pc && Array.isArray(pc.upgrade_pagati)) ? pc.upgrade_pagati : [];
+        if (!up.length) return '';
+        const ordini = [...new Set(up.map(u => u.ordine_upgrade).filter(Boolean))].join(', ');
+        const voci = up.map(u => `${esc(u.valore)}${u.prezzo != null && !isNaN(Number(u.prezzo)) ? ` (+${eur(Number(u.prezzo))})` : ''}`);
+        return `<div class="acc-esito pos acc-upgrade-pagati" title="Upgrade pagati dal cliente sulla sua pagina personale (ordine ${esc(ordini)}): sono già nei pezzi e nel prezzo di questo PC. Compra i pezzi nuovi.">` +
+            `⬆ UPGRADE PAGATI ${esc(ordini)} · ${voci.join(' · ')}</div>`;
+    }
+
     function rigaNonPagate(pc) {
         const np = (pc && Array.isArray(pc.non_pagate)) ? pc.non_pagate : [];
-        if (!np.length) return '';
+        if (!np.length) return rigaUpgradePagati(pc);
         const voci = np.map(v => `${esc(v.menu)} ${esc(v.scelta)}${v.prezzo != null && !isNaN(Number(v.prezzo)) ? ` (+${eur(Number(v.prezzo))})` : ''}` +
             (v.pc > 1 ? ` <small>pagata per ${Number(v.pagate) || 0} PC su ${Number(v.pc)}</small>` : ''));
-        return `<div class="acc-esito neg acc-non-pagata" title="Il cliente ha tolto dal carrello la riga OPZIONI: la scelta è scritta nell'ordine ma non è pagata. Decidi tu se montare il pezzo di serie o chiedere la differenza.">` +
+        return rigaUpgradePagati(pc) + `<div class="acc-esito neg acc-non-pagata" title="Il cliente ha tolto dal carrello la riga OPZIONI: la scelta è scritta nell'ordine ma non è pagata. Decidi tu se montare il pezzo di serie o chiedere la differenza.">` +
             `🔴 OPZIONE NON PAGATA · ${voci.join(' · ')}</div>`;
     }
 
@@ -3135,6 +3146,95 @@
         else collega();
     }
 
+    // ================================================================ PAGINA UPGRADE DEL CLIENTE (Antonio 07/10)
+    // «Piuttosto che mandargli un messaggio lunghissimo WhatsApp ... una landing page personalizzata per quel cliente,
+    // con il suo numero d'ordine e il suo nome, con tutte le proposte selezionabili ... e alla fine un checkout
+    // personalizzato con tutte le rate». Solo le famiglie che si aggiungono dopo l'ordine della merce: mai schede madri,
+    // case (gia' ordinati), processori, schede video, RAM, SSD o alimentatori. Il servizio upgrade-clienti (Cloudflare)
+    // salva l'offerta, mostra la pagina minimalgamers.it/pages/aggiornamento-ordine e crea la cassa Shopify.
+    const URL_UPGRADE_CLIENTI = 'https://upgrade-clienti.theminimalgamers.workers.dev';
+    const UPGRADE_AMMESSI = ['CONNETTIVITÀ', 'DISSIPATORE', 'VENTOLE RGB', 'SCATOLE COMPONENTI', 'ARCHIVIAZIONE AGGIUNTIVA',
+        'SOFTWARE'];
+
+    function upgradeAmmessi(lista) {
+        return (Array.isArray(lista) ? lista : [])
+            .filter(u => u && UPGRADE_AMMESSI.includes(String(u.categoria || '').trim().toUpperCase()));
+    }
+
+    // ordini sdoppiati del gestionale: «#4824.2» -> «#4824», id «6100….2» -> «6100…»
+    function ordineDiShopify(order) {
+        return { id: String(order?.originalOrderId || order?.id || '').split('.')[0],
+            nome: String(order?.name || '').split('.')[0] };
+    }
+
+    function nomeDelCliente(order) {
+        const t = String(order?.customerName || order?.billingName || '').trim();
+        const primo = /undefined|^N\/A$/i.test(t) ? '' : t.split(/\s+/)[0] || '';
+        return primo ? primo.charAt(0).toUpperCase() + primo.slice(1).toLowerCase() : '';
+    }
+
+    function richiestaPaginaUpgrade(order, pc, scelti, fps, pwd) {
+        const o = ordineDiShopify(order);
+        return {
+            password: pwd || '', fps: Boolean(fps),
+            ordine: { id: o.id, nome_ordine: o.nome, nome_cliente: nomeDelCliente(order),
+                build: pc && pc.build && pc.build !== 'CONFIGURATORE' ? pc.build : '',
+                riga: pc && Number.isInteger(pc.riga) ? pc.riga : null },
+            proposte: upgradeAmmessi(scelti).map(u => ({ categoria: u.categoria, scelta: u.scelta, attuale: u.attuale,
+                differenza: u.differenza, utile: u.utile, consigliato: u.consigliato, motivo: u.motivo, chiave: u.chiave,
+                multipla: u.multipla }))
+        };
+    }
+
+    function messaggioPaginaUpgrade(order, url) {
+        const nome = nomeDelCliente(order);
+        const o = ordineDiShopify(order);
+        return [`Ciao${nome ? ' ' + nome : ''}! 👋`,
+            `Il tuo PC dell'ordine ${o.nome} è in preparazione. Prima di montarlo puoi ancora aggiungere qualche ` +
+            'miglioria, pagando solo la differenza.',
+            '',
+            'Ti ho preparato una pagina con le proposte pensate per la tua build, con la spiegazione di ognuna e il prezzo:',
+            `👉 ${url}`,
+            '',
+            'Sono tutte facoltative: scegli solo quelle che ti interessano. Puoi pagare anche in 3 rate con Klarna e chi ' +
+            'aggiunge un upgrade ha la priorità nella lavorazione.',
+            'Per qualsiasi dubbio rispondi pure qui!'].join('\n');
+    }
+
+    async function chiamaUpgradeClienti(percorso, corpo, fetchFn) {
+        const f = fetchFn || (typeof fetch !== 'undefined' ? fetch : null);
+        const r = await f(URL_UPGRADE_CLIENTI + percorso, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(corpo) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || d.stato !== 'ok') throw new Error(d.stato || `HTTP ${r.status}`);
+        return d;
+    }
+
+    function creaPaginaUpgrade(order, pc, scelti, fps, fetchFn) {
+        return chiamaUpgradeClienti('/api/crea', richiestaPaginaUpgrade(order, pc, scelti, fps, password()), fetchFn);
+    }
+
+    async function statoPaginaUpgrade(order, fetchFn) {
+        const o = ordineDiShopify(order);
+        const d = await chiamaUpgradeClienti('/api/stato', { password: password() || '', ordini: [o.id] }, fetchFn);
+        return (d.ordini || {})[o.id] || null;
+    }
+
+    function testoStatoPaginaUpgrade(s) {
+        if (!s) return '';
+        const data = (x) => x ? new Date(x).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) : '';
+        if (s.pagata) return `✅ Upgrade PAGATO${s.pagata.ordine ? ' (' + s.pagata.ordine + ')' : ''}: ` +
+            `${(s.scelte || []).join(', ')}${s.totale ? ' · ' + eur(s.totale) : ''}`;
+        const parti = [s.aperture ? `aperta ${s.aperture} ${s.aperture === 1 ? 'volta' : 'volte'} (prima il ${data(s.aperta_il)})`
+            : 'non ancora aperta'];
+        if (s.rifiutata) parti.push('il cliente ha detto «no grazie»');
+        else if ((s.scelte || []).length) parti.push(`scelte: ${s.scelte.join(', ')}${s.totale ? ' · ' + eur(s.totale) : ''}` +
+            ' (non ancora pagate)');
+        if (s.stato === 'scaduta') parti.push('scaduta');
+        else parti.push(`valida fino al ${data(s.scade)}`);
+        return `🔗 Pagina personale: ${parti.join(' · ')}`;
+    }
+
     const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
         idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico, parteDellUnita, dettaglioVendita,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
@@ -3149,10 +3249,11 @@
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
-        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
+        righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, rigaUpgradePagati, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,
         ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,
-        finestraProposte, salvaProposte };
+        finestraProposte, salvaProposte, URL_UPGRADE_CLIENTI, UPGRADE_AMMESSI, upgradeAmmessi, ordineDiShopify, nomeDelCliente,
+        richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

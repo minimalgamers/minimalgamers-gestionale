@@ -989,3 +989,38 @@ assert.match(indice, /data-tab="automatico"[^>]*>Panoramica<\/button>/);
 assert.match(auto, /↗ Panoramica<\/button>/);
 assert.match(auto, /<h2>Panoramica<\/h2>/);
 console.log('ok Panoramica');
+
+// --- pagina upgrade personale del cliente (Antonio 07/10): solo famiglie aggiungibili dopo l'ordine ---
+const upPc = { build: 'PC GAMING SPARTAN', riga: 0, upgrade: [
+  { categoria: 'SCHEDA MADRE', scelta: 'B860 WIFI', attuale: 'B860M', differenza: 40, utile: 10, consigliato: true, motivo: '', chiave: 'SCHEDA MADRE', multipla: false },
+  { categoria: 'CASE', scelta: 'CASE ATX', attuale: '', differenza: 30, utile: 9, consigliato: false, motivo: '', chiave: 'CASE', multipla: false },
+  { categoria: 'CONNETTIVITÀ', scelta: 'WI-FI + BLUETOOTH', attuale: '', differenza: 69.9, utile: 25, consigliato: true, motivo: 'x', chiave: 'CONNETTIVITA', multipla: true },
+  { categoria: 'DISSIPATORE', scelta: 'LIQUIDO 240MM', attuale: 'DEEPCOOL AG300 AIR', differenza: 61, utile: 15, consigliato: true, motivo: '', chiave: 'COOLER', multipla: false },
+  { categoria: 'PROCESSORE', scelta: 'CPU SU', attuale: 'CPU', differenza: 200, utile: 50, consigliato: false, motivo: '', chiave: 'CPU', multipla: false }] };
+assert.deepEqual(A.upgradeAmmessi(upPc.upgrade).map(u => u.categoria), ['CONNETTIVITÀ', 'DISSIPATORE']);
+const ordUp = { id: '6100000000001.2', name: '#4824.2', billingName: 'FRANCESCO MOSCHILLO' };
+const reqUp = J(A.richiestaPaginaUpgrade(ordUp, upPc, upPc.upgrade, true, 'pwd'));
+assert.deepEqual(reqUp.ordine, { id: '6100000000001', nome_ordine: '#4824', nome_cliente: 'Francesco', build: 'PC GAMING SPARTAN', riga: 0 });
+assert.deepEqual(reqUp.proposte.map(u => [u.scelta, u.chiave, u.multipla]), [['WI-FI + BLUETOOTH', 'CONNETTIVITA', true], ['LIQUIDO 240MM', 'COOLER', false]]);
+assert.equal(reqUp.fps, true);
+assert.equal(A.nomeDelCliente({ billingName: 'undefined undefined' }), '');
+const msgUp = A.messaggioPaginaUpgrade(ordUp, 'https://www.minimalgamers.it/pages/aggiornamento-ordine?c=abc');
+assert.match(msgUp, /^Ciao Francesco! 👋/);
+assert.match(msgUp, /ordine #4824 è in preparazione/);
+assert.match(msgUp, /👉 https:\/\/www\.minimalgamers\.it\/pages\/aggiornamento-ordine\?c=abc/);
+assert.doesNotMatch(msgUp, /6100000000001|MOSCHILLO/);                       // niente id o cognome nel messaggio
+const chiamateUp = [];
+const fetchUp = async (url, init) => { chiamateUp.push([url, JSON.parse(init.body)]);
+  return { ok: true, status: 200, json: async () => ({ stato: 'ok', url: 'https://x/?c=abc', proposte: 2, fps: true,
+    ordini: { 6100000000001: { stato: 'attiva', aperture: 2, aperta_il: '2026-10-07T10:00:00Z', scelte: ['LIQUIDO 240MM'], totale: 61, scade: '2026-10-28T10:00:00Z' } } }) }; };
+const creata = await A.creaPaginaUpgrade(ordUp, upPc, upPc.upgrade, false, fetchUp);
+assert.equal(creata.url, 'https://x/?c=abc');
+assert.equal(chiamateUp[0][0], 'https://upgrade-clienti.theminimalgamers.workers.dev/api/crea');
+const statoUp = await A.statoPaginaUpgrade(ordUp, fetchUp);
+assert.deepEqual(chiamateUp[1][1].ordini, ['6100000000001']);
+assert.match(A.testoStatoPaginaUpgrade(statoUp), /aperta 2 volte .*scelte: LIQUIDO 240MM · 61,00 € \(non ancora pagate\)/);
+assert.match(A.testoStatoPaginaUpgrade({ pagata: { ordine: '#4900' }, scelte: ['LIQUIDO 240MM'], totale: 61 }), /✅ Upgrade PAGATO \(#4900\)/);
+await assert.rejects(() => A.creaPaginaUpgrade(ordUp, upPc, [], false, async () => ({ ok: false, status: 403, json: async () => ({ stato: 'non_autorizzato' }) })), /non_autorizzato/);
+assert.match(A.rigaNonPagate({ upgrade_pagati: [{ ordine_upgrade: '#4900', valore: 'LIQUIDO 240MM', prezzo: 61 }] }), /⬆ UPGRADE PAGATI #4900 · LIQUIDO 240MM \(\+61,00 €\)/);
+assert.equal(A.rigaNonPagate({}), '');
+console.log('ok pagina upgrade del cliente');

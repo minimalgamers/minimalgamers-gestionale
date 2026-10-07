@@ -998,17 +998,17 @@ const upPc = { build: 'PC GAMING SPARTAN', riga: 0, upgrade: [
   { categoria: 'DISSIPATORE', scelta: 'LIQUIDO 240MM', attuale: 'DEEPCOOL AG300 AIR', differenza: 61, utile: 15, consigliato: true, motivo: '', chiave: 'COOLER', multipla: false },
   { categoria: 'PROCESSORE', scelta: 'CPU SU', attuale: 'CPU', differenza: 200, utile: 50, consigliato: false, motivo: '', chiave: 'CPU', multipla: false }] };
 assert.deepEqual(A.upgradeAmmessi(upPc.upgrade).map(u => u.categoria), ['CONNETTIVITÀ', 'DISSIPATORE']);
-const ordUp = { id: '6100000000001.2', name: '#4824.2', billingName: 'FRANCESCO MOSCHILLO' };
+const ordUp = { id: '6100000000001.2', name: '#4824.2', billingName: 'MARIO ROSSI' };
 const reqUp = J(A.richiestaPaginaUpgrade(ordUp, upPc, upPc.upgrade, true, 'pwd'));
-assert.deepEqual(reqUp.ordine, { id: '6100000000001', nome_ordine: '#4824', nome_cliente: 'Francesco', build: 'PC GAMING SPARTAN', riga: 0 });
+assert.deepEqual(reqUp.ordine, { id: '6100000000001', nome_ordine: '#4824', nome_cliente: 'Mario', build: 'PC GAMING SPARTAN', riga: 0 });
 assert.deepEqual(reqUp.proposte.map(u => [u.scelta, u.chiave, u.multipla]), [['WI-FI + BLUETOOTH', 'CONNETTIVITA', true], ['LIQUIDO 240MM', 'COOLER', false]]);
 assert.equal(reqUp.fps, true);
 assert.equal(A.nomeDelCliente({ billingName: 'undefined undefined' }), '');
 const msgUp = A.messaggioPaginaUpgrade(ordUp, 'https://www.minimalgamers.it/pages/aggiornamento-ordine?c=abc');
-assert.match(msgUp, /^Ciao Francesco! 👋/);
+assert.match(msgUp, /^Ciao Mario! 👋/);
 assert.match(msgUp, /ordine #4824 è in preparazione/);
 assert.match(msgUp, /👉 https:\/\/www\.minimalgamers\.it\/pages\/aggiornamento-ordine\?c=abc/);
-assert.doesNotMatch(msgUp, /6100000000001|MOSCHILLO/);                       // niente id o cognome nel messaggio
+assert.doesNotMatch(msgUp, /6100000000001|ROSSI/);                       // niente id o cognome nel messaggio
 const chiamateUp = [];
 const fetchUp = async (url, init) => { chiamateUp.push([url, JSON.parse(init.body)]);
   return { ok: true, status: 200, json: async () => ({ stato: 'ok', url: 'https://x/?c=abc', proposte: 2, fps: true,

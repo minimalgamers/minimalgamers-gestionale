@@ -1009,6 +1009,10 @@ assert.match(msgUp, /^Ciao Mario! 👋/);
 assert.match(msgUp, /ordine #4824 è in preparazione/);
 assert.match(msgUp, /👉 https:\/\/www\.minimalgamers\.it\/pages\/aggiornamento-ordine\?c=abc/);
 assert.doesNotMatch(msgUp, /6100000000001|ROSSI/);                       // niente id o cognome nel messaggio
+assert.match(msgUp, /audio che ti aiutano/);
+assert.match(msgUp, /totale prima di pagare/);
+assert.match(msgUp, /tutti facoltativi/);
+assert.doesNotMatch(msgUp, /\bHDD\b|garantiti|ultimi pezzi|3 rate con Klarna/);
 const chiamateUp = [];
 const fetchUp = async (url, init) => { chiamateUp.push([url, JSON.parse(init.body)]);
   return { ok: true, status: 200, json: async () => ({ stato: 'ok', url: 'https://x/?c=abc', proposte: 2, fps: true,

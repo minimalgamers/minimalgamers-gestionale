@@ -1000,7 +1000,7 @@ const upPc = { build: 'PC GAMING SPARTAN', riga: 0, upgrade: [
 assert.deepEqual(A.upgradeAmmessi(upPc.upgrade).map(u => u.categoria), ['CONNETTIVITÀ', 'DISSIPATORE']);
 const ordUp = { id: '6100000000001.2', name: '#4824.2', billingName: 'MARIO ROSSI' };
 const reqUp = J(A.richiestaPaginaUpgrade(ordUp, upPc, upPc.upgrade, true, 'pwd'));
-assert.deepEqual(reqUp.ordine, { id: '6100000000001', nome_ordine: '#4824', nome_cliente: 'Mario', build: 'PC GAMING SPARTAN', riga: 0 });
+assert.deepEqual(reqUp.ordine, { id: '6100000000001', nome_ordine: '#4824', nome_cliente: 'MARIO ROSSI', build: 'PC GAMING SPARTAN', riga: 0, linea_id: null, unita: null });
 assert.deepEqual(reqUp.proposte.map(u => [u.scelta, u.chiave, u.multipla]), [['WI-FI + BLUETOOTH', 'CONNETTIVITA', true], ['LIQUIDO 240MM', 'COOLER', false]]);
 assert.equal(reqUp.fps, true);
 assert.equal(A.nomeDelCliente({ billingName: 'undefined undefined' }), '');
@@ -1028,3 +1028,30 @@ await assert.rejects(() => A.creaPaginaUpgrade(ordUp, upPc, [], false, async () 
 assert.match(A.rigaNonPagate({ upgrade_pagati: [{ ordine_upgrade: '#4900', valore: 'LIQUIDO 240MM', prezzo: 61 }] }), /⬆ UPGRADE PAGATI #4900 · LIQUIDO 240MM \(\+61,00 €\)/);
 assert.equal(A.rigaNonPagate({}), '');
 console.log('ok pagina upgrade del cliente');
+
+// Due unità della stessa riga: pagina, stato e WhatsApp distinti; dopo il pagamento l'unità non si perde.
+const duePc = { ordini: { 6100000000001: { pc: [{ ...upPc, linea_id: '111', riga_shopify: 0, quantita: 2, pezzi: [] }] } } };
+const upPc1 = A.pcAutomatico(duePc, '6100000000001.1');
+const upPc2 = A.pcAutomatico(duePc, '6100000000001.2');
+assert.deepEqual([upPc1.unita, upPc2.unita, upPc1.pc_numero, upPc2.pc_numero, upPc2.pc_totale], [0, 1, 1, 2, 2]);
+const reqPc2 = J(A.richiestaPaginaUpgrade(ordUp, upPc2, upPc2.upgrade, false, 'pwd'));
+assert.deepEqual([reqPc2.ordine.linea_id, reqPc2.ordine.riga, reqPc2.ordine.unita], ['111', 0, 1]);
+assert.match(A.messaggioPaginaUpgrade(ordUp, 'https://x/?c=due', upPc2), /solo il PC 2 di 2/);
+const separati = { ordini: { 6100000000001: { pc: [{ ...upPc1, quantita: 1 }, { ...upPc2, riga: 1, quantita: 1 }] } } };
+assert.equal(A.pcAutomatico(separati, ordUp.id).unita, 1, 'il PC 2 separato non ridiventa unità 0');
+const chiamatePc = [];
+const statoPc2 = await A.statoPaginaUpgrade(ordUp, async (url, init) => {
+    chiamatePc.push(JSON.parse(init.body));
+    return { ok: true, json: async () => ({ stato: 'ok', ordini: { 6100000000001: { stato: 'pagata' } },
+        pcs: { '6100000000001.2': { stato: 'attiva', url: 'https://x/?c=due' } } }) };
+}, upPc2);
+assert.equal(statoPc2.stato, 'attiva', 'non usa il pagamento del PC 1');
+assert.deepEqual(J(chiamatePc[0].pcs), [{ chiave: ordUp.id, id: '6100000000001', linea_id: '111', riga: 0, unita: 1 }]);
+assert.equal(chiamatePc[0].ordini, undefined);
+const venditeDue = [{ id: '6100000000001', name: '#4824', total_price: '2011.00', line_items: [
+    { name: 'PC GAMING SPARTAN', quantity: 2, price: '1000.00', properties: [{ name: '_gpo_product_group', value: 'DUE' }] }] }];
+const venditaPc1 = A.prezzoVendita('6100000000001.1', venditeDue, upPc1);
+const venditaPc2 = A.prezzoVendita('6100000000001.2', venditeDue, { ...upPc2,
+    upgrade_pagati: [{ ordine_upgrade: '#4900', valore: 'WI-FI + BLUETOOTH', prezzo: 69.9 }] });
+assert.deepEqual([venditaPc1.totale, venditaPc2.totale, venditaPc2.opzioni, venditaPc2.spedizione], [1005.5, 1075.4, 69.9, 5.5]);
+console.log('ok upgrade separati per PC 1 e PC 2');

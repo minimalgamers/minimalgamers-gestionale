@@ -740,7 +740,7 @@
     // gestionale mette nella scheda di questo PC (stessa regola di multi-order-handler: un PC prende tutti, piu' PC
     // uno a testa); + spedizione pagata dal cliente (diviso tra i PC dell'ordine). Gli altri articoli dell'ordine non
     // entrano: il loro costo non e' nella scheda (si elencano per non perderli di vista).
-    function prezzoVendita(orderId, ordini) {
+    function prezzoVendita(orderId, ordini, auto) {
         const [idBase, n] = String(orderId).split('.');
         const ord = (ordini || []).find(o => String(o.id) === idBase);
         if (!ord || !Array.isArray(ord.line_items)) return null;
@@ -793,6 +793,15 @@
         const spedizione = !isNaN(totaleOrdine) && totaleOrdine - righeTot > 0.005 ? (totaleOrdine - righeTot) / (pcs.length || 1) : 0;
         const altri = ord.line_items.filter(li => !usate.has(li) && quante(li) > 0).map(li => ({ nome: nomeLi(li), prezzo: tonda(netto(li)) }));
         const base = parseFloat(pc.price) || 0;
+        // Gli upgrade sono pagati con un altro ordine Shopify, ma appartengono soltanto a questo PC.
+        // L'originale non viene riscritto: l'incasso verificato arriva dal Buyer Desk, unità per unità.
+        for (const u of auto?.upgrade_pagati || []) {
+            if (ord.line_items.some(li => proprieta(li)._upgrade_pagato === u.ordine_upgrade)) continue;
+            const p = Number(u.prezzo);
+            if (!Number.isFinite(p) || p <= 0) continue;
+            opzioni += p;
+            righeOpzioni.push(`UPGRADE ${u.ordine_upgrade || ''} — ${u.valore || ''}`);
+        }
         const rimborsato = !isNaN(totaleOrdine) && ord.current_total_price != null && parseFloat(ord.current_total_price) < totaleOrdine - 0.005;
         return { totale: tonda(base + opzioni + accessori + spedizione - sconti), pc: tonda(base), opzioni: tonda(opzioni),
             accessori: tonda(accessori), spedizione: tonda(spedizione), sconti: tonda(sconti), righeOpzioni, righeAccessori, altri,
@@ -1035,9 +1044,12 @@
         for (const pc of o.pc) {
             const q = Math.max(1, parseInt(pc.quantita, 10) || 1);
             if (indice < primo + q) {
-                const unita = indice - primo;
+                const offset = indice - primo;
+                const unita = (Number.isInteger(pc.unita) ? pc.unita : 0) + offset;
+                const riferimento = { ...pc, unita, pc_numero: indice + 1,
+                    pc_totale: o.pc.reduce((n, p) => n + Math.max(1, parseInt(p.quantita, 10) || 1), 0) };
                 return (pc.pezzi || []).some(x => x && Array.isArray(x.auto_parti) && x.auto_parti.length)
-                    ? { ...pc, unita, pezzi: pc.pezzi.map(x => parteDellUnita(x, unita)) } : pc;
+                    ? { ...riferimento, pezzi: pc.pezzi.map(x => parteDellUnita(x, offset)) } : riferimento;
             }
             primo += q;
         }
@@ -1118,7 +1130,8 @@
         if (!el) return;
         let ordini = [];
         try { ordini = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]'); } catch (e) { ordini = []; }
-        const vendita = prezzoVendita(orderId, ordini);
+        const auto = pcAutomatico(dati, orderId);
+        const vendita = prezzoVendita(orderId, ordini, auto);
         let extra = 0, vociPers = [];
         try {
             const voci = typeof loadCustomItemsFromDB === 'function' ? await loadCustomItemsFromDB(orderId) : [];
@@ -1135,7 +1148,6 @@
             el.innerHTML = '<div class="riga"><span>⏳ Conto in calcolo…</span></div>';
             return;
         }
-        const auto = pcAutomatico(dati, orderId);
         const servizi = tonda(serviziPc(auto).reduce((t, x) => t + (x.costo || 0), 0));
         const extraLista = extraOrdine(auto, righe(orderId).map(row => row.dataset.componentType), vociPers, leggiLS(K_FISSI, {}));
         try { righeOpzioniScheda(orderId, extraLista); } catch (e) { console.warn('[ACCOPPIAMENTO] opzioni', e); }
@@ -3177,22 +3189,25 @@
         const o = ordineDiShopify(order);
         return {
             password: pwd || '', fps: Boolean(fps),
-            ordine: { id: o.id, nome_ordine: o.nome, nome_cliente: nomeDelCliente(order),
+            ordine: { id: o.id, nome_ordine: o.nome,
+                nome_cliente: String(order?.customerName || order?.billingName || '').trim().replace(/\s+/g, ' '),
                 build: pc && pc.build && pc.build !== 'CONFIGURATORE' ? pc.build : '',
-                riga: pc && Number.isInteger(pc.riga) ? pc.riga : null },
+                riga: pc && Number.isInteger(pc.riga_shopify) ? pc.riga_shopify : pc && Number.isInteger(pc.riga) ? pc.riga : null,
+                linea_id: pc?.linea_id || null, unita: Number.isInteger(pc?.unita) ? pc.unita : null },
             proposte: upgradeAmmessi(scelti).map(u => ({ categoria: u.categoria, scelta: u.scelta, attuale: u.attuale,
                 differenza: u.differenza, utile: u.utile, consigliato: u.consigliato, motivo: u.motivo, chiave: u.chiave,
                 multipla: u.multipla }))
         };
     }
 
-    function messaggioPaginaUpgrade(order, url) {
+    function messaggioPaginaUpgrade(order, url, pc) {
         const nome = nomeDelCliente(order);
         const o = ordineDiShopify(order);
         return [`Ciao${nome ? ' ' + nome : ''}! 👋`,
             `Il tuo PC dell'ordine ${o.nome} è in preparazione. Prima di montarlo puoi renderlo ancora più tuo, ` +
             'con le aggiunte disponibili per la tua build.',
             '',
+            ...(pc?.pc_totale > 1 ? [`Questa pagina riguarda solo il PC ${pc.pc_numero} di ${pc.pc_totale}. Gli altri PC hanno una pagina separata.`, ''] : []),
             'Vuoi più comodità sulla scrivania, un look più curato o spazio per giochi e file? Nella tua pagina personale ' +
             'trovi le proposte, il prezzo di ogni scelta e gli audio che ti aiutano a capire cosa fa al caso tuo:',
             `👉 ${url}`,
@@ -3216,8 +3231,15 @@
         return chiamaUpgradeClienti('/api/crea', richiestaPaginaUpgrade(order, pc, scelti, fps, password()), fetchFn);
     }
 
-    async function statoPaginaUpgrade(order, fetchFn) {
+    async function statoPaginaUpgrade(order, fetchFn, pc) {
         const o = ordineDiShopify(order);
+        if (Number.isInteger(pc?.unita)) {
+            const chiave = String(order?.id || o.id);
+            const d = await chiamaUpgradeClienti('/api/stato', { password: password() || '', pcs: [{
+                chiave, id: o.id, linea_id: pc.linea_id || null,
+                riga: Number.isInteger(pc.riga_shopify) ? pc.riga_shopify : pc.riga, unita: pc.unita }] }, fetchFn);
+            return (d.pcs || {})[chiave] || null;
+        }
         const d = await chiamaUpgradeClienti('/api/stato', { password: password() || '', ordini: [o.id] }, fetchFn);
         return (d.ordini || {})[o.id] || null;
     }

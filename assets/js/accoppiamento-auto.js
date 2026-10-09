@@ -3190,15 +3190,17 @@
         const nome = nomeDelCliente(order);
         const o = ordineDiShopify(order);
         return [`Ciao${nome ? ' ' + nome : ''}! 👋`,
-            `Il tuo PC dell'ordine ${o.nome} è in preparazione. Prima di montarlo puoi ancora aggiungere qualche ` +
-            'miglioria, pagando solo la differenza.',
+            `Il tuo PC dell'ordine ${o.nome} è in preparazione. Prima di montarlo puoi renderlo ancora più tuo, ` +
+            'con le aggiunte disponibili per la tua build.',
             '',
-            'Ti ho preparato una pagina con le proposte pensate per la tua build, con la spiegazione di ognuna e il prezzo:',
+            'Vuoi più comodità sulla scrivania, un look più curato o spazio per giochi e file? Nella tua pagina personale ' +
+            'trovi le proposte, il prezzo di ogni scelta e gli audio che ti aiutano a capire cosa fa al caso tuo:',
             `👉 ${url}`,
             '',
-            'Sono tutte facoltative: scegli solo quelle che ti interessano. Puoi pagare anche in 3 rate con Klarna e chi ' +
-            'aggiunge un upgrade ha la priorità nella lavorazione.',
-            'Per qualsiasi dubbio rispondi pure qui!'].join('\n');
+            'Apri il link, ascolta i consigli e scegli come completare il PC: vedrai il totale prima di pagare. ' +
+            'Gli upgrade sono tutti facoltativi; paghi solo quelli selezionati e li montiamo durante la preparazione della build.',
+            'Le rate disponibili per il tuo acquisto compaiono al pagamento. Chi aggiunge un upgrade ha la priorità nella lavorazione.',
+            'Hai un dubbio o non sai cosa scegliere? Rispondi qui: ti aiutiamo noi, anche a evitare funzioni già incluse!'].join('\n');
     }
 
     async function chiamaUpgradeClienti(percorso, corpo, fetchFn) {

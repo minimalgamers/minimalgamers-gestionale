@@ -1142,7 +1142,7 @@ function scegliUpgradeWhatsApp(order, upgrades, pc) {
         popup.querySelectorAll('input[type="checkbox"]').forEach(x => x.addEventListener('change', ricomponi));
         if (!A || typeof A.creaPaginaUpgrade !== 'function') bottonePagina.style.display = 'none';
         else {
-            A.statoPaginaUpgrade(order).then(s => { if (s && !conLink) statoPagina.textContent = A.testoStatoPaginaUpgrade(s); })
+            A.statoPaginaUpgrade(order, undefined, pc).then(s => { if (s && !conLink) statoPagina.textContent = A.testoStatoPaginaUpgrade(s); })
                 .catch(() => {});
             bottonePagina.addEventListener('click', async () => {
                 const scelti = spuntati().filter(u => u.utile != null && u.utile >= 0);
@@ -1153,7 +1153,7 @@ function scegliUpgradeWhatsApp(order, upgrades, pc) {
                 try {
                     const r = await A.creaPaginaUpgrade(order, pc, scelti, fps);
                     conLink = true;
-                    testo.value = A.messaggioPaginaUpgrade(order, r.url);
+                    testo.value = A.messaggioPaginaUpgrade(order, r.url, pc);
                     statoPagina.textContent = `🔗 Pagina pronta: ${r.proposte} proposte${r.fps ? ' + FPS BOOSTER' : ''}, valida 21 giorni.` +
                         (r.avviso ? ' ⚠️ ' + r.avviso : '');
                 } catch (error) {

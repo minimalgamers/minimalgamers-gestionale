@@ -1055,3 +1055,16 @@ const venditaPc2 = A.prezzoVendita('6100000000001.2', venditeDue, { ...upPc2,
     upgrade_pagati: [{ ordine_upgrade: '#4900', valore: 'WI-FI + BLUETOOTH', prezzo: 69.9 }] });
 assert.deepEqual([venditaPc1.totale, venditaPc2.totale, venditaPc2.opzioni, venditaPc2.spedizione], [1005.5, 1075.4, 69.9, 5.5]);
 console.log('ok upgrade separati per PC 1 e PC 2');
+
+// 10/10: nuovo GPO «ESPERIENZA ASSEMBLAGGIO IN LIVE» (100 €, costo interno 0). Si può proporre anche dopo l'ordine e,
+// quando l'automatico lo trova pagato (servizio ASSEMBLAGGIO_LIVE), il PC lo mostra in testa.
+const live = { categoria: 'ESPERIENZA ASSEMBLAGGIO IN LIVE', scelta: 'ESPERIENZA ASSEMBLAGGIO IN LIVE', attuale: '', differenza: 100,
+  utile: 55.5, consigliato: false, motivo: '', chiave: 'ESPERIENZA ASSEMBLAGGIO IN LIVE', multipla: true };
+assert.deepEqual(A.upgradeAmmessi([...upPc.upgrade, live]).map(u => u.categoria), ['CONNETTIVITÀ', 'DISSIPATORE', 'ESPERIENZA ASSEMBLAGGIO IN LIVE']);
+assert.deepEqual(J(A.richiestaPaginaUpgrade(ordUp, upPc, [live], false, 'pwd')).proposte.map(u => u.categoria), ['ESPERIENZA ASSEMBLAGGIO IN LIVE']);
+const servizioLive = { nome: 'ESPERIENZA ASSEMBLAGGIO IN LIVE', costo: 0, categoria: 'ASSEMBLAGGIO_LIVE' };
+assert.match(A.rigaNonPagate({ servizi: [servizioLive] }), /🎥 ASSEMBLAGGIO IN LIVE PAGATO — concordare data e ora/);
+assert.match(A.rigaNonPagate({ servizi: [servizioLive], upgrade_pagati: [{ ordine_upgrade: '#4900', valore: 'ESPERIENZA ASSEMBLAGGIO IN LIVE', prezzo: 100 }] }),
+  /🎥 ASSEMBLAGGIO IN LIVE PAGATO.*⬆ UPGRADE PAGATI #4900/s);
+assert.equal(A.rigaNonPagate({ servizi: [{ nome: 'Montaggio e collaudo', costo: 32.79 }] }), '');   // senza servizio: niente riga
+console.log('ok assemblaggio in live');

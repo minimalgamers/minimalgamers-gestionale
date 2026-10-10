@@ -437,12 +437,22 @@
     // Il file dell'automatico porta per ogni PC «non_pagate» (guardia_opzioni dei listini): riga rossa in testa.
     // 07/10: upgrade pagati dal cliente sulla sua pagina personale (ordine «AGGIORNAMENTO ORDINE #xxxx»): l'automatico li
     // ha gia' messi nei pezzi e nel prezzo di questo PC
+    // 10/10: «ESPERIENZA ASSEMBLAGGIO IN LIVE» pagata (al checkout o con la pagina upgrade). L'automatico la mette tra i
+    // servizi del PC solo se il supplemento è davvero pagato: il team deve concordare data e ora con il cliente.
+    function rigaAssemblaggioLive(pc) {
+        const s = (pc && Array.isArray(pc.servizi)) ? pc.servizi : [];
+        if (!s.some(x => x && x.categoria === 'ASSEMBLAGGIO_LIVE')) return '';
+        return `<div class="acc-esito pos acc-live" title="Servizio pagato dal cliente: nessun appuntamento è prenotato in automatico.">` +
+            `🎥 ASSEMBLAGGIO IN LIVE PAGATO — concordare data e ora con il cliente prima di montare</div>`;
+    }
+
     function rigaUpgradePagati(pc) {
+        const live = rigaAssemblaggioLive(pc);
         const up = (pc && Array.isArray(pc.upgrade_pagati)) ? pc.upgrade_pagati : [];
-        if (!up.length) return '';
+        if (!up.length) return live;
         const ordini = [...new Set(up.map(u => u.ordine_upgrade).filter(Boolean))].join(', ');
         const voci = up.map(u => `${esc(u.valore)}${u.prezzo != null && !isNaN(Number(u.prezzo)) ? ` (+${eur(Number(u.prezzo))})` : ''}`);
-        return `<div class="acc-esito pos acc-upgrade-pagati" title="Upgrade pagati dal cliente sulla sua pagina personale (ordine ${esc(ordini)}): sono già nei pezzi e nel prezzo di questo PC. Compra i pezzi nuovi.">` +
+        return live + `<div class="acc-esito pos acc-upgrade-pagati" title="Upgrade pagati dal cliente sulla sua pagina personale (ordine ${esc(ordini)}): sono già nei pezzi e nel prezzo di questo PC. Compra i pezzi nuovi.">` +
             `⬆ UPGRADE PAGATI ${esc(ordini)} · ${voci.join(' · ')}</div>`;
     }
 
@@ -3165,8 +3175,10 @@
     // case (gia' ordinati), processori, schede video, RAM, SSD o alimentatori. Il servizio upgrade-clienti (Cloudflare)
     // salva l'offerta, mostra la pagina minimalgamers.it/pages/aggiornamento-ordine e crea la cassa Shopify.
     const URL_UPGRADE_CLIENTI = 'https://upgrade-clienti.theminimalgamers.workers.dev';
+    // 10/10: nuovo GPO «ESPERIENZA ASSEMBLAGGIO IN LIVE» (servizio da 100 €, costo interno 0) anche dopo l'ordine,
+    // come nel servizio upgrade-clienti (LISTINI #187): senza questa voce il gestionale lo toglieva dalle proposte.
     const UPGRADE_AMMESSI = ['CONNETTIVITÀ', 'DISSIPATORE', 'VENTOLE RGB', 'SCATOLE COMPONENTI', 'ARCHIVIAZIONE AGGIUNTIVA',
-        'SOFTWARE'];
+        'SOFTWARE', 'ESPERIENZA ASSEMBLAGGIO IN LIVE'];
 
     function upgradeAmmessi(lista) {
         return (Array.isArray(lista) ? lista : [])

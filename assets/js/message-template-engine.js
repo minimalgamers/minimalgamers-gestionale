@@ -18,6 +18,8 @@
         'SCHEDA VIDEO': 'Per più FPS e una build che dura più a lungo puoi passare alla scheda video *{{upgrade}}* al posto di {{attuale}}.\n*Costo upgrade {{differenza}}*.',
         'ARCHIVIAZIONE AGGIUNTIVA': 'Se ti serve più spazio per giochi, video e file puoi aggiungere *{{upgrade}}* di archiviazione in più.\n*Costo {{differenza}}*.',
         'SOFTWARE': 'Possiamo installarti anche *{{upgrade}}*: lo trovi già pronto all\'uso quando accendi il PC.\n*Costo {{differenza}}*.',
+        // 10/10: stesse parole dell'helptext Globo; nessuna promessa su durata, piattaforma o registrazione
+        'ESPERIENZA ASSEMBLAGGIO IN LIVE': 'Se ti va, puoi *vivere in diretta l\'assemblaggio della tua build*: dopo l\'acquisto ti contattiamo per concordare insieme data e ora.\n*Costo {{differenza}}*.',
         'ALTRO': 'Puoi passare a *{{upgrade}}* al posto di {{attuale}}.\n*Costo upgrade {{differenza}}*.'
     };
     const UPGRADE_CATEGORIES = Object.keys(UPGRADE_DEFAULTS).map(c => UPGRADE_PREFIX + c);

@@ -3185,6 +3185,17 @@
             .filter(u => u && UPGRADE_AMMESSI.includes(String(u.categoria || '').trim().toUpperCase()));
     }
 
+    // Tutte le alternative, non soltanto «consigliato». Stesse guardie del servizio upgrade:
+    // prezzo positivo, utile noto e non negativo, vera chiave GPO. Nessuna scelta preselezionata.
+    function propostePaginaUpgrade(lista) {
+        return upgradeAmmessi(lista).filter(u => {
+            const differenza = Math.round(Number(u.differenza) * 100) / 100;
+            const utile = u.utile == null || u.utile === '' ? NaN : Number(u.utile);
+            return differenza > 0 && differenza < 3000 && Number.isFinite(utile) && utile >= 0 &&
+                String(u.chiave || '').trim() && String(u.scelta || '').trim();
+        });
+    }
+
     // ordini sdoppiati del gestionale: «#4824.2» -> «#4824», id «6100….2» -> «6100…»
     function ordineDiShopify(order) {
         return { id: String(order?.originalOrderId || order?.id || '').split('.')[0],
@@ -3216,18 +3227,18 @@
         const nome = nomeDelCliente(order);
         const o = ordineDiShopify(order);
         return [`Ciao${nome ? ' ' + nome : ''}! 👋`,
-            `Il tuo PC dell'ordine ${o.nome} è in preparazione. Prima di montarlo puoi renderlo ancora più tuo, ` +
-            'con le aggiunte disponibili per la tua build.',
-            '',
-            ...(pc?.pc_totale > 1 ? [`Questa pagina riguarda solo il PC ${pc.pc_numero} di ${pc.pc_totale}. Gli altri PC hanno una pagina separata.`, ''] : []),
-            'Vuoi più comodità sulla scrivania, un look più curato o spazio per giochi e file? Nella tua pagina personale ' +
-            'trovi le proposte, il prezzo di ogni scelta e gli audio che ti aiutano a capire cosa fa al caso tuo:',
+            `Il tuo PC dell'ordine ${o.nome} è in preparazione. Abbiamo preparato una *pagina personale solo per te* 👇`,
             `👉 ${url}`,
             '',
-            'Apri il link, ascolta i consigli e scegli come completare il PC: vedrai il totale prima di pagare. ' +
-            'Gli upgrade sono tutti facoltativi; paghi solo quelli selezionati e li montiamo durante la preparazione della build.',
-            'Le rate disponibili per il tuo acquisto compaiono al pagamento. Chi aggiunge un upgrade ha la priorità nella lavorazione.',
-            'Hai un dubbio o non sai cosa scegliere? Rispondi qui: ti aiutiamo noi, anche a evitare funzioni già incluse!'].join('\n');
+            ...(pc?.pc_totale > 1 ? [`Questa pagina riguarda solo il PC ${pc.pc_numero} di ${pc.pc_totale}. Gli altri PC hanno una pagina separata.`, ''] : []),
+            'La tua build è già ottima: con gli *upgrade* puoi renderla ancora più completa, con più comodità, ' +
+            'stile e spazio per giochi e file. Trovi prezzi chiari e *audio che ti aiutano* a scegliere quello che fa per te.',
+            '',
+            '*Al montaggio pensiamo noi*, durante la preparazione del PC: nessuna installazione da organizzare dopo la consegna. ' +
+            'Gli upgrade sono tutti facoltativi; *paghi solo quelli selezionati* e vedrai il totale prima di pagare.',
+            'Puoi valutare le *rate disponibili per il tuo acquisto* al pagamento. Chi aggiunge un upgrade ha la priorità nella lavorazione.',
+            '',
+            'Apri il link e ascolta la guida 🎧 Hai un dubbio? *Rispondi qui*: ti aiutiamo noi, anche a evitare funzioni già incluse!'].join('\n');
     }
 
     async function chiamaUpgradeClienti(percorso, corpo, fetchFn) {
@@ -3289,7 +3300,7 @@
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,
         ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,
         finestraProposte, salvaProposte, URL_UPGRADE_CLIENTI, UPGRADE_AMMESSI, upgradeAmmessi, ordineDiShopify, nomeDelCliente,
-        richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade };
+        propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

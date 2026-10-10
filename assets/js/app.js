@@ -1073,118 +1073,90 @@ function pickTemplateRuleForChannel(channel, rules = []) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Upgrade del set GPO sul messaggio WhatsApp (Antonio 01/10 sera): cosa il cliente puo' ancora aggiungere pagando la
-// differenza, calcolato dai listini (accoppiamento.bin) con l'utile per Antonio. I consigliati sono gia' spuntati
-// (mai processore, RAM o SSD M.2 piu' grandi; mai in perdita); il messaggio si compone con i testi «UPGRADE ...».
+// 10/10 Antonio: WhatsApp crea direttamente il link con tutte le proposte compatibili del PC.
+// Nessuna selezione preliminare dell'operatore; il cliente sceglie e paga sulla sua pagina.
 // ---------------------------------------------------------------------------------------------------------------
 // 07/10: solo le famiglie che si aggiungono dopo l'ordine della merce (mai schede madri, case, CPU, GPU, RAM, SSD, PSU)
 async function upgradeDellOrdine(order) {
     const A = window.AccoppiamentoAuto;
-    if (!A || typeof A.carica !== 'function' || typeof A.pcAutomatico !== 'function') return null;
-    try {
-        const dati = await A.carica();
-        const pc = A.pcAutomatico(dati, order?.id);
-        if (!pc || !Array.isArray(pc.upgrade)) return null;
-        return { pc, upgrades: typeof A.upgradeAmmessi === 'function' ? A.upgradeAmmessi(pc.upgrade) : pc.upgrade };
-    } catch (error) {
-        console.warn('⚠️ Upgrade GPO non disponibili:', error?.message || error);
-        return null;
-    }
+    if (!A || typeof A.carica !== 'function' || typeof A.pcAutomatico !== 'function' ||
+        typeof A.propostePaginaUpgrade !== 'function' || typeof A.creaPaginaUpgrade !== 'function' ||
+        typeof A.messaggioPaginaUpgrade !== 'function') throw new Error('tool_non_pronto');
+    // Dati recenti e PC esatto: mai ripiegare sul primo PC o su un messaggio senza link.
+    const dati = await A.carica(true);
+    const pc = A.pcAutomatico(dati, order?.id);
+    if (!pc || !Array.isArray(pc.upgrade)) throw new Error('pc_non_identificato');
+    return { pc, upgrades: A.propostePaginaUpgrade(pc.upgrade) };
 }
 
-function scegliUpgradeWhatsApp(order, upgrades, pc) {
-    const E = window.MessageTemplateEngine;
-    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const euro = (x) => (x == null || isNaN(x)) ? '—' : Number(x).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
-    return new Promise((resolve) => {
-        const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.65); backdrop-filter:blur(3px); z-index:4000;';
-        const popup = document.createElement('div');
-        popup.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:min(96vw,980px); max-height:88vh; overflow:auto; background:rgba(10,18,30,0.95); border:1px solid rgba(255,255,255,0.24); border-radius:12px; padding:16px; z-index:4001; color:white; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px;';
-        if (window.innerWidth < 760) popup.style.gridTemplateColumns = 'minmax(0,1fr)';
-        const gruppi = {};
-        upgrades.forEach((u, i) => { (gruppi[u.categoria] = gruppi[u.categoria] || []).push({ ...u, i }); });
-        const righe = Object.entries(gruppi).map(([cat, lista]) => {
-            const voci = lista.map((u) => {
-                const perdita = u.utile != null && u.utile < 0;
-                const ignoto = u.utile == null;
-                const nota = perdita ? '<span style="color:#fca5a5;">in perdita: non proporlo</span>'
-                    : ignoto ? '<span style="color:#fcd34d;">costo non trovato: verificalo</span>'
-                    : `<span style="color:#86efac;">utile ${euro(u.utile)}</span>`;
-                const motivo = u.motivo && !perdita && !ignoto ? ` · <span style="color:#cbd5e1;">${esc(u.motivo)}</span>` : '';
-                return `<label style="display:flex; gap:8px; align-items:flex-start; padding:5px 0; ${perdita ? 'opacity:0.55;' : ''}">
-                    <input type="checkbox" data-up="${u.i}" ${u.consigliato ? 'checked' : ''} ${perdita ? 'disabled' : ''} style="margin-top:3px;">
-                    <span style="font-size:0.86em;"><b>${esc(u.scelta)}</b> <span style="color:#7dd3fc;">+${euro(u.differenza)}</span>
-                    ${u.attuale ? `<span style="color:#94a3b8;">(al posto di ${esc(u.attuale)})</span>` : ''}<br>${nota}${motivo}</span></label>`;
-            }).join('');
-            return `<details ${lista.some(u => u.consigliato) ? 'open' : ''} style="border:1px solid rgba(255,255,255,0.18); border-radius:8px; padding:6px 10px; margin-bottom:8px;">
-                <summary style="cursor:pointer; font-weight:600; font-size:0.9em;">${esc(cat)} <span style="color:#94a3b8; font-weight:400;">(${lista.length})</span></summary>${voci}</details>`;
-        }).join('');
-        popup.innerHTML = `<div><h3 style="margin:0 0 6px 0; font-size:1rem;">Upgrade da proporre a ${esc(order?.customerName || order?.billingName || 'cliente')} ${esc(order?.name || '')}</h3>
-            <p style="margin:0 0 10px 0; font-size:0.8em; color:#cbd5e1;">Dal set GPO della build: cosa può ancora aggiungere pagando la differenza. Spuntati i consigliati.</p>
-            <label style="display:flex; gap:8px; align-items:center; padding:4px 0 10px 0; font-size:0.86em;"><input type="checkbox" data-fps checked> FPS BOOSTER in coda</label>
-            ${righe}</div>
-            <div style="display:flex; flex-direction:column; gap:8px;"><textarea data-testo style="flex:1; min-height:52vh; width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.25); background:rgba(0,0,0,0.3); color:white; font-family:monospace; font-size:0.82em;"></textarea>
-            <div data-stato-pagina style="font-size:0.8em; color:#cbd5e1; min-height:1em;"></div>
-            <div style="display:flex; gap:8px;"><button type="button" data-annulla style="flex:1; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.34); background:rgba(255,255,255,0.15); color:white; cursor:pointer;">Annulla</button>
-            <button type="button" data-pagina title="Crea (o aggiorna) la pagina personale del cliente con gli upgrade spuntati e mette il link nel messaggio" style="flex:2; padding:10px; border-radius:8px; border:1px solid rgba(96,165,250,0.7); background:rgba(59,130,246,0.32); color:white; cursor:pointer; font-weight:600;">🔗 Pagina personale</button>
-            <button type="button" data-invia style="flex:2; padding:10px; border-radius:8px; border:1px solid rgba(34,197,94,0.7); background:rgba(34,197,94,0.35); color:white; cursor:pointer; font-weight:600;">Apri WhatsApp</button></div></div>`;
-        const testo = popup.querySelector('[data-testo]');
-        const A = window.AccoppiamentoAuto;
-        const statoPagina = popup.querySelector('[data-stato-pagina]');
-        const bottonePagina = popup.querySelector('[data-pagina]');
-        const spuntati = () => Array.from(popup.querySelectorAll('[data-up]')).filter(x => x.checked).map(x => upgrades[Number(x.dataset.up)]);
-        let conLink = false;                       // dopo «Pagina personale» il testo e' il messaggio corto con il link
-        const ricomponi = () => {
-            if (conLink) { statoPagina.textContent = 'Spunte cambiate: premi di nuovo «🔗 Pagina personale» per aggiornare la pagina.'; return; }
-            testo.value = E.buildUpgradeMessage(order, spuntati(), { fps: popup.querySelector('[data-fps]').checked });
-        };
-        popup.querySelectorAll('input[type="checkbox"]').forEach(x => x.addEventListener('change', ricomponi));
-        if (!A || typeof A.creaPaginaUpgrade !== 'function') bottonePagina.style.display = 'none';
-        else {
-            A.statoPaginaUpgrade(order, undefined, pc).then(s => { if (s && !conLink) statoPagina.textContent = A.testoStatoPaginaUpgrade(s); })
-                .catch(() => {});
-            bottonePagina.addEventListener('click', async () => {
-                const scelti = spuntati().filter(u => u.utile != null && u.utile >= 0);
-                const fps = popup.querySelector('[data-fps]').checked;
-                if (!scelti.length && !fps) { statoPagina.textContent = 'Spunta almeno un upgrade (o il FPS BOOSTER).'; return; }
-                bottonePagina.disabled = true;
-                statoPagina.textContent = 'Creo la pagina…';
-                try {
-                    const r = await A.creaPaginaUpgrade(order, pc, scelti, fps);
-                    conLink = true;
-                    testo.value = A.messaggioPaginaUpgrade(order, r.url, pc);
-                    statoPagina.textContent = `🔗 Pagina pronta: ${r.proposte} proposte${r.fps ? ' + FPS BOOSTER' : ''}, valida 21 giorni.` +
-                        (r.avviso ? ' ⚠️ ' + r.avviso : '');
-                } catch (error) {
-                    const motivi = { non_autorizzato: 'password del gestionale non valida', nessuna_proposta: 'nessuna proposta ammessa',
-                        ordine_non_trovato: 'ordine non trovato su Shopify', ordine_annullato: 'ordine annullato su Shopify' };
-                    statoPagina.textContent = '⚠️ Pagina non creata: ' + (motivi[error?.message] || error?.message || 'errore') +
-                        '. Puoi mandare il messaggio lungo come sempre.';
-                } finally {
-                    bottonePagina.disabled = false;
-                }
-            });
+// Un solo gesto sulla card: pagina con TUTTE le alternative ammesse, poi chat con messaggio.
+// La scelta spetta al cliente. Le selezioni non pagate non modificano l'ordine.
+// Una richiesta in corso per PC impedisce doppie pagine e doppie finestre con il doppio clic.
+const upgradeWhatsAppInCorso = new Map();
+
+function motivoErroreUpgradeWhatsApp(error) {
+    const motivi = {
+        tool_non_pronto: 'Ricarica il gestionale e riprova.',
+        telefono_assente: 'Manca un numero di telefono valido del cliente.',
+        popup_bloccato: 'Consenti l’apertura di WhatsApp nel browser e premi di nuovo il pulsante.',
+        chat_chiusa: 'La finestra WhatsApp è stata chiusa. Premi di nuovo il pulsante.',
+        pc_non_identificato: 'Il PC non è identificabile con certezza. Aggiorna i dati dell’ordine.',
+        non_autorizzato: 'Accedi di nuovo al gestionale e riprova.',
+        nessuna_proposta: 'Non ci sono nuove proposte ammesse per questo PC.',
+        ordine_non_trovato: 'Il numero dell’ordine non corrisponde a Shopify.',
+        ordine_annullato: 'L’ordine risulta annullato su Shopify.',
+        ordine_non_verificabile: 'Non riesco a verificare l’ordine su Shopify. Riprova tra poco.'
+    };
+    return motivi[error?.message] || 'Non riesco a preparare la pagina personale. Riprova tra poco.';
+}
+
+function preparaWhatsAppUpgrade(order) {
+    const chiave = String(order?.id || '');
+    if (upgradeWhatsAppInCorso.has(chiave)) return upgradeWhatsAppInCorso.get(chiave);
+    const lavoro = (async () => {
+        let chat = null;
+        try {
+            const phone = formatPhoneForWhatsApp(getPreferredCustomerPhone(order));
+            if (!phone) throw new Error('telefono_assente');
+            // Riservata PRIMA della rete, nel gesto dell'utente: funziona anche in Safari/iPhone.
+            // Nessun invio automatico: WhatsApp riceve il messaggio da confermare con «Invia».
+            chat = window.open('about:blank', '_blank');
+            if (!chat) throw new Error('popup_bloccato');
+            chat.opener = null;
+            chat.document.title = 'Preparo il messaggio WhatsApp…';
+            chat.document.body.textContent = 'Preparo la pagina personale e il messaggio WhatsApp…';
+            showNotification('Preparo tutte le proposte per questo PC…');
+            const { pc, upgrades } = await upgradeDellOrdine(order);
+            const fps = !(pc.upgrade_pagati || []).some(u => String(u.categoria || '').toUpperCase() === 'FPS BOOSTER');
+            if (!upgrades.length && !fps) throw new Error('nessuna_proposta');
+            const A = window.AccoppiamentoAuto;
+            const pagina = await A.creaPaginaUpgrade(order, pc, upgrades, fps);
+            const url = new URL(pagina.url);
+            if (url.protocol !== 'https:' || url.hostname !== 'www.minimalgamers.it' ||
+                url.pathname !== '/pages/aggiornamento-ordine' || !url.searchParams.get('c')) {
+                throw new Error('link_non_valido');
+            }
+            const testo = A.messaggioPaginaUpgrade(order, url.href, pc);
+            if (chat.closed) throw new Error('chat_chiusa');
+            chat.location.replace('https://api.whatsapp.com/send?phone=' + phone + '&text=' + encodeURIComponent(testo));
+            showNotification('Pagina pronta: ' + pagina.proposte + ' proposte' + (pagina.fps ? ' + FPS BOOSTER' : '') +
+                '. In WhatsApp premi Invia.', 'success');
+            return true;
+        } catch (error) {
+            if (chat && !chat.closed) chat.close();
+            // Niente fallback senza link, niente credenziali, link personali o errori Shopify nei log.
+            showNotification('WhatsApp non aperto. ' + motivoErroreUpgradeWhatsApp(error), 'error');
+            return false;
         }
-        const chiudi = (v) => { overlay.remove(); popup.remove(); resolve(v); };
-        overlay.addEventListener('click', () => chiudi(null));
-        popup.querySelector('[data-annulla]').addEventListener('click', () => chiudi(null));
-        popup.querySelector('[data-invia]').addEventListener('click', () => chiudi(testo.value));
-        document.body.appendChild(overlay);
-        document.body.appendChild(popup);
-        ricomponi();
-    });
+    })();
+    upgradeWhatsAppInCorso.set(chiave, lavoro);
+    lavoro.finally(() => upgradeWhatsAppInCorso.delete(chiave));
+    return lavoro;
 }
 
 async function contactWithTemplateSelection(channel, order, components = []) {
     if (channel === 'whatsapp') {
-        const r = window.MessageTemplateEngine?.buildUpgradeMessage ? await upgradeDellOrdine(order) : null;
-        const upgrades = r ? r.upgrades : null;
-        if (upgrades && upgrades.length) {
-            const testo = await scegliUpgradeWhatsApp(order, upgrades, r.pc);
-            return testo ? openWhatsAppDesktop(order?.phone, testo) : false;
-        }
-        return await openWhatsAppForOrder(order, components);
+        return preparaWhatsAppUpgrade(order);
     }
 
     if (channel === 'email') {
@@ -3333,9 +3305,20 @@ async function renderProcessedOrders(ordersMap) {
         if (whatsappBtn) {
             whatsappBtn.addEventListener('click', async (event) => {
                 event.preventDefault();
+                if (whatsappBtn.dataset.upgradeBusy === '1') return;
+                const titolo = whatsappBtn.title;
+                whatsappBtn.dataset.upgradeBusy = '1';
+                whatsappBtn.setAttribute('aria-busy', 'true');
+                whatsappBtn.title = 'Preparo pagina personale e messaggio…';
                 const liveOrder = getCurrentProcessedOrderById(order.id) || order;
                 const components = collectOrderComponentsForMessaging(order.id, liveOrder);
-                await contactWithTemplateSelection('whatsapp', liveOrder, components);
+                try {
+                    await contactWithTemplateSelection('whatsapp', liveOrder, components);
+                } finally {
+                    delete whatsappBtn.dataset.upgradeBusy;
+                    whatsappBtn.removeAttribute('aria-busy');
+                    whatsappBtn.title = titolo;
+                }
             });
         }
         

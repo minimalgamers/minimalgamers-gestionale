@@ -27,9 +27,17 @@ Decisione Antonio: il pulsante WhatsApp della card deve preparare il link con tu
 - Accoppiamento pagati: 18 test Python superati, incluso il percorso reale di lettura ordini dal proxy del gestionale e il caso due PC uguali.
 - Chrome desktop e viewport 390×844: nel collaudo 13 proposte più FPS, zero preselezioni, selezione AIO 360 display non consigliata, totale 199 euro e nessuna eccedenza orizzontale. Non equivale a una prova su Safari/iPhone fisico.
 
-Cache: `app.js?v=69` e `accoppiamento-auto.js?v=31`.
+Cache: `app.js?v=69` e `accoppiamento-auto.js?v=32`.
+
+## Template WhatsApp delle fasi finali — 12/10
+
+Il testo richiesto da Antonio ringrazia della pazienza, annuncia le fasi finali dell'assemblaggio e collega la pagina personale. Mantiene upgrade facoltativi, montaggio a cura del team e la priorità assoluta per chi aggiunge upgrade indicata da Antonio. Chiusura: guida audio e «TI ASPETTIAMO <3». Nome, ordine e link rimangono dinamici; gli ordini con più PC conservano la distinzione della singola unità. Il grassetto WhatsApp usa asterischi singoli, senza escape o markup Markdown doppio.
+
+Per le rate il testo dice «potrai valutare le rate disponibili al checkout»: non promette approvazione o un piano per qualunque importo. L'operatore deve usare questo messaggio soltanto quando il PC è effettivamente nelle fasi finali e la spedizione nei prossimi giorni è una previsione attendibile. Non sono stati modificati stati, tempi, algoritmi di priorità o invii: l'operatore continua a premere Invia in WhatsApp. Le conversazioni già aperte non vengono riscritte o reinviate automaticamente.
 
 ## Correzione ordini storici — 12/10
+
+La revisione del template precedente ha superato60test Node, comprese due nuove regressioni per formattazione WhatsApp, nome mancante e identità separata dei PC. Nessun nuovo link cliente, bozza, pagamento o messaggio reale creato per le prove.
 
 Il Buyer Desk risolve il set corrente tramite ID prodotto, anche se l’ordine conserva un set Globo rimosso. La risposta aggiunge `upgrade_catalogo`: se lo stato non è `ok`, il pulsante WhatsApp chiude la finestra provvisoria e chiede di aggiornare il Buyer Desk. Non crea una pagina incompleta con il solo FPS Booster. La lettura dei vecchi file privi di questo metadato rimane compatibile; il rilascio richiede la pubblicazione del nuovo file cifrato.
 

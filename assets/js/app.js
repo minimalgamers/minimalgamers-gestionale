@@ -1086,6 +1086,7 @@ async function upgradeDellOrdine(order) {
     const dati = await A.carica(true);
     const pc = A.pcAutomatico(dati, order?.id);
     if (!pc || !Array.isArray(pc.upgrade)) throw new Error('pc_non_identificato');
+    if (pc.upgrade_catalogo && pc.upgrade_catalogo.stato !== 'ok') throw new Error('catalogo_upgrade_incompleto');
     return { pc, upgrades: A.propostePaginaUpgrade(pc.upgrade) };
 }
 
@@ -1101,6 +1102,7 @@ function motivoErroreUpgradeWhatsApp(error) {
         popup_bloccato: 'Consenti l’apertura di WhatsApp nel browser e premi di nuovo il pulsante.',
         chat_chiusa: 'La finestra WhatsApp è stata chiusa. Premi di nuovo il pulsante.',
         pc_non_identificato: 'Il PC non è identificabile con certezza. Aggiorna i dati dell’ordine.',
+        catalogo_upgrade_incompleto: 'Le opzioni di questo PC non sono state verificate: aggiorna il Buyer Desk prima di inviare il link. Non creo una pagina incompleta con il solo FPS Booster.',
         non_autorizzato: 'Accedi di nuovo al gestionale e riprova.',
         nessuna_proposta: 'Non ci sono nuove proposte ammesse per questo PC.',
         ordine_non_trovato: 'Il numero dell’ordine non corrisponde a Shopify.',

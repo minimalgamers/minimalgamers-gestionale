@@ -29,7 +29,7 @@ function ambiente(opzioni = {}) {
     vm.runInContext(autoSource, A);
     const api = A.window.AccoppiamentoAuto;
     const pc = { build: 'PC GAMING PROVA', riga: 0, riga_shopify: 0, linea_id: '111', quantita: 2,
-        pezzi: [], upgrade: proposte, upgrade_pagati: opzioni.pagati || [] };
+        pezzi: [], upgrade: proposte, upgrade_pagati: opzioni.pagati || [], upgrade_catalogo: opzioni.catalogo };
     const traccia = { richieste: [], finestre: [], notifiche: [], forza: [], email: 0, legacy: 0 };
     api.carica = async forza => {
         traccia.forza.push(forza);
@@ -115,6 +115,17 @@ test('FPS BOOSTER già pagato per quel PC non viene proposto una seconda volta',
     assert.equal(traccia.richieste[0].corpo.fps, false);
 });
 
+for (const stato of ['set_non_identificato', 'calcolo_non_riuscito']) {
+    test('catalogo non verificato: mai pagina apparentemente completa con il solo FPS (' + stato + ')', async () => {
+        const { s, traccia, pc } = ambiente({ catalogo: { stato, set: null } });
+        pc.upgrade = [];
+        assert.equal(await s.preparaWhatsAppUpgrade(ordine), false);
+        assert.equal(traccia.richieste.length, 0);
+        assert.equal(traccia.finestre[0].closed, true);
+        assert.match(traccia.notifiche.at(-1).msg, /Buyer Desk|incompleta/);
+    });
+}
+
 for (const opzioni of [{ errore: 'ordine_non_verificabile' }, { erroreDati: true },
     { url: 'https://altro.test/?c=x' }, { url: 'javascript:alert(1)' }]) {
     test('errore o link inatteso: nessun WhatsApp o messaggio senza link (' + JSON.stringify(opzioni) + ')', async () => {
@@ -150,6 +161,6 @@ test('email immutata, vecchia selezione rimossa e versioni cache incrementate', 
     assert.doesNotMatch(source, /scegliUpgradeWhatsApp|data-pagina|data-up="/);
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /app\.js\?v=68/);
+    assert.match(html, /app\.js\?v=69/);
     assert.match(html, /accoppiamento-auto\.js\?v=31/);
 });

@@ -27,4 +27,10 @@ Decisione Antonio: il pulsante WhatsApp della card deve preparare il link con tu
 - Accoppiamento pagati: 18 test Python superati, incluso il percorso reale di lettura ordini dal proxy del gestionale e il caso due PC uguali.
 - Chrome desktop e viewport 390×844: nel collaudo 13 proposte più FPS, zero preselezioni, selezione AIO 360 display non consigliata, totale 199 euro e nessuna eccedenza orizzontale. Non equivale a una prova su Safari/iPhone fisico.
 
-Cache: `app.js?v=68` e `accoppiamento-auto.js?v=31`.
+Cache: `app.js?v=69` e `accoppiamento-auto.js?v=31`.
+
+## Correzione ordini storici — 12/10
+
+Il Buyer Desk risolve il set corrente tramite ID prodotto, anche se l’ordine conserva un set Globo rimosso. La risposta aggiunge `upgrade_catalogo`: se lo stato non è `ok`, il pulsante WhatsApp chiude la finestra provvisoria e chiede di aggiornare il Buyer Desk. Non crea una pagina incompleta con il solo FPS Booster. La lettura dei vecchi file privi di questo metadato rimane compatibile; il rilascio richiede la pubblicazione del nuovo file cifrato.
+
+56test Node passati; due regressioni nuove su set non identificato e calcolo non riuscito. Nessun messaggio o checkout reale durante le prove. Le offerte già comunicate si aggiornano al normale clic WhatsApp, preservando il codice del link quando il servizio può riusarlo.

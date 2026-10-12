@@ -3227,18 +3227,22 @@
         const nome = nomeDelCliente(order);
         const o = ordineDiShopify(order);
         return [`Ciao${nome ? ' ' + nome : ''}! 👋`,
-            `Il tuo PC dell'ordine ${o.nome} è in preparazione. Abbiamo preparato una *pagina personale solo per te* 👇`,
-            `👉 ${url}`,
+            `Il tuo PC GAMING dell'ordine ${o.nome} è *FINALMENTE* nelle fasi finali dell'assemblaggio. ` +
+            "In primis, cogliamo l'occasione per ringraziarti di tutta la pazienza che hai avuto: " +
+            'la tua collaborazione ci ha permesso di lavorare con costanza la grossa mole di ordini con cui ci interfacciamo ogni giorno! ' +
+            'Vogliamo darti un PC GAMING spaziale, perciò abbiamo preparato una *pagina personale solo per te* 👇',
+            '',
+            url,
             '',
             ...(pc?.pc_totale > 1 ? [`Questa pagina riguarda solo il PC ${pc.pc_numero} di ${pc.pc_totale}. Gli altri PC hanno una pagina separata.`, ''] : []),
-            'La tua build è già ottima: con gli *upgrade* puoi renderla ancora più completa, con più comodità, ' +
-            'stile e spazio per giochi e file. Trovi prezzi chiari e *audio che ti aiutano* a scegliere quello che fa per te.',
+            '*Al montaggio pensiamo noi*, tu non dovrai preoccuparti di nulla. ' +
+            'Gli *upgrade* sono tutti facoltativi; *paghi solo quelli selezionati* ' +
+            'e potrai valutare le *rate disponibili al checkout* per rendere la tua build ancora più *premium e definitiva*.',
+            "*CHI PARTECIPA AGLI UPGRADE AVRÀ PRIORITÀ ASSOLUTA PER NOI* " +
+            "per prepararci all'ottimizzazione finale e alla spedizione della tua build nei prossimi giorni!",
             '',
-            '*Al montaggio pensiamo noi*, durante la preparazione del PC: nessuna installazione da organizzare dopo la consegna. ' +
-            'Gli upgrade sono tutti facoltativi; *paghi solo quelli selezionati* e vedrai il totale prima di pagare.',
-            'Puoi valutare le *rate disponibili per il tuo acquisto* al pagamento. Chi aggiunge un upgrade ha la priorità nella lavorazione.',
-            '',
-            'Apri il link e ascolta la guida 🎧 Hai un dubbio? *Rispondi qui*: ti aiutiamo noi, anche a evitare funzioni già incluse!'].join('\n');
+            'Apri il link e ascolta la guida 🎧',
+            'TI ASPETTIAMO <3'].join('\n');
     }
 
     async function chiamaUpgradeClienti(percorso, corpo, fetchFn) {

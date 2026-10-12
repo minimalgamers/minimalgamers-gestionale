@@ -1006,11 +1006,13 @@ assert.equal(reqUp.fps, true);
 assert.equal(A.nomeDelCliente({ billingName: 'undefined undefined' }), '');
 const msgUp = A.messaggioPaginaUpgrade(ordUp, 'https://www.minimalgamers.it/pages/aggiornamento-ordine?c=abc');
 assert.match(msgUp, /^Ciao Mario! 👋/);
-assert.match(msgUp, /ordine #4824 è in preparazione/);
-assert.match(msgUp, /👉 https:\/\/www\.minimalgamers\.it\/pages\/aggiornamento-ordine\?c=abc/);
+assert.match(msgUp, /PC GAMING dell'ordine #4824 è \*FINALMENTE\* nelle fasi finali dell'assemblaggio/);
+assert.match(msgUp, /\n\nhttps:\/\/www\.minimalgamers\.it\/pages\/aggiornamento-ordine\?c=abc\n\n/);
 assert.doesNotMatch(msgUp, /6100000000001|ROSSI/);                       // niente id o cognome nel messaggio
-assert.match(msgUp, /audio che ti aiutano/);
-assert.match(msgUp, /totale prima di pagare/);
+assert.match(msgUp, /ringraziarti di tutta la pazienza/);
+assert.match(msgUp, /\*CHI PARTECIPA AGLI UPGRADE AVRÀ PRIORITÀ ASSOLUTA PER NOI\*/);
+assert.match(msgUp, /rate disponibili al checkout/);
+assert.match(msgUp, /Apri il link e ascolta la guida 🎧\nTI ASPETTIAMO <3$/);
 assert.match(msgUp, /tutti facoltativi/);
 assert.doesNotMatch(msgUp, /\bHDD\b|garantiti|ultimi pezzi|3 rate con Klarna/);
 const chiamateUp = [];

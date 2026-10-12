@@ -60,6 +60,38 @@ function ambiente(opzioni = {}) {
     return { s, traccia, api, pc };
 }
 
+test('template 12/10: testo finale Antonio, nome ordine e link personali, grassetto WhatsApp valido', () => {
+    const { api } = ambiente();
+    const url = 'https://www.minimalgamers.it/pages/aggiornamento-ordine?c=LINK-PERSONALE-DI-PROVA';
+    const msg = api.messaggioPaginaUpgrade({ id:'6100000000001',name:'#4816',customerName:'MARIA ROSSI' },url);
+    assert.match(msg,/^Ciao Maria! 👋\nIl tuo PC GAMING dell'ordine #4816 è \*FINALMENTE\* nelle fasi finali dell'assemblaggio\./);
+    assert.match(msg,/ringraziarti di tutta la pazienza/);
+    assert.match(msg,/Vogliamo darti un PC GAMING spaziale/);
+    assert.match(msg,/\*pagina personale solo per te\* 👇\n\n/);
+    assert.equal(msg.split(url).length,2);
+    assert.match(msg,/\*Al montaggio pensiamo noi\*/);
+    assert.match(msg,/Gli \*upgrade\* sono tutti facoltativi; \*paghi solo quelli selezionati\*/);
+    assert.match(msg,/\*rate disponibili al checkout\*/);
+    assert.match(msg,/\*premium e definitiva\*/);
+    assert.match(msg,/\*CHI PARTECIPA AGLI UPGRADE AVRÀ PRIORITÀ ASSOLUTA PER NOI\*/);
+    assert.match(msg,/spedizione della tua build nei prossimi giorni/);
+    assert.match(msg,/Apri il link e ascolta la guida 🎧\nTI ASPETTIAMO <3$/);
+    assert.doesNotMatch(msg,/\*\*|\\\*|undefined|6100000000001|ROSSI|solo il PC/);
+    assert.equal((msg.match(/\*/g)||[]).length % 2,0);
+});
+
+test('template 12/10: senza nome niente anagrafica inventata e per due PC distinzione conservata', () => {
+    const { api } = ambiente();
+    const primo = api.messaggioPaginaUpgrade({name:'#4824.1',customerName:'undefined undefined'},'https://example.invalid/?c=PC1', {pc_numero:1,pc_totale:2});
+    const secondo = api.messaggioPaginaUpgrade({name:'#4824.2',billingName:'LUCA BIANCHI'},'https://example.invalid/?c=PC2', {pc_numero:2,pc_totale:2});
+    assert.match(primo,/^Ciao! 👋/);
+    assert.match(primo,/solo il PC 1 di 2/);
+    assert.match(secondo,/^Ciao Luca! 👋/);
+    assert.match(secondo,/solo il PC 2 di 2/);
+    assert.match(secondo,/ordine #4824 è/);
+    assert.doesNotMatch(secondo,/#4824\.2|BIANCHI|c=PC1/);
+});
+
 test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i consigliati', async () => {
     const { s, traccia } = ambiente();
     const lavoro = s.contactWithTemplateSelection('whatsapp', ordine);
@@ -82,6 +114,8 @@ test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i co
     assert.match(chat.searchParams.get('text'), /Ciao Mario!.*\n/);
     assert.match(chat.searchParams.get('text'), /solo il PC 2 di 2/);
     assert.match(chat.searchParams.get('text'), /aggiornamento-ordine\?c=/);
+    assert.match(chat.searchParams.get('text'), /\*FINALMENTE\*/);
+    assert.match(chat.searchParams.get('text'), /PRIORITÀ ASSOLUTA/);
     assert.match(chat.searchParams.get('text'), /tutti facoltativi/);
     assert.equal(traccia.finestre[0].opener, null);
     assert.match(traccia.notifiche.at(-1).msg, /In WhatsApp premi Invia/);
@@ -177,5 +211,5 @@ test('email immutata, vecchia selezione rimossa e versioni cache incrementate', 
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(html, /app\.js\?v=69/);
-    assert.match(html, /accoppiamento-auto\.js\?v=31/);
+    assert.match(html, /accoppiamento-auto\.js\?v=32/);
 });

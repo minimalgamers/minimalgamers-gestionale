@@ -126,6 +126,21 @@ for (const stato of ['set_non_identificato', 'calcolo_non_riuscito']) {
     });
 }
 
+test('file precedente senza diagnostica e nessuna proposta: non indovina FPS-only', async () => {
+    const { s, traccia, pc } = ambiente();
+    pc.upgrade = [];
+    assert.equal(await s.preparaWhatsAppUpgrade(ordine), false);
+    assert.equal(traccia.richieste.length, 0);
+});
+
+test('catalogo verificato senza altre aggiunte: FPS-only rimane legittimo', async () => {
+    const { s, traccia, pc } = ambiente({ catalogo: { stato: 'ok', set: '901' } });
+    pc.upgrade = [];
+    assert.equal(await s.preparaWhatsAppUpgrade(ordine), true);
+    assert.equal(traccia.richieste[0].corpo.proposte.length, 0);
+    assert.equal(traccia.richieste[0].corpo.fps, true);
+});
+
 for (const opzioni of [{ errore: 'ordine_non_verificabile' }, { erroreDati: true },
     { url: 'https://altro.test/?c=x' }, { url: 'javascript:alert(1)' }]) {
     test('errore o link inatteso: nessun WhatsApp o messaggio senza link (' + JSON.stringify(opzioni) + ')', async () => {

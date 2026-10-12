@@ -1086,7 +1086,8 @@ async function upgradeDellOrdine(order) {
     const dati = await A.carica(true);
     const pc = A.pcAutomatico(dati, order?.id);
     if (!pc || !Array.isArray(pc.upgrade)) throw new Error('pc_non_identificato');
-    if (pc.upgrade_catalogo && pc.upgrade_catalogo.stato !== 'ok') throw new Error('catalogo_upgrade_incompleto');
+    if ((pc.upgrade_catalogo && pc.upgrade_catalogo.stato !== 'ok') ||
+        (!pc.upgrade_catalogo && !pc.upgrade.length)) throw new Error('catalogo_upgrade_incompleto');
     return { pc, upgrades: A.propostePaginaUpgrade(pc.upgrade) };
 }
 

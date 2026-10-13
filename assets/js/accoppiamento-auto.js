@@ -36,7 +36,7 @@
     const CHIAVI_TECNICHE = ['_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
         'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'];
 
-    const stato = { dati: null, errore: null, promessa: null, caricatoIl: 0 };
+    const stato = { dati: null, errore: null, promessa: null, caricatoIl: 0, inCorso: false, upgradeAttesi: [] };
     const contesti = {};   // orderId -> { configKey, variants, allItems }
 
     // ---------------------------------------------------------------- utilita'
@@ -76,7 +76,9 @@
 
     async function carica(forza) {
         const vecchio = Date.now() - stato.caricatoIl > 10 * 60 * 1000;
+        if (stato.inCorso && stato.promessa) return stato.promessa;
         if (stato.promessa && !forza && !vecchio) return stato.promessa;
+        stato.inCorso = true;
         stato.promessa = (async () => {
             const pwd = password();
             if (!pwd) throw new Error('accedi al gestionale per vedere l\'automatico');
@@ -91,7 +93,7 @@
             stato.errore = err && err.message ? err.message : String(err);
             stato.promessa = null;
             throw err;
-        });
+        }).finally(() => { stato.inCorso = false; });
         return stato.promessa;
     }
 
@@ -1226,7 +1228,7 @@
         ].filter(Boolean);
         const aperta = sezioni.some(x => x.id === sezioniAperte[orderId]) ? sezioniAperte[orderId] : null;
         el.innerHTML =
-            rigaNonPagate(auto) + rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ pezzi acquistati</div>' : '') +
+            rigaUpgradeAttesa(orderId) + rigaNonPagate(auto) + rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ pezzi acquistati</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
             (auto ? `<button type="button" data-vai="${esc(String(orderId).split('.')[0])}" title="Apri quest'ordine nella Panoramica">↗ Panoramica</button>` : '') + `</div>` +
@@ -1290,6 +1292,20 @@
     // Chiamata dopo che l'operatore ha cambiato a mano un pezzo: si ricalcola l'utile
     function pezzoModificato(orderId) {
         if (contesti[orderId]) aggiornaOrdine(orderId).catch(() => {});
+    }
+
+    function upgradeInAttesa(events) { stato.upgradeAttesi = events || []; }
+    function upgradeDaAllineare(orderId) { return stato.upgradeAttesi.some(e => e.scheda === String(orderId)); }
+    function rigaUpgradeAttesa(orderId) {
+        const events = stato.upgradeAttesi.filter(e => e.scheda === String(orderId));
+        if (!events.length) return '';
+        return `<div class="acc-esito" role="status">⏳ ${events.some(e => e.ritirato) ? 'PAGAMENTO MODIFICATO · verifica pezzi in corso' : 'UPGRADE PAGATO · aggiornamento pezzi in corso'}: ` +
+            events.map(e => `${esc(e.valore)} (${esc(e.ordine_upgrade)})`).join(', ') +
+            `. La scheda si aggiornerà automaticamente. Non rielaborare l’ordine.</div>`;
+    }
+    async function aggiornaSchedeUpgrade() {
+        await Promise.all(Object.keys(contesti).map(id => aggiornaOrdine(id).catch(() => {})));
+        if (riepilogo.modo === 'auto') await renderRiepilogoAuto();
     }
 
     // Chiamata da loadComponentsForOrder quando le righe dell'ordine sono pronte
@@ -3304,7 +3320,8 @@
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,
         ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,
         finestraProposte, salvaProposte, URL_UPGRADE_CLIENTI, UPGRADE_AMMESSI, upgradeAmmessi, ordineDiShopify, nomeDelCliente,
-        propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade };
+        propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade,
+        upgradeInAttesa, upgradeDaAllineare, rigaUpgradeAttesa, aggiornaSchedeUpgrade };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

@@ -224,8 +224,8 @@ test('email immutata, vecchia selezione rimossa e versioni cache incrementate', 
     assert.doesNotMatch(source, /scegliUpgradeWhatsApp|data-pagina|data-up="/);
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /app\.js\?v=72/);
-    assert.match(html, /accoppiamento-auto\.js\?v=33/);
+    assert.match(html, /app\.js\?v=73/);
+    assert.match(html, /accoppiamento-auto\.js\?v=34/);
 });
 
 test('13/10: app installata senza pagina intermedia, riapertura con stesso testo/link e nessuna nuova richiesta', async () => {

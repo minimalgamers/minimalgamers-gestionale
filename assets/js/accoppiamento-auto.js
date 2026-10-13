@@ -27,7 +27,7 @@
 
     // Tipi del gestionale -> tipi del motore (stessa tabella di accoppiamento/motore.py)
     const TIPI = {
-        GPU: 'GPU', CPU: 'CPU', RAM: 'RAM', SSD: 'SSD', 'SSD ADDON': 'SSD_EXTRA', MOBO: 'MOBO',
+        GPU: 'GPU', CPU: 'CPU', RAM: 'RAM', SSD: 'SSD', 'SSD ADDON': 'SSD_EXTRA', 'SSD AGGIUNTIVO': 'SSD_EXTRA', MOBO: 'MOBO',
         'SCHEDA MADRE': 'MOBO', PSU: 'PSU', ALIMENTATORE: 'PSU', COOLER: 'COOLER', DISSIPATORE: 'COOLER',
         CASE: 'CASE', MONITOR: 'MONITOR',
         // 30/09: righe accessori della scheda (kit dei bundle, sedia, scrivania) = pezzi ACCESSORIO dell'automatico
@@ -567,7 +567,7 @@
     // opzioni nuove (connettivita' Wi-Fi, ventole RGB, scatole, Office…) non hanno una riga nella scheda:
     // l'automatico le conosce (pezzi fissi con il loro costo). Si mostrano sotto la scheda come pezzi da
     // comprare o preparare e il loro costo entra nell'utile dell'ordine.
-    const TIPI_EXTRA = ['WIFI', 'VENTOLE', 'SERVIZIO', 'SOFTWARE', 'ACCESSORIO'];
+    const TIPI_EXTRA = ['WIFI', 'VENTOLE', 'SERVIZIO', 'SOFTWARE', 'ACCESSORIO', 'SSD_EXTRA'];
     const TIPO_SCHEDA_EXTRA = { 'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO' };
     const VOCE_PERSONALIZZATA = { WIFI: /WI-?FI|BLUETOOTH/i, VENTOLE: /VENTOL/i, SERVIZIO: /SCATOL/i,
         SOFTWARE: /OFFICE|SOFTWARE|WINDOWS/i, ACCESSORIO: /KIT|SEDIA|SCRIVANIA|MOUSE|TASTIERA/i };
@@ -601,6 +601,108 @@
                 `${x.personalizzata ? ' <small>· già tra le voci personalizzate</small>' : ''}</span><span>` +
                 (x.costo == null ? `<a data-extra="${i}" class="acc-incompleto" title="Inserisci il costo netto (vale per tutti gli ordini)">costo da inserire</a>`
                     : (x.costo === 0 ? 'nessun costo' : eur(x.costo))) + `</span></div>`).join('') + `</div>`;
+    }
+
+    // Distinta da montare != distinta acquistata. Nessuna scrittura di componenti/stock:
+    // il pagamento riconciliato per linea e unità è la fonte comune per tutti gli operatori.
+    const TIPI_UPGRADE_MONTAGGIO = {
+        DISSIPATORE: 'COOLER', CONNETTIVITA: 'WIFI', VENTOLERGB: 'VENTOLE',
+        ARCHIVIAZIONEAGGIUNTIVA: 'SSD_EXTRA', SOFTWARE: 'SOFTWARE'
+    };
+    const montaggiDOM = new WeakMap();
+
+    function requisitoUpgradeUguale(tipo, descrizione, scelta) {
+        if (tipo !== 'COOLER') return chiave(descrizione) === chiave(scelta);
+        const s = String(scelta || '').toUpperCase(), d = String(descrizione || '').toUpperCase();
+        const mm = /(?:240|360)\s*MM/.exec(s);
+        if (mm) return d.replace(/\s/g, '').includes(mm[0].replace(/\s/g, '')) &&
+            (!/DISPLAY|LED|LCD/.test(s) || /DISPLAY|LED|LCD/.test(d));
+        return /AK400/.test(s) && /AK400/.test(d) && /DIGITAL|DISPLAY|LCD/.test(d);
+    }
+
+    function scelteUpgradeMontaggio(auto) {
+        const ultime = new Map();
+        for (const u of (auto && auto.upgrade_pagati) || []) {
+            if (!u || !u.ordine_upgrade || !u.valore) continue;
+            if (u.unita != null && Number(u.unita) !== Number(auto.unita || 0)) continue;
+            if (u.unita == null && Number(auto.pc_totale || auto.quantita || 1) > 1) continue;
+            if (u.linea_id && auto.linea_id && String(u.linea_id).split('/').pop() !== String(auto.linea_id).split('/').pop()) continue;
+            const k = s => chiave(String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+            const tipo = TIPI_UPGRADE_MONTAGGIO[k(u.categoria)] || TIPI_UPGRADE_MONTAGGIO[k(u.chiave)];
+            if (tipo) ultime.set(tipo, u); // elenco cronologico già riconciliato dal motore
+        }
+        return ultime;
+    }
+
+    function pianoMontaggioUpgrade(auto, righeScheda, salvati) {
+        const out = [];
+        const ultime = scelteUpgradeMontaggio(auto);
+        for (const [tipo, u] of ultime) {
+            const precedenti = (righeScheda || []).filter(r => (TIPI[r.tipo] || r.tipo) === tipo);
+            if (precedenti.length !== 1) continue; // le aggiunte assenti restano nel percorso extraOrdine
+            const r = precedenti[0];
+            if (requisitoUpgradeUguale(tipo, `${r.ean || ''} ${r.nome || r.descrizione || ''}`, u.valore)) continue;
+            const p = (auto.pezzi || []).find(x => x.tipo === tipo &&
+                (chiave(x.cliente) === chiave(u.valore) || requisitoUpgradeUguale(tipo, x.cliente, u.valore)));
+            const a = p && p.auto;
+            const modelloValido = a && a.codice && requisitoUpgradeUguale(tipo, `${a.descrizione || ''} ${a.codice}`, u.valore);
+            const costo = p && (!a || modelloValido) ? costoPezzo(p, salvati || {}).costo : null;
+            out.push({ tipo, precedente: { ...r }, scelta: u.valore, ordine: u.ordine_upgrade,
+                codice: modelloValido ? a.codice : u.valore,
+                descrizione: modelloValido ? a.descrizione || a.codice : u.valore,
+                fornitore: modelloValido ? a.fornitore || '' : (p && p.fisso && p.fisso.fornitore) || '',
+                costo: costo == null ? null : costo, stimato: true,
+                modelloDaConfermare: !modelloValido });
+        }
+        return out;
+    }
+
+    function mostraMontaggioUpgrade(orderId, lista) {
+        for (const row of righe(orderId)) {
+            const span = row.querySelector('.component-name-display'), badge = row.querySelector('.supplier-badge-clickable');
+            if (!span) continue;
+            const prima = montaggiDOM.get(row);
+            if (prima) {
+                span.textContent = prima.nome; span.dataset.ean = prima.ean; span.title = prima.title;
+                if (badge) { badge.dataset.supplier = prima.fornitore; badge.textContent = prima.ab; badge.style.cssText = prima.stile; }
+                delete row.dataset.accPaid; delete row.dataset.accAuto;
+                delete span.dataset.manEan; delete span.dataset.manName;
+                if (badge) delete badge.dataset.manSupplier;
+                montaggiDOM.delete(row);
+            }
+            const x = (lista || []).find(x => x.tipo === (TIPI[row.dataset.componentType] || row.dataset.componentType));
+            if (!x) continue;
+            montaggiDOM.set(row, { ...manualeDellaRiga(row), title: span.title,
+                ab: badge ? badge.textContent : '', stile: badge ? badge.style.cssText : '' });
+            span.dataset.manEan = span.dataset.ean; span.dataset.manName = span.textContent;
+            if (badge) badge.dataset.manSupplier = badge.dataset.supplier || '';
+            row.dataset.accAuto = '1'; row.dataset.accPaid = '1';
+            span.dataset.ean = x.codice; span.textContent = x.descrizione;
+            span.title = `Da montare: ${x.scelta}\nUpgrade pagato ${x.ordine}\nModello/acquisto da confermare. Distinta acquistata conservata.`;
+            if (badge) {
+                badge.dataset.supplier = x.fornitore;
+                badge.textContent = x.fornitore ? (typeof getSupplierAbbreviation === 'function' ? getSupplierAbbreviation(x.fornitore) : x.fornitore.slice(0, 2)) : '--';
+                badge.style.background = 'rgba(46,204,113,.15)'; badge.style.color = '#237847'; badge.style.borderColor = '#9bd4af';
+            }
+            if (!row.dataset.accPaidGuard) {
+                row.dataset.accPaidGuard = '1';
+                row.addEventListener('click', ev => {
+                    if (row.dataset.accPaid !== '1') return;
+                    ev.preventDefault(); ev.stopImmediatePropagation();
+                    avvisa('Upgrade pagato: distinta di montaggio separata. L’acquisto precedente resta nello storico; verifica il nuovo pezzo nel riquadro Upgrade.', 'info');
+                }, true);
+            }
+        }
+    }
+
+    function dettagliMontaggioUpgrade(lista) {
+        return (lista || []).map(x => `<div class="acc-pezzo"><b>DA MONTARE · ${esc(x.tipo)}</b>` +
+            `<div>${esc(x.scelta)} <small>· pagato ${esc(x.ordine)}</small></div>` +
+            `<div><small>${x.modelloDaConfermare ? 'Modello e disponibilità da confermare' : `Proposta: ${esc(x.fornitore)} ${esc(x.codice)}`}` +
+            ` · costo ${x.costo == null ? 'da verificare' : `stimato ${eur(x.costo)} netti, non acquisto confermato`}</small></div>` +
+            `<div><b>NON MONTARE:</b> ${esc(x.precedente.descrizione || x.precedente.nome || x.precedente.ean)}` +
+            `<br><small>${x.precedente.fonte === 'acquistato' ? `Acquisto conservato (${eur(x.precedente.costo)} netti). Pezzo in più per il magazzino; ricezione da verificare.` : 'Distinta precedente conservata. Se già acquistato, pezzo in più per il magazzino; acquisto e ricezione da verificare.'}</small></div></div>`).join('') +
+            `<div class="acc-nota">Il conto conserva il costo del pezzo precedente e aggiunge il costo stimato del nuovo. È provvisorio: nessun accredito automatico per il surplus e nessuna variazione delle giacenze.</div>`;
     }
 
     // Antonio 01/10: «tutte le varianti che sceglie il cliente devono sempre vedersi nella scheda prodotto, esattamente
@@ -1009,6 +1111,8 @@
     }
 
     function manualeDellaRiga(row) {
+        const originale = montaggiDOM.get(row);
+        if (originale) return { ean: originale.ean, fornitore: originale.fornitore, nome: originale.nome };
         const span = row.querySelector('.component-name-display');
         const badge = row.querySelector('.supplier-badge-clickable');
         return { ean: span ? span.dataset.ean : '', fornitore: badge ? badge.dataset.supplier : '',
@@ -1133,6 +1237,12 @@
             else { conti.man += costo; if (stima) conti.stime++; }
         }
         conti.confermato = acquistoConfermato(orderId);
+        const precedenteUpgrade = (ultimiConti[orderId] && ultimiConti[orderId].montaggioUpgrade) || [];
+        // Offline non autorizza a rimontare il pezzo base. Un rimborso verificato richiede controllo fisico.
+        conti.montaggioUpgrade = dati ? pianoMontaggioUpgrade(auto, conti.righe, salvati) : precedenteUpgrade;
+        conti.upgradeRitirati = dati && precedenteUpgrade.some(x => !scelteUpgradeMontaggio(auto).has(x.tipo)) ||
+            !!(ultimiConti[orderId] && ultimiConti[orderId].upgradeRitirati);
+        mostraMontaggioUpgrade(orderId, conti.montaggioUpgrade);
         ultimiConti[orderId] = conti;
         await mostraUtile(orderId, conti, dati);
     }
@@ -1165,7 +1275,9 @@
         try { righeOpzioniScheda(orderId, extraLista); } catch (e) { console.warn('[ACCOPPIAMENTO] opzioni', e); }
         const costoExtra = tonda(extraLista.reduce((t, x) => t + (x.costo || 0), 0));
         const extraMancanti = extraLista.filter(x => x.costo == null).length;
-        const costo = conti.man + extra + servizi + costoExtra;
+        const montaggio = conti.montaggioUpgrade || [];
+        const costoMontaggio = tonda(montaggio.reduce((t, x) => t + (x.costo || 0), 0));
+        const costo = conti.man + extra + servizi + costoExtra + costoMontaggio;
         const avvisi = auto && auto.avvisi && auto.avvisi.length
             ? `<div class="acc-avvisi">⚠ ${auto.avvisi.map(esc).join('<br>⚠ ')}<br><small>L'ordine è stato comprato così: controlla la distinta prima di ordinare.</small></div>` : '';
         if (!vendita) {
@@ -1175,7 +1287,7 @@
             return;
         }
         const lista = conti.mancanti;
-        const nMancanti = lista.length + extraMancanti;
+        const nMancanti = lista.length + extraMancanti + montaggio.filter(x => x.costo == null).length;
         const u = utile(vendita.totale, costo);
         el.className = 'acc-utile ' + (nMancanti ? 'incompleto' : (u.lordo < 0 ? 'neg' : 'pos'));
         const perche = !auto && stato.errore
@@ -1212,6 +1324,7 @@
                 : `Pezzi della scheda <small>(prezzi di oggi${conti.stime ? `, ${conti.stime} stimati` : ''})</small>`, valore: tonda(conti.man + extra), sempre: true },
             { testo: `Opzioni fuori scheda <small>(${esc(extraLista.map(x => x.nome).join(', '))})</small>`, valore: costoExtra },
             { testo: 'Montaggio e spedizione', valore: servizi, sempre: true },
+            { testo: 'Nuovi pezzi upgrade <small>(costi stimati, acquisto da confermare)</small>', valore: costoMontaggio },
         ];
         // 01/10: «il riquadretto … suddividerlo per menu: dei pulsanti che ci clicchi e si apre la parte interessata»
         const avvisiAuto = (auto && auto.avvisi) || [];
@@ -1222,13 +1335,17 @@
         const sezioni = [
             { id: 'conto', nome: '💶 Conto', html: `<div class="acc-conto">${contoOrdine({ ...vendita, data: vendita.data || (auto && auto.data) }, costi, nMancanti, auto ? auto.obiettivo : null)}${oggi}</div>` + acquistato },
             { id: 'pezzi', nome: '🔍 Pezzi', html: corpoPezzi(conti.righe, conti.confermato, true) + nonDisponibile },
+            montaggio.length ? { id: 'upgrade', nome: `⬆ Upgrade (${montaggio.length})`, html: dettagliMontaggioUpgrade(montaggio) } : null,
             extraLista.length ? { id: 'opzioni', nome: `➕ Opzioni (${extraLista.length})`, html: righeExtra(extraLista) } : null,
             nAvvisi ? { id: 'avvisi', nome: `⚠ Avvisi (${nAvvisi})`, allerta: lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length > 0,
                 html: mancanti + mancantiOpzioni + righePezziDiversi(diversi, nMancanti ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi + consiglio } : null
         ].filter(Boolean);
         const aperta = sezioni.some(x => x.id === sezioniAperte[orderId]) ? sezioniAperte[orderId] : null;
         el.innerHTML =
-            rigaUpgradeAttesa(orderId) + rigaNonPagate(auto) + rigaEsito(u, nMancanti, auto ? auto.obiettivo : null) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ pezzi acquistati</div>' : '') +
+            rigaUpgradeAttesa(orderId) + rigaNonPagate(auto) +
+            (conti.upgradeRitirati ? '<div class="acc-esito" role="status">⚠ Pagamento upgrade modificato o ritirato: verificare cosa è stato acquistato e montato. Nessun movimento di magazzino automatico.</div>' : '') +
+            (montaggio.length ? '<div class="acc-esito" role="status">⬆ Distinta di montaggio aggiornata · conto provvisorio, nuovi pezzi da verificare</div>' : '') +
+            (montaggio.length && !nMancanti ? `<div class="acc-esito">UTILE SRL STIMATO · ${eur(u.srl)} · include il pezzo sostituito</div>` : rigaEsito(u, nMancanti, auto ? auto.obiettivo : null)) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ acquisti precedenti conservati</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
             (auto ? `<button type="button" data-vai="${esc(String(orderId).split('.')[0])}" title="Apri quest'ordine nella Panoramica">↗ Panoramica</button>` : '') + `</div>` +
@@ -2414,11 +2531,24 @@
             if (x.scheda && !r.scheda.includes(x.scheda)) r.scheda.push(x.scheda);
         };
         for (const s of schede || []) {
-            if (s.confermato) { out.esclusi.push(s.nome); continue; }
-            out.pc++;
             const auto = pcAutomatico(dati, s.id);
+            const montaggio = pianoMontaggioUpgrade(auto, s.righe || [], salvatiFissi);
+            const sceltePagate = scelteUpgradeMontaggio(auto);
+            const extraPagati = extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi)
+                .filter(x => sceltePagate.has(x.tipo) && !x.personalizzata && x.costo !== 0);
+            const mirato = montaggio.length > 0 || sceltePagate.size > 0;
+            if (s.confermato && !montaggio.length && !extraPagati.length) { out.esclusi.push(s.nome); continue; }
+            out.pc++;
+            for (const x of montaggio) {
+                // Gli acquisti congelati non riappaiono: solo il nuovo pezzo della scelta pagata.
+                // Nessuna sostituzione generale e nessun pulsante Cambia sullo storico.
+                aggiungi(categoriaScheda(x.tipo), { fornitore: x.fornitore, codice: x.codice,
+                    descrizione: x.descrizione, quantita: 1, costo: x.costo, stimato: true,
+                    daConfermare: true, disponibilita: 'upgrade pagato: acquisto e disponibilità da confermare' }, s.nome);
+            }
             const salvati = s.salvati || [];
             for (const r of s.righe || []) {
+                if (s.confermato || mirato) continue;
                 if (SENZA_PEZZO.test(String(r.ean || '').trim())) continue;
                 const categoria = categoriaScheda(r.tipo);
                 const salvato = salvati.find(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean));
@@ -2459,12 +2589,13 @@
                     disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
                     daConfermare: !!(uguale && uguale.auto.da_confermare), pezzo }, s.nome);
             }
-            for (const x of extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi)) {
+            for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
                 if (x.personalizzata || x.costo === 0) continue;          // gia' tra le voci personalizzate o senza costo
                 aggiungi(CATEGORIA_EXTRA[x.tipo] || x.tipo, { fornitore: x.fornitore || 'FUORI LISTINO', codice: '',
                     descrizione: x.descrizione || x.nome, quantita: 1, costo: x.costo }, s.nome);
             }
             for (const v of s.voci || []) {
+                if (s.confermato || mirato) continue;
                 const q = Math.max(1, parseInt(v.quantity != null ? v.quantity : v.quantita, 10) || 1);
                 const prezzo = parseFloat(v.price != null ? v.price : v.prezzo);
                 aggiungi(categoriaVoce(v), { fornitore: v.supplier, codice: v.ean || '', descrizione: v.value || v.name || v.ean,
@@ -3321,7 +3452,8 @@
         ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,
         finestraProposte, salvaProposte, URL_UPGRADE_CLIENTI, UPGRADE_AMMESSI, upgradeAmmessi, ordineDiShopify, nomeDelCliente,
         propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade,
-        upgradeInAttesa, upgradeDaAllineare, rigaUpgradeAttesa, aggiornaSchedeUpgrade };
+        upgradeInAttesa, upgradeDaAllineare, rigaUpgradeAttesa, aggiornaSchedeUpgrade,
+        pianoMontaggioUpgrade, requisitoUpgradeUguale, mostraMontaggioUpgrade, dettagliMontaggioUpgrade };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

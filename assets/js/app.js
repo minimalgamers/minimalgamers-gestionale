@@ -1533,7 +1533,10 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
             let ean, name, supplier;
             
             
-            if (componentType === modifiedType) {
+            if (row.dataset.accPaid === '1' && componentType === modifiedType) {
+                if (showNotif) showNotification('Upgrade pagato: non sovrascrivere lo storico d’acquisto dal componente di montaggio.', 'warning');
+                return false;
+            } else if (componentType === modifiedType) {
                 ean = modifiedEan;
                 name = modifiedName;
                 supplier = modifiedSupplier;
@@ -4435,6 +4438,7 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
         window.BuildConfiguratore.eConfigConfiguratore(ordineSalvato.configName));
 
     for (const display of displays) {
+        if (display.closest('.component-row')?.dataset.accPaid === '1') continue;
         const eanRaw = display.dataset.ean;
         const ean = String(eanRaw || '').trim();
         const displayEan = ean;

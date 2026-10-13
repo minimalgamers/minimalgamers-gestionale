@@ -1,0 +1,14 @@
+<!doctype html><html lang="it"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Verifica distinta upgrade · esempio locale</title>
+<style>
+body{background:#eef1f0;color:#222;font:16px Arial;margin:24px}.card{max-width:660px;margin:auto;background:white;border-radius:24px;overflow:hidden}.head{background:#050505;color:white;padding:24px}.head h1{font-size:26px;margin:0 0 8px}.body{padding:24px}.notice{padding:16px;border-radius:12px;background:#ddf5df;font-weight:bold;margin-bottom:20px}.component-row{display:flex;gap:16px;align-items:center;border-bottom:1px solid #ddd;padding:14px 0}.component-row strong{min-width:80px}.component-name-display{flex:1}.supplier-badge-clickable{border:1px solid #ddd;border-radius:8px;padding:8px}.acc-pezzo{border-top:1px solid #ddd;padding:18px 0;line-height:1.65}.acc-nota{background:#fff3d9;padding:16px;border-radius:12px;line-height:1.5}small{color:#50565d}summary{cursor:pointer;padding:14px;background:#eef0f7;border-radius:10px;font-weight:bold}#proof{font-size:13px;color:#555;margin-top:20px}@media(max-width:450px){body{margin:8px}.body{padding:16px}.component-row{gap:8px;font-size:14px}.component-row strong{min-width:62px}}
+</style>
+<div class="card"><div class="head"><h1>PC GAMING · ESEMPIO</h1>Verifica locale senza ordini o pagamenti reali</div><div class="body">
+<div class="notice">Distinta di montaggio aggiornata dopo upgrade pagato</div>
+<div id="components-demo"><div class="component-row" data-order-id="demo" data-component-type="COOLER"><strong>COOLER:</strong><span class="component-name-display" data-ean="DPAG300">DeepCool AG300 AIR</span><span class="supplier-badge-clickable" data-supplier="ABACO">ABA</span></div>
+<div class="component-row" data-order-id="demo" data-component-type="GPU"><strong>GPU:</strong><span class="component-name-display" data-ean="RTX5070">RTX 5070 BLACK · invariata</span><span class="supplier-badge-clickable" data-supplier="ACTION">AC</span></div></div>
+<details open><summary>Upgrade · pezzo da montare e storico</summary><div id="details"></div></details><div id="proof">Valori di prova. Nessuna scrittura nel gestionale, in Shopify o nel magazzino.</div>
+</div></div><script src="../../assets/js/accoppiamento-auto.js"></script><script>
+const plan=AccoppiamentoAuto.pianoMontaggioUpgrade({unita:0,pc_totale:1,upgrade_pagati:[{ordine_upgrade:'#DEMO',unita:0,categoria:'DISSIPATORE',valore:'DISSIPATORE A LIQUIDO 360MM'}],pezzi:[{tipo:'COOLER',cliente:'DISSIPATORE A LIQUIDO 360MM',fisso:{descrizione:'Dissipatore 360MM',fornitore:'AMAZON',costo:75}}]},[{tipo:'COOLER',ean:'DPAG300',nome:'DeepCool AG300 AIR',costo:15.9,fonte:'acquistato'}],{});
+AccoppiamentoAuto.mostraMontaggioUpgrade('demo',plan);document.getElementById('details').innerHTML=AccoppiamentoAuto.dettagliMontaggioUpgrade(plan);
+</script></html>

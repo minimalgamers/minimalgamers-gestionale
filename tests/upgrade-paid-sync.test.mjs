@@ -75,5 +75,5 @@ test('il clic WhatsApp verifica anche i pagamenti e blocca un catalogo non ancor
     assert.match(f,/upgradeDaAllineare/);assert.match(f,/upgrade_pagato_in_aggiornamento/);
     const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
     assert.equal((html.match(/src="assets\/js\/upgrade-paid-sync\.js/g)||[]).length,1);
-    assert.ok(html.indexOf('upgrade-paid-sync.js')<html.indexOf('app.js?v=72'));
+    assert.ok(html.indexOf('upgrade-paid-sync.js')<html.indexOf('assets/js/app.js?v='));
 });

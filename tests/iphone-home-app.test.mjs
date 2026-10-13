@@ -59,6 +59,8 @@ test('no business script, protected adapter, body markup or handler changes', ()
     // 05/10 (Claude): i controlli valgono per il lavoro dell'app iPhone (base -> appIphone); dopo, le correzioni del
     // gestionale possono cambiare gli script e il loro ?v= (cache), ma il markup del body resta identico.
     const bodyHash = source => createHash('sha256').update(source.slice(source.indexOf('<body')).replace(/\r\n/g, '\n')
+        // 13/10: authorized paid-upgrade monitor. Exclude only this explicit new script, not body/handlers.
+        .replace(/\s*<script src="assets\/js\/upgrade-paid-sync\.js\?v=\d+"><\/script>/, '')
         .replace(/(\.(?:js|css))\?v=\d+/g, '$1')).digest('hex');
     assert.equal(bodyHash(html), bodyHash(before), 'Body markup/handlers must remain identical (LF/CRLF normalized).');
     assert.equal(bodyHash(git(['show', `${appIphone}:index.html`])), bodyHash(before));

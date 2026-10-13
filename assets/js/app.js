@@ -1079,6 +1079,8 @@ function pickTemplateRuleForChannel(channel, rules = []) {
 // 07/10: solo le famiglie che si aggiungono dopo l'ordine della merce (mai schede madri, case, CPU, GPU, RAM, SSD, PSU)
 async function upgradeDellOrdine(order) {
     const A = window.AccoppiamentoAuto;
+    await window.UpgradePaidSync?.verifica();
+    if (A?.upgradeDaAllineare?.(order.id)) throw new Error('upgrade_pagato_in_aggiornamento');
     if (!A || typeof A.carica !== 'function' || typeof A.pcAutomatico !== 'function' ||
         typeof A.propostePaginaUpgrade !== 'function' || typeof A.creaPaginaUpgrade !== 'function' ||
         typeof A.messaggioPaginaUpgrade !== 'function') throw new Error('tool_non_pronto');
@@ -1103,6 +1105,7 @@ function motivoErroreUpgradeWhatsApp(error) {
         app_bloccata: 'Consenti l’apertura dell’app WhatsApp. Puoi riprovare dal collegamento qui, senza creare un’altra pagina personale.',
         pc_non_identificato: 'Il PC non è identificabile con certezza. Aggiorna i dati dell’ordine.',
         catalogo_upgrade_incompleto: 'Le opzioni di questo PC non sono state verificate: aggiorna il Buyer Desk prima di inviare il link. Non creo una pagina incompleta con il solo FPS Booster.',
+        upgrade_pagato_in_aggiornamento: 'Questo PC ha un pagamento da allineare: la scheda si aggiorna automaticamente. Attendi prima di preparare un altro link, per non riproporre upgrade già acquistati.',
         non_autorizzato: 'Accedi di nuovo al gestionale e riprova.',
         nessuna_proposta: 'Non ci sono nuove proposte ammesse per questo PC.',
         ordine_non_trovato: 'Il numero dell’ordine non corrisponde a Shopify.',
@@ -2394,6 +2397,26 @@ async function syncAndLoadOrders() {
         
         
         await processShopifyOrders(filteredOrders);
+        if (window.UpgradePaidSync && window.AccoppiamentoAuto) {
+            const A = window.AccoppiamentoAuto;
+            window.UpgradePaidSync.avvia({ A,
+                attivo: () => Boolean(apiKey) && !document.hidden,
+                leggiOrdini: async () => {
+                    const r = await fetch(API_ENDPOINT, { headers: { Authorization: `Bearer ${apiKey}` } });
+                    if (!r.ok) throw new Error('ordini_non_verificabili');
+                    const d = await r.json();
+                    return Array.isArray(d) ? d : d.orders || [];
+                },
+                caricaDati: () => A.carica(true),
+                ridisegna: () => A.aggiornaSchedeUpgrade(),
+                richiediAggiornamento: async () => {
+                    const r = await fetch(A.URL_AGGIORNA_LISTINI, { method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: apiKey }) });
+                    if (!r.ok) throw new Error('aggiornamento_non_avviato');
+                },
+                errore: () => console.warn('Verifica upgrade non riuscita; nessuna scelta o componente modificato. Si riprova automaticamente.')
+            }, shopifyOrders);
+        }
         
     } catch (error) {
         console.error('❌ Errore sincronizzazione:', error);

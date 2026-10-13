@@ -29,6 +29,16 @@ Decisione Antonio: il pulsante WhatsApp della card deve preparare il link con tu
 
 Cache: `app.js?v=69` e `accoppiamento-auto.js?v=32`.
 
+## Apertura nell'app installata — 13/10
+
+Antonio sceglie esplicitamente l'app WhatsApp installata sul PC, non WhatsApp Web. Dopo la verifica/creazione della pagina, la scheda riservata naviga direttamente a `whatsapp://send` con numero internazionale, messaggio commerciale e link personale codificati. Non passa più dalla pagina `api.whatsapp.com/send`, né apre automaticamente WhatsApp Web. Cache aggiornata a `app.js?v=70`; `accoppiamento-auto.js?v=32` invariato.
+
+L'app effettivamente aperta è il gestore del protocollo WhatsApp configurato nel dispositivo. Il gestionale non sceglie né cambia l'account Business collegato, non installa app e non aggira la conferma «Apri WhatsApp» del browser. La notifica dichiara una richiesta di apertura, non certifica che l'app sia partita. Su mobile valgono gestore installato e conferme del sistema; Safari/iPhone fisico non sono certificati da test simulati.
+
+Se la rete è lenta o il browser richiede un nuovo gesto, resta un collegamento «Apri l'app WhatsApp» con lo stesso testo e link già pronti, senza creare un'altra offerta. Nessun invio automatico: controllare destinatario e testo, poi premere Invia nell'app. Errori del servizio/ordine mantengono le guardie precedenti. Il collaudo non contatta clienti né crea pagine reali.
+
+Verifica13/10:62test Node superati, inclusi codifica Unicode del messaggio/link, protocollo app, collegamento di recupero senza richiesta aggiuntiva, errori e identità PC1/PC2. Nel browser il flusso reale è stato provato con Shopify e app simulati:13proposte piùFPS e messaggio/link del soloPC2. Verificata in sola lettura la presenza di WhatsApp Desktop e il protocollo `whatsapp` dichiarato dal suo manifesto Windows. Non verificati l'avvio effettivo dell'app dal Chrome dell'operatore, l'account Business associato o Safari/iPhone fisico. Nessun invio cliente o modifica di associazioni/permessi effettuata.
+
 ## Template WhatsApp delle fasi finali — 12/10
 
 Il testo richiesto da Antonio ringrazia della pazienza, annuncia le fasi finali dell'assemblaggio e collega la pagina personale. Mantiene upgrade facoltativi, montaggio a cura del team e la priorità assoluta per chi aggiunge upgrade indicata da Antonio. Chiusura: guida audio e «TI ASPETTIAMO <3». Nome, ordine e link rimangono dinamici; gli ordini con più PC conservano la distinzione della singola unità. Il grassetto WhatsApp usa asterischi singoli, senza escape o markup Markdown doppio.

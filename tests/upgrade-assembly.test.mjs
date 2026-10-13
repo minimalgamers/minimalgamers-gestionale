@@ -127,3 +127,9 @@ test('upgrade indipendente dai lookup dei nomi, anche con una risposta tardiva',
     const after = lookup.slice(lookup.indexOf('const data = response.ok ? await response.json()'));
     assert.ok(after.indexOf("dataset.accPaid === '1'") < after.indexOf('display.textContent ='));
 });
+test('lo storico usa una colonna leggibile, non la griglia a tre colonne dei prezzi', () => {
+    const { A } = fresh();
+    assert.match(A.dettagliMontaggioUpgrade(A.pianoMontaggioUpgrade(pc(), rows(), {})), /class="acc-upgrade-montaggio"/);
+    assert.match(source, /\.acc-upgrade-montaggio\{display:flex;flex-direction:column/);
+    assert.match(source, /\.acc-upgrade-montaggio>\*\{min-width:0;max-width:100%;white-space:normal/);
+});

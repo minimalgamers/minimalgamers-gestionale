@@ -225,7 +225,7 @@ test('email immutata, vecchia selezione rimossa e versioni cache incrementate', 
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
     assert.match(html, /app\.js\?v=74/);
-    assert.match(html, /accoppiamento-auto\.js\?v=34/);
+    assert.match(html, /accoppiamento-auto\.js\?v=35/);
 });
 
 test('13/10: app installata senza pagina intermedia, riapertura con stesso testo/link e nessuna nuova richiesta', async () => {

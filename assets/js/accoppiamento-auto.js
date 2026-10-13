@@ -696,7 +696,7 @@
     }
 
     function dettagliMontaggioUpgrade(lista) {
-        return (lista || []).map(x => `<div class="acc-pezzo"><b>DA MONTARE · ${esc(x.tipo)}</b>` +
+        return (lista || []).map(x => `<div class="acc-upgrade-montaggio"><b>DA MONTARE · ${esc(x.tipo)}</b>` +
             `<div>${esc(x.scelta)} <small>· pagato ${esc(x.ordine)}</small></div>` +
             `<div><small>${x.modelloDaConfermare ? 'Modello e disponibilità da confermare' : `Proposta: ${esc(x.fornitore)} ${esc(x.codice)}`}` +
             ` · costo ${x.costo == null ? 'da verificare' : `stimato ${eur(x.costo)} netti, non acquisto confermato`}</small></div>` +
@@ -1101,7 +1101,9 @@
 .acc-rf-azioni{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
 .acc-rf-azione{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:2px 8px;font-size:.78em;font-weight:600;cursor:pointer;text-decoration:none}
 .acc-rf-azione:hover{background:rgba(255,255,255,.25)}
-#riepilogo-auto .supplier-item-name{margin-top:2px}`;
+#riepilogo-auto .supplier-item-name{margin-top:2px}
+.acc-upgrade-montaggio{display:flex;flex-direction:column;gap:8px;padding:14px 0;margin:6px 0;border-bottom:1px solid rgba(127,127,127,.25);font-size:.95em;line-height:1.5;text-align:left;min-width:0}
+.acc-upgrade-montaggio>*{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}`;
         document.head.appendChild(st);
     }
 

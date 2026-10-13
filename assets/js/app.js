@@ -1121,7 +1121,8 @@ function preparaWhatsAppUpgrade(order) {
         try {
             const phone = formatPhoneForWhatsApp(getPreferredCustomerPhone(order));
             if (!phone) throw new Error('telefono_assente');
-            // Riservata PRIMA della rete, nel gesto dell'utente: funziona anche in Safari/iPhone.
+            // Riservata PRIMA della rete, nel gesto dell'utente. L'apertura nell'app
+            // dipende dal gestore whatsapp: installato e dalle conferme del browser.
             // Nessun invio automatico: WhatsApp riceve il messaggio da confermare con «Invia».
             chat = window.open('about:blank', '_blank');
             if (!chat) throw new Error('popup_bloccato');
@@ -1141,9 +1142,21 @@ function preparaWhatsAppUpgrade(order) {
             }
             const testo = A.messaggioPaginaUpgrade(order, url.href, pc);
             if (chat.closed) throw new Error('chat_chiusa');
-            chat.location.replace('https://api.whatsapp.com/send?phone=' + phone + '&text=' + encodeURIComponent(testo));
+            // Protocollo dell'app: niente pagina api.whatsapp.com o fallback web automatico.
+            const appUrl = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(testo);
+            chat.document.title = 'Apri il messaggio nell’app WhatsApp';
+            chat.document.body.textContent = 'Consenti l’apertura di WhatsApp se il browser lo richiede. Se l’app non si apre, premi il collegamento qui sotto. In WhatsApp controlla il messaggio e premi Invia.';
+            // Una rete lenta può consumare l'attivazione iniziale. Il collegamento
+            // permette un nuovo gesto autentico senza ricreare l'offerta o cambiare il link.
+            const riapri = chat.document.createElement('a');
+            riapri.href = appUrl;
+            riapri.textContent = 'Apri l’app WhatsApp';
+            riapri.style.display = 'block';
+            riapri.style.marginTop = '16px';
+            chat.document.body.appendChild(riapri);
+            chat.location.replace(appUrl);
             showNotification('Pagina pronta: ' + pagina.proposte + ' proposte' + (pagina.fps ? ' + FPS BOOSTER' : '') +
-                '. In WhatsApp premi Invia.', 'success');
+                '. Richiesta apertura nell’app WhatsApp. Consenti l’apertura se richiesto; in WhatsApp premi Invia.', 'success');
             return true;
         } catch (error) {
             if (chat && !chat.closed) chat.close();

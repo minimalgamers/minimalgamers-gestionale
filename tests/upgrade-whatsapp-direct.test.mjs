@@ -45,8 +45,9 @@ function ambiente(opzioni = {}) {
                 proposte: args[2].length, fps: args[3] } };
     });
     const finestra = () => {
-        const f = { closed: false, opener: {}, document: { title: '', body: {} },
-            location: { replace(url) { f.url = url; } }, close() { f.closed = true; } };
+        const f = { closed: false, opener: {}, document: { title: '', body: { children: [],
+            appendChild(n) { this.children.push(n); } }, createElement: tag => ({ tag, style: {} }) },
+            location: { replace(url) { if (opzioni.erroreApp) throw new Error('protocollo_bloccato'); f.url = url; } }, close() { f.closed = true; } };
         traccia.finestre.push(f);
         return f;
     };
@@ -109,7 +110,8 @@ test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i co
     assert.deepEqual(traccia.forza, [true]);
     assert.equal(traccia.legacy, 0);
     const chat = new URL(traccia.finestre[0].url);
-    assert.equal(chat.origin, 'https://api.whatsapp.com');
+    assert.equal(chat.protocol, 'whatsapp:');
+    assert.equal(chat.hostname, 'send');
     assert.equal(chat.searchParams.get('phone'), '393331234567');
     assert.match(chat.searchParams.get('text'), /Ciao Mario!.*\n/);
     assert.match(chat.searchParams.get('text'), /solo il PC 2 di 2/);
@@ -118,7 +120,8 @@ test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i co
     assert.match(chat.searchParams.get('text'), /PRIORITÀ ASSOLUTA/);
     assert.match(chat.searchParams.get('text'), /tutti facoltativi/);
     assert.equal(traccia.finestre[0].opener, null);
-    assert.match(traccia.notifiche.at(-1).msg, /In WhatsApp premi Invia/);
+    assert.match(traccia.notifiche.at(-1).msg, /in WhatsApp premi Invia/);
+    assert.match(traccia.notifiche.at(-1).msg, /Richiesta apertura nell’app/);
 });
 
 test('doppio clic sullo stesso PC: una sola richiesta e una sola chat', async () => {
@@ -210,6 +213,33 @@ test('email immutata, vecchia selezione rimossa e versioni cache incrementate', 
     assert.doesNotMatch(source, /scegliUpgradeWhatsApp|data-pagina|data-up="/);
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /app\.js\?v=69/);
+    assert.match(html, /app\.js\?v=70/);
     assert.match(html, /accoppiamento-auto\.js\?v=32/);
+});
+
+test('13/10: app installata senza pagina intermedia, riapertura con stesso testo/link e nessuna nuova richiesta', async () => {
+    const {s,traccia}=ambiente();
+    assert.equal(await s.preparaWhatsAppUpgrade(ordine),true);
+    const chat=traccia.finestre[0], link=chat.document.body.children[0];
+    assert.equal(link.tag,'a');
+    assert.equal(link.href,chat.url);
+    assert.equal(new URL(link.href).protocol,'whatsapp:');
+    assert.match(link.textContent,/Apri l’app WhatsApp/);
+    assert.match(chat.document.body.textContent,/Consenti l’apertura/);
+    assert.equal(traccia.richieste.length,1);
+    assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','async function contactWithTemplateSelection'),/['"`]https:\/\/(?:api|web)\.whatsapp\.com|['"`]https:\/\/wa\.me/);
+    const testo=new URL(chat.url).searchParams.get('text');
+    assert.ok(testo.includes('👋')&&testo.includes('🎧'));
+    assert.ok(testo.includes('\n\nhttps://www.minimalgamers.it/pages/aggiornamento-ordine?c='));
+    assert.doesNotMatch(testo,/�/);
+});
+
+test('13/10: rifiuto immediato del protocollo non dichiara WhatsApp aperto e non ripiega sul web', async () => {
+    const {s,traccia}=ambiente({erroreApp:true});
+    assert.equal(await s.preparaWhatsAppUpgrade(ordine),false);
+    assert.equal(traccia.finestre[0].closed,true);
+    assert.equal(traccia.finestre[0].url,undefined);
+    assert.equal(traccia.richieste.length,1);
+    assert.equal(traccia.notifiche.at(-1).tipo,'error');
+    assert.equal(traccia.legacy,0);
 });

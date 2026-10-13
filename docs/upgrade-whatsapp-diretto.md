@@ -4,9 +4,9 @@ Decisione Antonio: il pulsante WhatsApp della card deve preparare il link con tu
 
 ## Percorso
 
-1. Un clic sulla card riserva una scheda nel gesto dell'utente (anche per browser mobili), legge i dati aggiornati del Buyer Desk e identifica il singolo PC.
+1. Un clic sulla card legge i dati aggiornati del Buyer Desk e identifica il singolo PC, restando nel gestionale. Non riserva né apre una scheda Chrome.
 2. Invia al servizio upgrade tutte le alternative ammesse del PC, non soltanto quelle consigliate. Le sette famiglie restano connettività, dissipatore, ventole RGB, scatole componenti, archiviazione aggiuntiva, software e assemblaggio in live. FPS BOOSTER resta separato; non viene riproposto se già pagato per quel PC nei dati disponibili.
-3. Crea/aggiorna la pagina personale e apre WhatsApp con il messaggio commerciale e il link. **Non invia il messaggio:** l'operatore preme Invia in WhatsApp. Non è stata introdotta una WhatsApp Business API.
+3. Crea/aggiorna la pagina personale e richiede la app WhatsApp installata con il messaggio commerciale e il link, dalla stessa scheda del gestionale. **Non invia il messaggio:** l'operatore preme Invia in WhatsApp. Non è stata introdotta una WhatsApp Business API. Le conferme del browser restano.
 4. Il cliente vede tutte le proposte ammesse, senza aggiunte preselezionate. I consigliati sono un'indicazione, non un filtro. Sceglie sul telefono o sul desktop e paga soltanto le aggiunte.
 5. Il servizio esistente verifica nuovamente l'ordine e prepara una bozza Shopify personale. La bozza contiene ordine originale, ID stabile della riga e unità del PC. PC 1 e PC 2 hanno offerte e bozze separate. Il checkout non riscrive l'ordine Shopify originale.
 6. Solo dopo pagamento verificato il Buyer Desk associa gli upgrade al PC originale nel file cifrato del gestionale: componenti/opzioni dell'Automatico, incasso e avviso UPGRADE PAGATI. Il passaggio non è istantaneo: attende una pubblicazione riuscita del Buyer Desk (percorso normale circa ogni 30 minuti), poi l'aggiornamento dei dati del gestionale. Le schede/manualità e i prezzi d'acquisto già registrati non vengono sovrascritti da una selezione non pagata.
@@ -15,8 +15,8 @@ Decisione Antonio: il pulsante WhatsApp della card deve preparare il link con tu
 
 - Prezzo positivo, utile noto e non negativo, vera chiave GPO e categoria consentita. Nessun cambio di CPU, GPU, motherboard, case, RAM, SSD principale o PSU in questo flusso post-ordine.
 - Nessun fallback a un messaggio senza link quando la pagina non può essere verificata/creata.
-- Doppio clic sullo stesso PC: una richiesta e una finestra. Dopo un errore si può riprovare.
-- Numero mancante, popup bloccato, PC ambiguo o Shopify non verificabile: errore leggibile e nessun invio.
+- Doppio clic sullo stesso PC: una richiesta e una richiesta di apertura app, zero finestre nuove. Dopo un errore si può riprovare.
+- Numero mancante, PC ambiguo o Shopify non verificabile: errore leggibile e nessun invio. Il blocco dei popup non ostacola più la preparazione perché non si aprono popup.
 - La finestra personale può essere aggiornata inviando di nuovo il link; le vecchie offerte non vengono riscritte in massa.
 - Nessuna chiave o credenziale modificata o registrata. Nessun ordine reale o messaggio cliente nel collaudo.
 
@@ -38,6 +38,14 @@ L'app effettivamente aperta è il gestore del protocollo WhatsApp configurato ne
 Se la rete è lenta o il browser richiede un nuovo gesto, resta un collegamento «Apri l'app WhatsApp» con lo stesso testo e link già pronti, senza creare un'altra offerta. Nessun invio automatico: controllare destinatario e testo, poi premere Invia nell'app. Errori del servizio/ordine mantengono le guardie precedenti. Il collaudo non contatta clienti né crea pagine reali.
 
 Verifica13/10:62test Node superati, inclusi codifica Unicode del messaggio/link, protocollo app, collegamento di recupero senza richiesta aggiuntiva, errori e identità PC1/PC2. Nel browser il flusso reale è stato provato con Shopify e app simulati:13proposte piùFPS e messaggio/link del soloPC2. Verificata in sola lettura la presenza di WhatsApp Desktop e il protocollo `whatsapp` dichiarato dal suo manifesto Windows. Non verificati l'avvio effettivo dell'app dal Chrome dell'operatore, l'account Business associato o Safari/iPhone fisico. Nessun invio cliente o modifica di associazioni/permessi effettuata.
+
+### Correzione successiva: nessuna scheda provvisoria (app v71)
+
+Antonio rifiuta anche le schede `about:blank` introdotte nel passaggio precedente. Quella soluzione è sostituita: niente `window.open`, scheda di preparazione o pagina di recupero. Preparazione ed errori rimangono nel gestionale. Il protocollo esterno viene richiesto dalla scheda corrente con `window.location.assign`; il sito del gestionale non è sostituito da una pagina web WhatsApp.
+
+Se il browser consuma l'attivazione durante la rete o non apre la app, la notifica offre «Apri WhatsApp» per30secondi: stesso numero, testo e link già pronti, target stessa scheda, nessuna richiesta aggiuntiva al servizio. Non si indovina se la app sia davvero partita e non si aggirano conferme del browser. Notifiche ordinarie mantengono durata e comportamento precedenti. Cache `app.js?v=71`, accoppiamento32 invariato. Test separati verificano assenza di nuove finestre durante successo/errore, indipendenza dal blocco popup e recupero nel gestionale.
+
+69test Node passati. Browser con dati/app simulati: una richiesta al servizio, una richiesta di apertura app, zero nuove schede reali nel browser. Recupero dalla stessa pagina: ancora una richiesta al servizio, seconda apertura app simulata, zero nuove schede. Messaggio completo e distinzione PC2 conservati. Nessun messaggio o link cliente reale generato. Il collaudo della app è simulato; l'avvio nativo effettivo e Safari/iPhone fisico non sono stati verificati.
 
 ## Template WhatsApp delle fasi finali — 12/10
 

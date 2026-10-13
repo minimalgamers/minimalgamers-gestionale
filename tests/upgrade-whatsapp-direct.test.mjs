@@ -30,7 +30,7 @@ function ambiente(opzioni = {}) {
     const api = A.window.AccoppiamentoAuto;
     const pc = { build: 'PC GAMING PROVA', riga: 0, riga_shopify: 0, linea_id: '111', quantita: 2,
         pezzi: [], upgrade: proposte, upgrade_pagati: opzioni.pagati || [], upgrade_catalogo: opzioni.catalogo };
-    const traccia = { richieste: [], finestre: [], notifiche: [], forza: [], email: 0, legacy: 0 };
+    const traccia = { richieste: [], finestre: [], aperture: [], notifiche: [], forza: [], email: 0, legacy: 0 };
     api.carica = async forza => {
         traccia.forza.push(forza);
         if (opzioni.erroreDati) throw new Error('rete');
@@ -51,8 +51,9 @@ function ambiente(opzioni = {}) {
         traccia.finestre.push(f);
         return f;
     };
-    const s = { window: { AccoppiamentoAuto: api, open: () => opzioni.bloccato ? null : finestra() },
-        URL, console, showNotification: (msg, tipo) => traccia.notifiche.push({ msg, tipo }),
+    const s = { window: { AccoppiamentoAuto: api, open: () => opzioni.bloccato ? null : finestra(),
+        location: { assign(url) { if(opzioni.erroreApp)throw new Error('protocollo_bloccato'); traccia.aperture.push(url); } } },
+        URL, console, showNotification: (msg, tipo, action) => traccia.notifiche.push({ msg, tipo, action }),
         openEmailForOrder: async () => { traccia.email++; return 'email'; },
         openWhatsAppForOrder: async () => { traccia.legacy++; return 'legacy'; } };
     vm.createContext(s);
@@ -96,7 +97,7 @@ test('template 12/10: senza nome niente anagrafica inventata e per due PC distin
 test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i consigliati', async () => {
     const { s, traccia } = ambiente();
     const lavoro = s.contactWithTemplateSelection('whatsapp', ordine);
-    assert.equal(traccia.finestre.length, 1, 'finestra riservata nel gesto prima di aspettare la rete');
+    assert.equal(traccia.finestre.length, 0, 'nessuna finestra durante la preparazione');
     assert.equal(await lavoro, true);
     assert.equal(traccia.richieste.length, 1);
     const req = traccia.richieste[0].corpo;
@@ -109,7 +110,7 @@ test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i co
     assert.equal(req.fps, true);
     assert.deepEqual(traccia.forza, [true]);
     assert.equal(traccia.legacy, 0);
-    const chat = new URL(traccia.finestre[0].url);
+    const chat = new URL(traccia.aperture[0]);
     assert.equal(chat.protocol, 'whatsapp:');
     assert.equal(chat.hostname, 'send');
     assert.equal(chat.searchParams.get('phone'), '393331234567');
@@ -119,9 +120,9 @@ test('un clic crea tutte le 13 alternative di tutte le 7 famiglie, non solo i co
     assert.match(chat.searchParams.get('text'), /\*FINALMENTE\*/);
     assert.match(chat.searchParams.get('text'), /PRIORITÀ ASSOLUTA/);
     assert.match(chat.searchParams.get('text'), /tutti facoltativi/);
-    assert.equal(traccia.finestre[0].opener, null);
-    assert.match(traccia.notifiche.at(-1).msg, /in WhatsApp premi Invia/);
-    assert.match(traccia.notifiche.at(-1).msg, /Richiesta apertura nell’app/);
+    assert.equal(traccia.finestre.length,0);
+    assert.match(traccia.notifiche.at(-1).msg, /In WhatsApp premi Invia/);
+    assert.equal(traccia.notifiche.at(-1).action.href,traccia.aperture[0]);
 });
 
 test('doppio clic sullo stesso PC: una sola richiesta e una sola chat', async () => {
@@ -134,7 +135,8 @@ test('doppio clic sullo stesso PC: una sola richiesta e una sola chat', async ()
     termina();
     assert.deepEqual(await Promise.all([a, b]), [true, true]);
     assert.equal(traccia.richieste.length, 1);
-    assert.equal(traccia.finestre.length, 1);
+    assert.equal(traccia.finestre.length, 0);
+    assert.equal(traccia.aperture.length,1);
     assert.equal(await s.preparaWhatsAppUpgrade(ordine), true, 'un secondo invio intenzionale rimane possibile');
 });
 
@@ -142,8 +144,8 @@ test('PC 1 e PC 2 mantengono identità e messaggi separati, anche con richieste 
     const { s, traccia } = ambiente();
     await Promise.all([s.preparaWhatsAppUpgrade({ ...ordine, id: '6100000000001.1', name: '#4824.1' }), s.preparaWhatsAppUpgrade(ordine)]);
     assert.deepEqual(traccia.richieste.map(x => x.corpo.ordine.unita), [0, 1]);
-    assert.match(new URL(traccia.finestre[0].url).searchParams.get('text'), /solo il PC 1 di 2/);
-    assert.match(new URL(traccia.finestre[1].url).searchParams.get('text'), /solo il PC 2 di 2/);
+    assert.match(new URL(traccia.aperture[0]).searchParams.get('text'), /solo il PC 1 di 2/);
+    assert.match(new URL(traccia.aperture[1]).searchParams.get('text'), /solo il PC 2 di 2/);
 });
 
 test('FPS BOOSTER già pagato per quel PC non viene proposto una seconda volta', async () => {
@@ -158,7 +160,8 @@ for (const stato of ['set_non_identificato', 'calcolo_non_riuscito']) {
         pc.upgrade = [];
         assert.equal(await s.preparaWhatsAppUpgrade(ordine), false);
         assert.equal(traccia.richieste.length, 0);
-        assert.equal(traccia.finestre[0].closed, true);
+        assert.equal(traccia.finestre.length,0);
+        assert.equal(traccia.aperture.length,0);
         assert.match(traccia.notifiche.at(-1).msg, /Buyer Desk|incompleta/);
     });
 }
@@ -183,19 +186,27 @@ for (const opzioni of [{ errore: 'ordine_non_verificabile' }, { erroreDati: true
     test('errore o link inatteso: nessun WhatsApp o messaggio senza link (' + JSON.stringify(opzioni) + ')', async () => {
         const { s, traccia } = ambiente(opzioni);
         assert.equal(await s.preparaWhatsAppUpgrade(ordine), false);
-        assert.equal(traccia.finestre[0].url, undefined);
-        assert.equal(traccia.finestre[0].closed, true);
+        assert.equal(traccia.finestre.length,0);
+        assert.equal(traccia.aperture.length,0);
         assert.equal(traccia.legacy, 0);
         assert.equal(traccia.notifiche.at(-1).tipo, 'error');
     });
 }
 
-test('numero mancante o popup bloccato: non crea una pagina e non invia nulla', async () => {
-    for (const opzioni of [{ bloccato: true }, {}]) {
-        const { s, traccia } = ambiente(opzioni);
-        assert.equal(await s.preparaWhatsAppUpgrade(opzioni.bloccato ? ordine : { ...ordine, phone: 'N/A' }), false);
-        assert.equal(traccia.richieste.length, 0);
-    }
+test('numero mancante: non crea una pagina e non apre app o schede', async () => {
+    const { s, traccia } = ambiente();
+    assert.equal(await s.preparaWhatsAppUpgrade({ ...ordine, phone: 'N/A' }), false);
+    assert.equal(traccia.richieste.length,0);
+    assert.equal(traccia.aperture.length,0);
+    assert.equal(traccia.finestre.length,0);
+});
+
+test('popup bloccati: il percorso senza schede continua a preparare il messaggio', async () => {
+    const {s,traccia}=ambiente({bloccato:true});
+    assert.equal(await s.preparaWhatsAppUpgrade(ordine),true);
+    assert.equal(traccia.richieste.length,1);
+    assert.equal(traccia.aperture.length,1);
+    assert.equal(traccia.finestre.length,0);
 });
 
 test('nessun PC corrispondente: non usa il primo PC e permette di riprovare', async () => {
@@ -213,22 +224,22 @@ test('email immutata, vecchia selezione rimossa e versioni cache incrementate', 
     assert.doesNotMatch(source, /scegliUpgradeWhatsApp|data-pagina|data-up="/);
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /app\.js\?v=70/);
+    assert.match(html, /app\.js\?v=71/);
     assert.match(html, /accoppiamento-auto\.js\?v=32/);
 });
 
 test('13/10: app installata senza pagina intermedia, riapertura con stesso testo/link e nessuna nuova richiesta', async () => {
     const {s,traccia}=ambiente();
     assert.equal(await s.preparaWhatsAppUpgrade(ordine),true);
-    const chat=traccia.finestre[0], link=chat.document.body.children[0];
-    assert.equal(link.tag,'a');
-    assert.equal(link.href,chat.url);
+    const link=traccia.notifiche.at(-1).action;
+    assert.equal(link.href,traccia.aperture[0]);
     assert.equal(new URL(link.href).protocol,'whatsapp:');
-    assert.match(link.textContent,/Apri l’app WhatsApp/);
-    assert.match(chat.document.body.textContent,/Consenti l’apertura/);
+    assert.match(link.label,/Apri WhatsApp/);
+    assert.match(traccia.notifiche.at(-1).msg,/Consenti l’apertura/);
     assert.equal(traccia.richieste.length,1);
     assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','async function contactWithTemplateSelection'),/['"`]https:\/\/(?:api|web)\.whatsapp\.com|['"`]https:\/\/wa\.me/);
-    const testo=new URL(chat.url).searchParams.get('text');
+    assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','async function contactWithTemplateSelection'),/window\.open|about:blank|_blank|chat\.document/);
+    const testo=new URL(traccia.aperture[0]).searchParams.get('text');
     assert.ok(testo.includes('👋')&&testo.includes('🎧'));
     assert.ok(testo.includes('\n\nhttps://www.minimalgamers.it/pages/aggiornamento-ordine?c='));
     assert.doesNotMatch(testo,/�/);
@@ -237,9 +248,10 @@ test('13/10: app installata senza pagina intermedia, riapertura con stesso testo
 test('13/10: rifiuto immediato del protocollo non dichiara WhatsApp aperto e non ripiega sul web', async () => {
     const {s,traccia}=ambiente({erroreApp:true});
     assert.equal(await s.preparaWhatsAppUpgrade(ordine),false);
-    assert.equal(traccia.finestre[0].closed,true);
-    assert.equal(traccia.finestre[0].url,undefined);
+    assert.equal(traccia.finestre.length,0);
+    assert.equal(traccia.aperture.length,0);
     assert.equal(traccia.richieste.length,1);
     assert.equal(traccia.notifiche.at(-1).tipo,'error');
+    assert.equal(new URL(traccia.notifiche.at(-1).action.href).protocol,'whatsapp:');
     assert.equal(traccia.legacy,0);
 });

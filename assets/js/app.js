@@ -1093,15 +1093,14 @@ async function upgradeDellOrdine(order) {
 
 // Un solo gesto sulla card: pagina con TUTTE le alternative ammesse, poi chat con messaggio.
 // La scelta spetta al cliente. Le selezioni non pagate non modificano l'ordine.
-// Una richiesta in corso per PC impedisce doppie pagine e doppie finestre con il doppio clic.
+// Una richiesta in corso per PC impedisce doppie pagine con il doppio clic.
 const upgradeWhatsAppInCorso = new Map();
 
 function motivoErroreUpgradeWhatsApp(error) {
     const motivi = {
         tool_non_pronto: 'Ricarica il gestionale e riprova.',
         telefono_assente: 'Manca un numero di telefono valido del cliente.',
-        popup_bloccato: 'Consenti l’apertura di WhatsApp nel browser e premi di nuovo il pulsante.',
-        chat_chiusa: 'La finestra WhatsApp è stata chiusa. Premi di nuovo il pulsante.',
+        app_bloccata: 'Consenti l’apertura dell’app WhatsApp. Puoi riprovare dal collegamento qui, senza creare un’altra pagina personale.',
         pc_non_identificato: 'Il PC non è identificabile con certezza. Aggiorna i dati dell’ordine.',
         catalogo_upgrade_incompleto: 'Le opzioni di questo PC non sono state verificate: aggiorna il Buyer Desk prima di inviare il link. Non creo una pagina incompleta con il solo FPS Booster.',
         non_autorizzato: 'Accedi di nuovo al gestionale e riprova.',
@@ -1117,18 +1116,12 @@ function preparaWhatsAppUpgrade(order) {
     const chiave = String(order?.id || '');
     if (upgradeWhatsAppInCorso.has(chiave)) return upgradeWhatsAppInCorso.get(chiave);
     const lavoro = (async () => {
-        let chat = null;
+        let appUrl = null;
         try {
             const phone = formatPhoneForWhatsApp(getPreferredCustomerPhone(order));
             if (!phone) throw new Error('telefono_assente');
-            // Riservata PRIMA della rete, nel gesto dell'utente. L'apertura nell'app
-            // dipende dal gestore whatsapp: installato e dalle conferme del browser.
-            // Nessun invio automatico: WhatsApp riceve il messaggio da confermare con «Invia».
-            chat = window.open('about:blank', '_blank');
-            if (!chat) throw new Error('popup_bloccato');
-            chat.opener = null;
-            chat.document.title = 'Preparo il messaggio WhatsApp…';
-            chat.document.body.textContent = 'Preparo la pagina personale e il messaggio WhatsApp…';
+            // La preparazione resta nel gestionale: niente popup o schede provvisorie.
+            // Nessun invio automatico; il browser mantiene le sue conferme di apertura.
             showNotification('Preparo tutte le proposte per questo PC…');
             const { pc, upgrades } = await upgradeDellOrdine(order);
             const fps = !(pc.upgrade_pagati || []).some(u => String(u.categoria || '').toUpperCase() === 'FPS BOOSTER');
@@ -1141,27 +1134,21 @@ function preparaWhatsAppUpgrade(order) {
                 throw new Error('link_non_valido');
             }
             const testo = A.messaggioPaginaUpgrade(order, url.href, pc);
-            if (chat.closed) throw new Error('chat_chiusa');
             // Protocollo dell'app: niente pagina api.whatsapp.com o fallback web automatico.
-            const appUrl = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(testo);
-            chat.document.title = 'Apri il messaggio nell’app WhatsApp';
-            chat.document.body.textContent = 'Consenti l’apertura di WhatsApp se il browser lo richiede. Se l’app non si apre, premi il collegamento qui sotto. In WhatsApp controlla il messaggio e premi Invia.';
-            // Una rete lenta può consumare l'attivazione iniziale. Il collegamento
-            // permette un nuovo gesto autentico senza ricreare l'offerta o cambiare il link.
-            const riapri = chat.document.createElement('a');
-            riapri.href = appUrl;
-            riapri.textContent = 'Apri l’app WhatsApp';
-            riapri.style.display = 'block';
-            riapri.style.marginTop = '16px';
-            chat.document.body.appendChild(riapri);
-            chat.location.replace(appUrl);
+            appUrl = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(testo);
+            // Un protocollo esterno richiesto nella stessa scheda non naviga a una
+            // pagina web. Se manca l'attivazione, il link nella notifica offre un nuovo
+            // clic autentico sullo stesso messaggio, senza un'altra richiesta al servizio.
+            try { window.location.assign(appUrl); }
+            catch { throw new Error('app_bloccata'); }
             showNotification('Pagina pronta: ' + pagina.proposte + ' proposte' + (pagina.fps ? ' + FPS BOOSTER' : '') +
-                '. Richiesta apertura nell’app WhatsApp. Consenti l’apertura se richiesto; in WhatsApp premi Invia.', 'success');
+                '. Consenti l’apertura di WhatsApp se richiesto. Se non si apre, usa il collegamento qui. In WhatsApp premi Invia.',
+                'success', { label: 'Apri WhatsApp', href: appUrl });
             return true;
         } catch (error) {
-            if (chat && !chat.closed) chat.close();
             // Niente fallback senza link, niente credenziali, link personali o errori Shopify nei log.
-            showNotification('WhatsApp non aperto. ' + motivoErroreUpgradeWhatsApp(error), 'error');
+            showNotification('WhatsApp non aperto. ' + motivoErroreUpgradeWhatsApp(error), 'error',
+                appUrl ? { label: 'Apri WhatsApp', href: appUrl } : null);
             return false;
         }
     })();
@@ -5174,7 +5161,7 @@ async function restoreFromHidden(orderId, orderName) {
 }
 
 
-function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info', action = null) {
     const msg = String(message || '');
     const lowerMsg = msg.toLowerCase();
     const isMoveNotification = (lowerMsg.includes('spostato') || lowerMsg.includes('spostati'));
@@ -5212,6 +5199,18 @@ function showNotification(message, type = 'info') {
         transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
     `;
     notification.textContent = message;
+    // Only an app retry link. No new tab, HTML injection, web fallback or service call.
+    const hasAppAction = typeof action?.href === 'string' && /^whatsapp:\/\/send\?phone=\d+&text=/.test(action.href);
+    if (hasAppAction) {
+        const retry = document.createElement('a');
+        retry.href = action.href;
+        retry.target = '_self';
+        retry.textContent = String(action.label || 'Apri WhatsApp');
+        retry.style.cssText = 'display: inline-flex; align-items: center; min-height: 44px; margin-top: 8px; padding: 8px 14px; border: 1px solid currentColor; border-radius: 8px; color: inherit; text-decoration: underline;';
+        notification.style.maxWidth = 'min(640px, calc(100vw - 32px))';
+        notification.appendChild(document.createElement('br'));
+        notification.appendChild(retry);
+    }
     document.body.appendChild(notification);
     
     
@@ -5224,7 +5223,7 @@ function showNotification(message, type = 'info') {
         notification.style.top = '-100px';
         notification.style.opacity = '0';
         setTimeout(() => notification.remove(), 400);
-    }, 2000);
+    }, hasAppAction ? 30000 : 2000);
 }
 
 

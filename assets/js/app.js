@@ -3777,9 +3777,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
     
     if (savedComponents.length > 0) {
         
-        await renderComponentsFromDatabase(orderId, savedComponents, allItems);
-        // Accoppiamento automatico (26/09/2026): interruttore Manuale/Automatico e utile della build
-        if (window.AccoppiamentoAuto) window.AccoppiamentoAuto.decora(orderId, { configKey, variants, allItems });
+        await renderComponentsFromDatabase(orderId, savedComponents, allItems, { configKey, variants, allItems });
         return;
     }
     
@@ -4224,7 +4222,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
 
 
 
-async function renderComponentsFromDatabase(orderId, savedComponents, allItems = []) {
+async function renderComponentsFromDatabase(orderId, savedComponents, allItems = [], autoContext = null) {
     const componentsContainer = document.getElementById(`components-${orderId}`);
     
     if (!componentsContainer) {
@@ -4304,6 +4302,12 @@ async function renderComponentsFromDatabase(orderId, savedComponents, allItems =
     
     componentsContainer.innerHTML = html;
     
+    // La distinta salvata è già leggibile e l'upgrade pagato non aspetta i lookup dei nomi.
+    for (const display of componentsContainer.querySelectorAll('.component-name-display')) {
+        const saved = savedComponents.find(c => c.type === display.dataset.componentType && String(c.ean || '') === String(display.dataset.ean || ''));
+        if (saved) { display.textContent = saved.name || saved.ean || saved.type; display.title = `Componente salvato: ${display.textContent}`; }
+    }
+    if (autoContext && window.AccoppiamentoAuto) window.AccoppiamentoAuto.decora(orderId, autoContext);
     await loadProductNamesForEANs(orderId, allItems);
     highlightMismatchedColors(orderId);
 }
@@ -4535,6 +4539,8 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
             }
             const response = await fetch(url);
             const data = response.ok ? await response.json() : { success: false };
+            // Il pagamento può essere arrivato mentre questa richiesta era in volo.
+            if (display.closest('.component-row')?.dataset.accPaid === '1') continue;
             
             
             if (data.success && data.component) {

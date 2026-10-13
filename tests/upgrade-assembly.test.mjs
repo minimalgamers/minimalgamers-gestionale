@@ -117,3 +117,13 @@ test('salvare un altro componente preserva il vecchio cooler e prezzo nel databa
     assert.equal(await context.saveAllCurrentComponentsToDB('4777', 'COOLER', '360MM', '360MM', 'AMAZON', false), false);
     assert.equal(payload, null);
 });
+test('upgrade indipendente dai lookup dei nomi, anche con una risposta tardiva', () => {
+    const start = app.indexOf('async function renderComponentsFromDatabase(');
+    const end = app.indexOf('\nfunction highlightMismatchedColors', start);
+    const render = app.slice(start, end);
+    assert.ok(render.indexOf('AccoppiamentoAuto.decora') < render.indexOf('await loadProductNamesForEANs'));
+    assert.match(render, /display.textContent = saved.name \|\| saved.ean/);
+    const lookup = app.slice(app.indexOf('async function loadProductNamesForEANs('));
+    const after = lookup.slice(lookup.indexOf('const data = response.ok ? await response.json()'));
+    assert.ok(after.indexOf("dataset.accPaid === '1'") < after.indexOf('display.textContent ='));
+});

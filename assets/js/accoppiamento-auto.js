@@ -3372,26 +3372,36 @@
         };
     }
 
-    function messaggioPaginaUpgrade(order, url, pc) {
+    function messaggioPaginaUpgrade(order, url, pc, canale = 'whatsapp') {
         const nome = nomeDelCliente(order);
         const o = ordineDiShopify(order);
+        const evidenzia = testo => canale === 'email' ? testo : `*${testo}*`;
         return [`Ciao${nome ? ' ' + nome : ''}! 👋`,
-            `Il tuo PC GAMING dell'ordine ${o.nome} è *FINALMENTE* nelle fasi finali dell'assemblaggio. ` +
+            `Il tuo PC GAMING dell'ordine ${o.nome} è ${evidenzia('FINALMENTE')} nelle fasi finali dell'assemblaggio. ` +
             "In primis, cogliamo l'occasione per ringraziarti di tutta la pazienza che hai avuto: " +
             'la tua collaborazione ci ha permesso di lavorare con costanza la grossa mole di ordini con cui ci interfacciamo ogni giorno! ' +
-            'Vogliamo darti un PC GAMING spaziale, perciò abbiamo preparato una *pagina personale solo per te* 👇',
+            `Vogliamo darti un PC GAMING spaziale, perciò abbiamo preparato una ${evidenzia('pagina personale solo per te')} 👇`,
             '',
             url,
             '',
             ...(pc?.pc_totale > 1 ? [`Questa pagina riguarda solo il PC ${pc.pc_numero} di ${pc.pc_totale}. Gli altri PC hanno una pagina separata.`, ''] : []),
-            '*Al montaggio pensiamo noi*, tu non dovrai preoccuparti di nulla. ' +
-            'Gli *upgrade* sono tutti facoltativi; *paghi solo quelli selezionati* ' +
-            'e potrai valutare le *rate disponibili al checkout* per rendere la tua build ancora più *premium e definitiva*.',
-            "*CHI PARTECIPA AGLI UPGRADE AVRÀ PRIORITÀ ASSOLUTA PER NOI* " +
+            `${evidenzia('Al montaggio pensiamo noi')}, tu non dovrai preoccuparti di nulla. ` +
+            `Gli ${evidenzia('upgrade')} sono tutti facoltativi; ${evidenzia('paghi solo quelli selezionati')} ` +
+            `e potrai valutare le ${evidenzia('rate disponibili al checkout')} per rendere la tua build ancora più ${evidenzia('premium e definitiva')}.`,
+            evidenzia('CHI PARTECIPA AGLI UPGRADE AVRÀ PRIORITÀ ASSOLUTA PER NOI') + ' ' +
             "per prepararci all'ottimizzazione finale e alla spedizione della tua build nei prossimi giorni!",
             '',
             'Apri il link e ascolta la guida 🎧',
             'TI ASPETTIAMO <3'].join('\n');
+    }
+
+    function messaggioEmailPaginaUpgrade(order, url, pc) {
+        const o = ordineDiShopify(order);
+        return {
+            subject: `Il tuo PC GAMING: upgrade personali per l'ordine ${o.nome}` +
+                (pc?.pc_totale > 1 ? ` · PC ${pc.pc_numero} di ${pc.pc_totale}` : ''),
+            body: messaggioPaginaUpgrade(order, url, pc, 'email')
+        };
     }
 
     async function chiamaUpgradeClienti(percorso, corpo, fetchFn) {
@@ -3453,7 +3463,7 @@
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,
         ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,
         finestraProposte, salvaProposte, URL_UPGRADE_CLIENTI, UPGRADE_AMMESSI, upgradeAmmessi, ordineDiShopify, nomeDelCliente,
-        propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade,
+        propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, messaggioEmailPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade,
         upgradeInAttesa, upgradeDaAllineare, rigaUpgradeAttesa, aggiornaSchedeUpgrade,
         pianoMontaggioUpgrade, requisitoUpgradeUguale, mostraMontaggioUpgrade, dettagliMontaggioUpgrade };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;

@@ -942,16 +942,8 @@ async function buildContactMessage(channel, order, components, selectedRuleId = 
 }
 
 async function openEmailForOrder(order, components = [], selectedRuleId = null) {
-    const email = String(order?.email || '').trim();
-    if (!email || email === 'N/A') return false;
-
-    const result = await buildContactMessage('email', order, components, selectedRuleId);
-    const subject = encodeURIComponent(result?.subject || '');
-    const body = encodeURIComponent(result?.body || '');
-    const outlookWebUrl = `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(email)}&subject=${subject}&body=${body}`;
-
-    window.open(outlookWebUrl, 'outlook-web-compose', 'noopener');
-    return true;
+    // Anche gli eventuali chiamanti precedenti usano la proposta personale, non il vecchio template.
+    return preparaEmailUpgrade(order);
 }
 
 async function openWhatsAppForOrder(order, components = [], selectedRuleId = null) {
@@ -1097,11 +1089,38 @@ async function upgradeDellOrdine(order) {
 // La scelta spetta al cliente. Le selezioni non pagate non modificano l'ordine.
 // Una richiesta in corso per PC impedisce doppie pagine con il doppio clic.
 const upgradeWhatsAppInCorso = new Map();
+const upgradeEmailInCorso = new Map();
+const upgradePaginaInCorso = new Map();
+
+// Il canale cambia soltanto la bozza: identità del PC, catalogo e link sono condivisi.
+// Richieste email/WhatsApp concorrenti sullo stesso PC preparano una sola pagina.
+function preparaPaginaUpgradePerContatto(order) {
+    const chiave = String(order?.id || '');
+    if (upgradePaginaInCorso.has(chiave)) return upgradePaginaInCorso.get(chiave);
+    const lavoro = (async () => {
+        const { pc, upgrades } = await upgradeDellOrdine(order);
+        const fps = !(pc.upgrade_pagati || []).some(u => String(u.categoria || '').toUpperCase() === 'FPS BOOSTER');
+        if (!upgrades.length && !fps) throw new Error('nessuna_proposta');
+        const pagina = await window.AccoppiamentoAuto.creaPaginaUpgrade(order, pc, upgrades, fps);
+        const url = new URL(pagina.url);
+        if (url.protocol !== 'https:' || url.hostname !== 'www.minimalgamers.it' ||
+            url.pathname !== '/pages/aggiornamento-ordine' || !url.searchParams.get('c')) {
+            throw new Error('link_non_valido');
+        }
+        return { pc, pagina, url: url.href };
+    })();
+    upgradePaginaInCorso.set(chiave, lavoro);
+    const finito = () => upgradePaginaInCorso.delete(chiave);
+    lavoro.then(finito, finito);
+    return lavoro;
+}
 
 function motivoErroreUpgradeWhatsApp(error) {
     const motivi = {
         tool_non_pronto: 'Ricarica il gestionale e riprova.',
         telefono_assente: 'Manca un numero di telefono valido del cliente.',
+        email_assente: 'Manca un indirizzo email valido del cliente.',
+        bozza_bloccata: 'La bozza è pronta. Aprila dal collegamento qui e consenti il popup di Outlook se richiesto.',
         app_bloccata: 'Consenti l’apertura dell’app WhatsApp. Puoi riprovare dal collegamento qui, senza creare un’altra pagina personale.',
         pc_non_identificato: 'Il PC non è identificabile con certezza. Aggiorna i dati dell’ordine.',
         catalogo_upgrade_incompleto: 'Le opzioni di questo PC non sono state verificate: aggiorna il Buyer Desk prima di inviare il link. Non creo una pagina incompleta con il solo FPS Booster.',
@@ -1126,17 +1145,9 @@ function preparaWhatsAppUpgrade(order) {
             // La preparazione resta nel gestionale: niente popup o schede provvisorie.
             // Nessun invio automatico; il browser mantiene le sue conferme di apertura.
             showNotification('Preparo tutte le proposte per questo PC…');
-            const { pc, upgrades } = await upgradeDellOrdine(order);
-            const fps = !(pc.upgrade_pagati || []).some(u => String(u.categoria || '').toUpperCase() === 'FPS BOOSTER');
-            if (!upgrades.length && !fps) throw new Error('nessuna_proposta');
+            const { pc, pagina, url } = await preparaPaginaUpgradePerContatto(order);
             const A = window.AccoppiamentoAuto;
-            const pagina = await A.creaPaginaUpgrade(order, pc, upgrades, fps);
-            const url = new URL(pagina.url);
-            if (url.protocol !== 'https:' || url.hostname !== 'www.minimalgamers.it' ||
-                url.pathname !== '/pages/aggiornamento-ordine' || !url.searchParams.get('c')) {
-                throw new Error('link_non_valido');
-            }
-            const testo = A.messaggioPaginaUpgrade(order, url.href, pc);
+            const testo = A.messaggioPaginaUpgrade(order, url, pc);
             // Protocollo dell'app: niente pagina api.whatsapp.com o fallback web automatico.
             appUrl = 'whatsapp://send?phone=' + phone + '&text=' + encodeURIComponent(testo);
             // Un protocollo esterno richiesto nella stessa scheda non naviga a una
@@ -1160,13 +1171,46 @@ function preparaWhatsAppUpgrade(order) {
     return lavoro;
 }
 
+function preparaEmailUpgrade(order) {
+    const chiave = String(order?.id || '');
+    if (upgradeEmailInCorso.has(chiave)) return upgradeEmailInCorso.get(chiave);
+    const lavoro = (async () => {
+        let bozzaUrl = null;
+        try {
+            const email = String(order?.email || '').trim();
+            if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) throw new Error('email_assente');
+            if (typeof window.AccoppiamentoAuto?.messaggioEmailPaginaUpgrade !== 'function') throw new Error('tool_non_pronto');
+            showNotification('Preparo tutte le proposte per questo PC e la bozza email…');
+            const { pc, pagina, url } = await preparaPaginaUpgradePerContatto(order);
+            const messaggio = window.AccoppiamentoAuto.messaggioEmailPaginaUpgrade(order, url, pc);
+            bozzaUrl = 'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(email) +
+                '&subject=' + encodeURIComponent(messaggio.subject) + '&body=' + encodeURIComponent(messaggio.body);
+            // Nessuna scheda provvisoria e nessun invio automatico. Con noopener il
+            // browser può restituire null anche se apre: il link consente sempre di riprovare.
+            try { window.open(bozzaUrl, 'outlook-web-compose', 'noopener'); }
+            catch { throw new Error('bozza_bloccata'); }
+            showNotification('Bozza email pronta: ' + pagina.proposte + ' proposte' + (pagina.fps ? ' + FPS BOOSTER' : '') +
+                '. Controlla il destinatario e il messaggio in Outlook, poi premi Invia. Se non si apre, usa il collegamento qui.',
+                'success', { label: 'Apri bozza email', href: bozzaUrl });
+            return true;
+        } catch (error) {
+            showNotification('Email non aperta. ' + motivoErroreUpgradeWhatsApp(error), 'error',
+                bozzaUrl ? { label: 'Apri bozza email', href: bozzaUrl } : null);
+            return false;
+        }
+    })();
+    upgradeEmailInCorso.set(chiave, lavoro);
+    lavoro.finally(() => upgradeEmailInCorso.delete(chiave));
+    return lavoro;
+}
+
 async function contactWithTemplateSelection(channel, order, components = []) {
     if (channel === 'whatsapp') {
         return preparaWhatsAppUpgrade(order);
     }
 
     if (channel === 'email') {
-        return await openEmailForOrder(order, components);
+        return preparaEmailUpgrade(order);
     }
 
     const applicableRules = await getApplicableTemplateRules(order, components);
@@ -3286,7 +3330,7 @@ async function renderProcessedOrders(ordersMap) {
                             + Aggiungi voce personalizzata
                         </button>
                         ${order.email && order.email !== 'N/A' ? `
-                        <a href="#" class="contact-email-btn" style="background: none; border: none; cursor: pointer; padding: 4px; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; opacity: 0.8; text-decoration: none;" onmouseover="this.style.opacity='1'; this.style.transform='scale(1.1)'" onmouseout="this.style.opacity='0.8'; this.style.transform='scale(1)'" title="Invia Email con template">
+                        <a href="#" class="contact-email-btn" style="background: none; border: none; cursor: pointer; padding: 4px; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; opacity: 0.8; text-decoration: none;" onmouseover="this.style.opacity='1'; this.style.transform='scale(1.1)'" onmouseout="this.style.opacity='0.8'; this.style.transform='scale(1)'" title="Prepara email con upgrade personali">
                             <img src="assets/img/gmail.avif" alt="Email" style="width: 28px; height: 28px;">
                         </a>
                         ` : ''}

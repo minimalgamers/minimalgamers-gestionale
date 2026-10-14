@@ -7,7 +7,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../assets/js/app.js', import.meta.url), 'utf8');
 const autoSource = readFileSync(new URL('../assets/js/accoppiamento-auto.js', import.meta.url), 'utf8');
 const blocco = (da, a) => source.slice(source.indexOf(da), source.indexOf(a));
-const ordine = { id: '6100000000001.2', name: '#4824.2', billingName: 'MARIO ROSSI', phone: '+393331234567' };
+const ordine = { id: '6100000000001.2', name: '#4824.2', billingName: 'MARIO ROSSI', phone: '+393331234567', email: 'mario.test@example.invalid' };
 const u = (categoria, scelta, extra = {}) => ({ categoria, scelta, chiave: categoria, differenza: 100, utile: 20,
     consigliato: false, ...extra });
 const proposte = [
@@ -51,7 +51,11 @@ function ambiente(opzioni = {}) {
         traccia.finestre.push(f);
         return f;
     };
-    const s = { window: { AccoppiamentoAuto: api, open: () => opzioni.bloccato ? null : finestra(),
+    const s = { window: { AccoppiamentoAuto: api, open: (url, target, features) => {
+        if (opzioni.erroreBozza) throw new Error('popup_bloccato');
+        if (opzioni.bloccato) return null;
+        const f = finestra(); Object.assign(f, { url, target, features }); return f;
+    },
         location: { assign(url) { if(opzioni.erroreApp)throw new Error('protocollo_bloccato'); traccia.aperture.push(url); } } },
         URL, console, showNotification: (msg, tipo, action) => traccia.notifiche.push({ msg, tipo, action }),
         openEmailForOrder: async () => { traccia.email++; return 'email'; },
@@ -216,16 +220,117 @@ test('nessun PC corrispondente: non usa il primo PC e permette di riprovare', as
     assert.equal(await s.preparaWhatsAppUpgrade(ordine), true);
 });
 
-test('email immutata, vecchia selezione rimossa e versioni cache incrementate', async () => {
+test('email usa la stessa proposta personale; vecchia selezione rimossa e cache incrementate', async () => {
     const { s, traccia } = ambiente();
-    assert.equal(await s.contactWithTemplateSelection('email', ordine), 'email');
-    assert.equal(traccia.email, 1);
-    assert.equal(traccia.richieste.length, 0);
+    assert.equal(await s.contactWithTemplateSelection('email', ordine), true);
+    assert.equal(traccia.email, 0, 'non richiama il vecchio template');
+    assert.equal(traccia.richieste.length, 1);
     assert.doesNotMatch(source, /scegliUpgradeWhatsApp|data-pagina|data-up="/);
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /app\.js\?v=74/);
-    assert.match(html, /accoppiamento-auto\.js\?v=35/);
+    assert.match(html, /app\.js\?v=75/);
+    assert.match(html, /accoppiamento-auto\.js\?v=36/);
+});
+
+test('email: tutte le alternative, destinatario e PC esatti, testo equivalente senza asterischi di formattazione', async () => {
+    const { s, traccia, api } = ambiente();
+    const lavoro = s.preparaEmailUpgrade({ ...ordine, phone: '' });
+    assert.equal(traccia.finestre.length, 0, 'non apre about:blank durante la preparazione');
+    assert.equal(await lavoro, true, 'email non richiede il telefono');
+    assert.equal(traccia.richieste[0].corpo.proposte.length, 13);
+    assert.equal(traccia.richieste[0].corpo.ordine.unita, 1);
+    assert.equal(traccia.finestre.length, 1);
+    const bozza = new URL(traccia.finestre[0].url);
+    assert.equal(bozza.origin, 'https://outlook.office.com');
+    assert.equal(bozza.pathname, '/mail/deeplink/compose');
+    assert.equal(bozza.searchParams.get('to'), ordine.email);
+    assert.match(bozza.searchParams.get('subject'), /ordine #4824 · PC 2 di 2$/);
+    const url = 'https://www.minimalgamers.it/pages/aggiornamento-ordine?c=CODICE-FINTO-DEL-TEST';
+    assert.equal(bozza.searchParams.get('body'), api.messaggioPaginaUpgrade(ordine, url, { pc_numero: 2, pc_totale: 2 }).replace(/\*/g, ''));
+    assert.match(bozza.searchParams.get('body'), /Ciao Mario! 👋/);
+    assert.equal(traccia.finestre[0].features, 'noopener');
+    assert.equal(traccia.aperture.length, 0, 'non apre WhatsApp');
+    assert.match(traccia.notifiche.at(-1).msg, /Controlla il destinatario.*premi Invia/);
+    assert.equal(new URL(traccia.notifiche.at(-1).action.href).href, bozza.href);
+});
+
+test('template email non altera caratteri del link e gestisce cliente senza nome', () => {
+    const { api } = ambiente();
+    const link = 'https://www.minimalgamers.it/pages/aggiornamento-ordine?c=_TOKEN-test&nota=*';
+    const msg = api.messaggioEmailPaginaUpgrade({name:'#4824'}, link);
+    assert.match(msg.body, /^Ciao! 👋/);
+    assert.ok(msg.body.includes(link));
+    assert.doesNotMatch(msg.body, /\*FINALMENTE\*|undefined|PC undefined/);
+});
+
+test('email e WhatsApp concorrenti per lo stesso PC condividono una richiesta e lo stesso link', async () => {
+    let termina;
+    const { s, traccia } = ambiente({ attesa: new Promise(r => { termina = r; }) });
+    const email = s.preparaEmailUpgrade(ordine);
+    const whatsapp = s.preparaWhatsAppUpgrade(ordine);
+    termina();
+    assert.deepEqual(await Promise.all([email, whatsapp]), [true, true]);
+    assert.equal(traccia.richieste.length, 1);
+    assert.equal(traccia.finestre.length, 1);
+    const testoMail = new URL(traccia.finestre[0].url).searchParams.get('body');
+    const testoWhatsApp = new URL(traccia.aperture[0]).searchParams.get('text');
+    assert.equal(testoMail, testoWhatsApp.replace(/\*/g, ''));
+});
+
+test('email doppio clic: una pagina e una bozza; PC1/PC2 invece restano separati', async () => {
+    const { s, traccia } = ambiente();
+    const primo = s.preparaEmailUpgrade(ordine);
+    assert.equal(primo, s.preparaEmailUpgrade(ordine));
+    assert.equal(await primo, true);
+    assert.equal(traccia.richieste.length, 1);
+    assert.equal(traccia.finestre.length, 1);
+    assert.equal(await s.preparaEmailUpgrade({ ...ordine, id:'6100000000001.1', name:'#4824.1' }), true);
+    assert.equal(traccia.richieste[1].corpo.ordine.unita, 0);
+    assert.match(new URL(traccia.finestre[1].url).searchParams.get('subject'), /PC 1 di 2$/);
+});
+
+test('email senza destinatario valido non crea pagine né bozze', async () => {
+    for (const email of ['', 'N/A', 'cliente@', 'uno@example.invalid\nBcc:altro@example.invalid', 'a@example.invalid b@example.invalid']) {
+        const { s, traccia } = ambiente();
+        assert.equal(await s.preparaEmailUpgrade({ ...ordine, email }), false);
+        assert.equal(traccia.richieste.length, 0);
+        assert.equal(traccia.finestre.length, 0);
+        assert.match(traccia.notifiche.at(-1).msg, /indirizzo email valido/);
+    }
+});
+
+test('email conserva il link di apertura se il popup è bloccato o noopener restituisce null', async () => {
+    for (const opzioni of [{ erroreBozza: true }, { bloccato: true }]) {
+        const { s, traccia } = ambiente(opzioni);
+        assert.equal(await s.preparaEmailUpgrade(ordine), !opzioni.erroreBozza);
+        assert.equal(traccia.richieste.length, 1);
+        assert.match(traccia.notifiche.at(-1).action.href, /^https:\/\/outlook\.office\.com\/mail\/deeplink\/compose\?/);
+        assert.equal(traccia.finestre.length, 0);
+    }
+});
+
+test('email blocca catalogo incompleto, ordine non identificato e link esterno senza fallback legacy', async () => {
+    for (const opzioni of [{catalogo:{stato:'incompleto'}}, {url:'https://example.invalid/?c=errato'}, {errore:'ordine_annullato'}, {erroreDati:true}]) {
+        const { s, traccia } = ambiente(opzioni);
+        assert.equal(await s.preparaEmailUpgrade(ordine), false);
+        assert.equal(traccia.finestre.length, 0);
+        assert.equal(traccia.email, 0);
+    }
+    const {s,traccia} = ambiente();
+    assert.equal(await s.preparaEmailUpgrade({...ordine,id:'6100000000001.9'}),false);
+    assert.equal(traccia.richieste.length,0);
+    assert.equal(await s.preparaEmailUpgrade(ordine),true,'dopo errore è possibile riprovare');
+});
+
+test('email rispetta pagamenti in aggiornamento e non ripropone FPS Booster già pagato', async () => {
+    const {s,traccia} = ambiente({pagati:[{categoria:'FPS BOOSTER',prezzo:99}]});
+    s.window.UpgradePaidSync = {verifica:async()=>true};
+    s.window.AccoppiamentoAuto.upgradeDaAllineare = () => true;
+    assert.equal(await s.preparaEmailUpgrade(ordine),false);
+    assert.equal(traccia.richieste.length,0);
+    s.window.AccoppiamentoAuto.upgradeDaAllineare = () => false;
+    assert.equal(await s.preparaEmailUpgrade(ordine),true);
+    assert.equal(traccia.richieste[0].corpo.fps,false);
 });
 
 test('13/10: app installata senza pagina intermedia, riapertura con stesso testo/link e nessuna nuova richiesta', async () => {
@@ -237,8 +342,8 @@ test('13/10: app installata senza pagina intermedia, riapertura con stesso testo
     assert.match(link.label,/Apri WhatsApp/);
     assert.match(traccia.notifiche.at(-1).msg,/Consenti l’apertura/);
     assert.equal(traccia.richieste.length,1);
-    assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','async function contactWithTemplateSelection'),/['"`]https:\/\/(?:api|web)\.whatsapp\.com|['"`]https:\/\/wa\.me/);
-    assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','async function contactWithTemplateSelection'),/window\.open|about:blank|_blank|chat\.document/);
+    assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','function preparaEmailUpgrade'),/['"`]https:\/\/(?:api|web)\.whatsapp\.com|['"`]https:\/\/wa\.me/);
+    assert.doesNotMatch(blocco('function preparaWhatsAppUpgrade','function preparaEmailUpgrade'),/window\.open|about:blank|_blank|chat\.document/);
     const testo=new URL(traccia.aperture[0]).searchParams.get('text');
     assert.ok(testo.includes('👋')&&testo.includes('🎧'));
     assert.ok(testo.includes('\n\nhttps://www.minimalgamers.it/pages/aggiornamento-ordine?c='));

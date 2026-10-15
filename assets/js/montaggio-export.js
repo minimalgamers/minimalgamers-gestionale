@@ -8,12 +8,29 @@
         SSD: 'SSD', RAM: 'RAM', GPU: 'GPU', SCHEDAVIDEO: 'GPU', PSU: 'PSU', ALIMENTATORE: 'PSU',
         COOLER: 'COOLER', DISSIPATORE: 'COOLER', CASE: 'CASE',
         VENTOLE: 'VENTOLE', VENTOLERGB: 'VENTOLE', WIFI: 'CONNETTIVITÀ', CONNETTIVITA: 'CONNETTIVITÀ',
-        SOFTWARE: 'SOFTWARE', SCATOLE: 'SCATOLE', SCATOLECOMPONENTI: 'SCATOLE', SERVIZIO: 'SCATOLE',
+        SOFTWARE: 'SOFTWARE', SCATOLE: 'SCATOLE', SCATOLECOMPONENTI: 'SCATOLE',
         SSDEXTRA: 'ARCHIVIAZIONE AGGIUNTIVA', SSDADDON: 'ARCHIVIAZIONE AGGIUNTIVA',
         SSDAGGIUNTIVO: 'ARCHIVIAZIONE AGGIUNTIVA', ARCHIVIAZIONEAGGIUNTIVA: 'ARCHIVIAZIONE AGGIUNTIVA',
         MONITOR: 'MONITOR', KIT: 'KIT GAMING', KITGAMING: 'KIT GAMING', SEDIA: 'SEDIA', SCRIVANIA: 'SCRIVANIA'
     };
     const categoria = tipo => aliases[key(tipo)] || 'EXTRA';
+    const fisici = [...base, 'VENTOLE', 'CONNETTIVITÀ', 'ARCHIVIAZIONE AGGIUNTIVA', 'MONITOR', 'KIT GAMING', 'SEDIA', 'SCRIVANIA'];
+    // Contenuti da LISTINI-MINIMAL-GAMERS/pacchetti_software.json, blob
+    // 43b57f2c9d714f5f7525bd5b4d638b805d69af09. Nessun prezzo/licenza dedotto.
+    const software = {
+        UFFICIOESTUDIO: ["LibreOffice (testi, fogli di calcolo e presentazioni; apre e salva i file Word, Excel e PowerPoint)", "PDF24 (crea, unisce e modifica PDF)", "7-Zip", "Google Chrome e Mozilla Firefox", "VLC", "Thunderbird (posta)", "Dizionario italiano"],
+        STREAMINGPRONTO: ["OBS Studio gia' configurato (scene, codifica sulla scheda video, filtri del microfono)", "Discord", "NVIDIA Broadcast (con schede video RTX)", "ShareX (catture e clip)", "Audacity", "Shotcut (montaggio video)"],
+        CREATOR: ["DaVinci Resolve", "GIMP", "Krita", "Inkscape", "Blender", "Audacity", "HandBrake"],
+        GAMINGPRONTO: ["Steam", "Epic Games Launcher", "EA app", "Ubisoft Connect", "Battle.net", "GOG Galaxy", "Discord", "MSI Afterburner", "Driver della scheda video aggiornati"]
+    };
+    const chiaveSoftware = s => key(s).replace(/^SOFTWARE/, '').replace(/^PACCHETTO/, '');
+    function categoriaVoce(tipo, nome) {
+        // SERVIZIO non significa sempre scatole: una voce sconosciuta resta EXTRA.
+        return key(tipo) === 'SERVIZIO' && /^CONSEGNASCATOLE(?:ORIGINALI(?:DISPONIBILI)?)?$/.test(key(nome)) ? 'SCATOLE' : categoria(tipo);
+    }
+    function codiceNonRisolto(nome, codice) {
+        return Boolean(key(codice)) && key(String(nome || '').replace(/\s*\((?:ACTION|OMEGA|TIER ONE|ABACO|RUNNER|ESPRINET)\)\s*$/i, '')) === key(codice);
+    }
     function colore(testo) {
         const s = String(testo || '').toUpperCase();
         const bianco = /\bWHITE\b|\bBIANC[OAHEI]*\b|\bSNOW\b/.test(s);
@@ -51,15 +68,41 @@
         return String(nome || '').replace(/\s*\(\s*al posto (?:di|del|dello|della|dei|degli|delle)\b[^)]*\)/gi, '')
             .split('|').map(s => s.trim()).filter(s => s && !(
                 !/^(?:MPN|SKU|EAN|CODICE|MODELLO|REV(?:ISIONE)?|SN)\b/i.test(s) &&
-                /^[\p{L}][\p{L} .'-]*\s+\d{1,2}[\/.]\d{1,2}(?:[\/.]\d{2,4})?\s*$/u.test(s)
+                /^[\p{L}][\p{L} .'-]*\s+\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?\s*$/u.test(s)
             )).join(' | ').trim();
+    }
+    function descrizioneExtra(r) {
+        let nome = r.nome;
+        if (/ - PREPARAZIONE:| - DA VERIFICARE:/i.test(nome)) return { nome, avviso: / - DA VERIFICARE:/i.test(nome) };
+        const scelta = fisici.includes(r.tipo) ? descrizioneHardware(r.scelta || nome) : r.scelta || nome;
+        const s = key(scelta), senzaPrefisso = chiaveSoftware(scelta);
+        const programmi = r.tipo === 'SOFTWARE' ? software[senzaPrefisso] : null;
+        if (programmi) return { nome: nome + ' - PREPARAZIONE: installazione e configurazione di ' + programmi.join('; ') + '. Programmi gratuiti; non include licenze commerciali.' };
+        const istruzioni = s === 'FPSBOOSTER' ? 'ottimizzazione delle impostazioni, verifica di temperature e stabilita; nessun aumento fisso di FPS garantito.'
+            : s === 'ESPERIENZAASSEMBLAGGIOINLIVE' ? "concordare con il cliente data e ora per seguire in diretta l'assemblaggio della sua build."
+            : r.tipo === 'SCATOLE' && /^CONSEGNASCATOLE(?:ORIGINALI(?:DISPONIBILI)?)?$/.test(s) ? 'preparare e consegnare le confezioni originali effettivamente disponibili.'
+            : r.tipo === 'CONNETTIVITÀ' && s === 'WIFIBLUETOOTHADATTATOREPCIE' ? 'installare nel PC la scheda PCIe Wi-Fi + Bluetooth.'
+            : /^(?:KITGAMING(?:MINIMALGAMERS)?4IN1)(?:BIANCO|NERO|WHITE|BLACK)?$/.test(s) ? 'kit composto da mouse, tastiera, cuffie e tappetino; rispettare il colore indicato nella scelta.'
+            : r.tipo === 'ARCHIVIAZIONE AGGIUNTIVA' && /^(?:HDD|SSD)?(?:1|2|4)TBAGGIUNTIV[OI]$/.test(s) ? "installare come unita secondaria interna al PC; mantenere l'unita principale."
+            : '';
+        if (istruzioni) return { nome: nome + ' - PREPARAZIONE: ' + istruzioni };
+        const n = key(nome).replace(/^(?:PERSONALIZZAZIONE|ACCESSORIO|EXTRA)/, '');
+        const generica = /^(?:KIT|KITGAMING|KITAGGIUNTIVO|KITRICHIESTODALCLIENTE|PREPARARE(?:ANCHE)?ILKIT(?:AGGIUNTIVO)?RICHIESTODALCLIENTE|ACCESSORIAGGIUNTIVI|SOFTWARE|PACCHETTOSOFTWARE|SERVIZIO(?:AGGIUNTIVO|SPECIALE|GIASCELTO)?|MONITOR)?$/.test(n);
+        if (generica || r.tipo === 'SOFTWARE') return { nome: nome + ' - DA VERIFICARE: ' + (r.tipo === 'SOFTWARE' ? "programmi/versione e licenze dall'ordine originale, senza sostituire il pacchetto acquistato." : 'contenuto o modello non specificato; chiarire prima della preparazione.'), avviso:true };
+        return { nome, avviso: / - DA VERIFICARE:/i.test(nome) };
     }
     function distinta(righe, opzioni, pagati, piano, c) {
         const records = [], seen = new Set();
         const add = (tipo, nome, scelta) => {
             const testo = String(nome || '').trim();
             if (!testo) return;
-            const cat = categoria(tipo), id = cat + '|' + key(scelta || testo);
+            const cat = categoriaVoce(tipo, scelta || testo);
+            const parti = cat === 'SOFTWARE' && key(testo) === key(scelta || testo) ? String(scelta || testo).split(/[,;\n]+/).map(s=>s.trim()) : [];
+            if (parti.length > 1 && parti.every(s=>software[chiaveSoftware(s)])) {
+                parti.forEach(s=>add(tipo,s,s)); return;
+            }
+            const sw = cat === 'SOFTWARE' && software[chiaveSoftware(scelta || testo)] ? chiaveSoftware(scelta || testo) : null;
+            const id = cat + '|' + (sw || key(scelta || testo));
             if (seen.has(id)) return;
             const etichetta = String(tipo || '').trim();
             const leggibile = cat === 'EXTRA' && key(etichetta) !== 'EXTRA' && !key(testo).includes(key(etichetta))
@@ -69,7 +112,7 @@
         for (const r of righe || []) add(r.tipo, r.nome, r.scelta);
         for (const r of opzioni || []) add(r.tipo, r.nome, r.scelta);
         for (const u of pagati || []) {
-            const cat = categoria(u.categoria) !== 'EXTRA' ? categoria(u.categoria) : categoria(u.chiave);
+            const cat = categoriaVoce(u.categoria,u.valore) !== 'EXTRA' ? categoriaVoce(u.categoria,u.valore) : categoriaVoce(u.chiave,u.valore);
             if (base.includes(cat)) {
                 const p = (piano || []).find(x => categoria(x.tipo) === cat);
                 const existing = records.findIndex(x => x.tipo === cat);
@@ -82,12 +125,14 @@
         }
         // La chiave di deduplica resta quella della scelta, non il testo arricchito.
         return records.map(r => {
-            const nome = base.includes(r.tipo) ? descrizioneHardware(r.nome) : r.nome;
-            return { ...r, nome: r.tipo === 'CASE' ? descrizioneCase(nome, c)
-                : r.tipo === 'VENTOLE' ? descrizioneVentole(nome, c) : nome };
+            const materiale = fisici.includes(r.tipo) || r.tipo === 'EXTRA' && /^ACCESSORIO\s*:/i.test(r.nome);
+            const nome = materiale ? descrizioneHardware(r.nome) : r.nome;
+            const preparazione = descrizioneExtra({...r,nome,scelta:materiale ? descrizioneHardware(r.scelta) : r.scelta});
+            return { ...r, ...preparazione, avviso: Boolean(preparazione.avviso || (!c && (r.tipo === 'CASE' || r.tipo === 'VENTOLE' && /BUILD\s+FULL\s+VENTOLE/i.test(nome)))), nome: r.tipo === 'CASE' ? descrizioneCase(nome, c)
+                : r.tipo === 'VENTOLE' ? descrizioneVentole(nome, c) : preparazione.nome };
         });
     }
-    const api = { categoria, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, distinta, base };
+    const api = { categoria, categoriaVoce, codiceNonRisolto, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, descrizioneExtra, distinta, base, software };
     if (typeof window !== 'undefined') window.MontaggioExport = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

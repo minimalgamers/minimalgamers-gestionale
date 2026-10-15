@@ -67,9 +67,58 @@ test('PDF senza firme/data e storico sostituzione: modello/codici e fonte salvat
     const before=JSON.stringify(rows),r=M.distinta(rows,[],[],[],'');
     assert.equal(r[0].nome,modello);assert.equal(r[0].scelta,originale);
     assert.equal(r[1].nome,'GPU BLACK');assert.equal(r[2].nome,rows[2].nome);
-    assert.equal(r[3].nome,rows[3].nome);assert.equal(JSON.stringify(rows),before);
+    assert.ok(r[3].nome.startsWith(rows[3].nome));assert.equal(JSON.stringify(rows),before);
     const paid=M.distinta([],[],[ev({valore:originale})],[{tipo:'COOLER',descrizione:originale}],'');
     assert.equal(paid[0].nome,modello);assert.equal(M.descrizioneHardware(modello),modello);
+});
+test('quattro software con programmi distinti, RTX condizionato, vecchio Office non convertito',()=>{
+    const {M}=env();
+    for(const [scelta,programmi] of Object.entries({
+        'PACCHETTO UFFICIO E STUDIO':['LibreOffice','PDF24','7-Zip','Chrome','Firefox','VLC','Thunderbird','Dizionario italiano'],
+        'GAMING PRONTO':['Steam','Epic Games','EA app','Ubisoft','Battle.net','GOG','Discord','Afterburner','Driver'],
+        CREATOR:['DaVinci Resolve','GIMP','Krita','Inkscape','Blender','Audacity','HandBrake'],
+        'SOFTWARE - PACCHETTO STREAMING PRONTO':['OBS Studio','Discord','NVIDIA Broadcast (con schede video RTX)','ShareX','Audacity','Shotcut']
+    })){
+        const r=M.distinta([{tipo:'SOFTWARE',nome:scelta}],[],[],[],'')[0];
+        for(const p of programmi)assert.ok(r.nome.includes(p),p);
+        assert.ok(r.nome.includes('installazione e configurazione'));assert.ok(!r.avviso);
+        assert.equal(M.descrizioneExtra(r).nome,r.nome);
+    }
+    const office=M.distinta([{tipo:'SOFTWARE',nome:'MICROSOFT OFFICE'}],[],[],[],'')[0];
+    assert.match(office.nome,/MICROSOFT OFFICE.*DA VERIFICARE/);assert.doesNotMatch(office.nome,/LibreOffice/);assert.equal(office.avviso,true);
+});
+test('menu software multiplo: pacchetti separati, alias deduplicati, parte sconosciuta mai cancellata',()=>{
+    const {M}=env();
+    const r=M.distinta([{tipo:'SOFTWARE',nome:'PACCHETTO UFFICIO E STUDIO, PACCHETTO GAMING PRONTO'}],
+        [{tipo:'SOFTWARE',nome:'GAMING PRONTO'}],[ev({categoria:'SOFTWARE',valore:'PACCHETTO CREATOR'})],[],'');
+    assert.equal(r.length,3);assert.ok(r.some(x=>x.nome.includes('LibreOffice')));assert.ok(r.some(x=>x.nome.includes('Steam')));assert.ok(r.some(x=>x.nome.includes('Blender')));
+    const unknown=M.distinta([{tipo:'SOFTWARE',nome:'PACCHETTO CREATOR, PACCHETTO SCONOSCIUTO'}],[],[],[],'');
+    assert.equal(unknown.length,1);assert.match(unknown[0].nome,/PACCHETTO SCONOSCIUTO.*DA VERIFICARE/);
+});
+test('servizi, kit e archiviazione con istruzioni; nessun kit 4-in-1 inventato per voce generica',()=>{
+    const {M}=env();
+    const rows=[{tipo:'SERVIZIO',nome:'CONSEGNA SCATOLE ORIGINALI DISPONIBILI'},
+        {tipo:'FPS BOOSTER',nome:'FPS BOOSTER'}, {tipo:'LIVE',nome:'ESPERIENZA ASSEMBLAGGIO IN LIVE'},
+        {tipo:'SSD_EXTRA',nome:'HDD 2TB AGGIUNTIVO'}, {tipo:'KIT GAMING',nome:'KIT GAMING MINIMAL GAMERS 4IN1 BIANCO | Antonio 04-10'},
+        {tipo:'PERSONALIZZAZIONE',nome:'Preparare il kit aggiuntivo richiesto dal cliente'},
+        {tipo:'SERVIZIO',nome:'Intervento specifico sulle impostazioni richiesto dal cliente'}];
+    const r=M.distinta(rows,[],[],[],'BLACK');
+    assert.equal(r[0].tipo,'SCATOLE');assert.match(r[0].nome,/effettivamente disponibili/);
+    assert.match(r[1].nome,/temperature e stabilita/);assert.match(r[1].nome,/nessun aumento fisso/);
+    assert.match(r[2].nome,/data e ora/);assert.match(r[3].nome,/unita secondaria interna/);
+    assert.match(r[4].nome,/mouse, tastiera, cuffie e tappetino/);assert.doesNotMatch(r[4].nome,/Antonio/);
+    assert.match(r[4].nome,/BIANCO/);assert.doesNotMatch(r[4].nome,/NERO/);
+    assert.equal(r[5].tipo,'EXTRA');assert.equal(r[5].avviso,true);assert.match(r[5].nome,/DA VERIFICARE/);assert.doesNotMatch(r[5].nome,/mouse|tastiera/);
+    assert.equal(r[6].tipo,'EXTRA');assert.doesNotMatch(r[6].nome,/SCATOLE/);
+});
+test('annotazioni interne pulite anche su monitor, kit e archiviazione; dettagli tecnici conservati',()=>{
+    const {M}=env();
+    for(const tipo of ['MONITOR','KIT GAMING','SSD_EXTRA','CONNETTIVITÀ','SEDIA','SCRIVANIA']){
+        const r=M.distinta([{tipo,nome:'Modello ZX-500 nero (USB-C) | SKU ZX-500 | Mario Rossi 15.10.2026'}],[],[],[],'')[0];
+        assert.doesNotMatch(r.nome,/Mario Rossi/);assert.match(r.nome,/ZX-500 nero \(USB-C\).*SKU ZX-500/);
+    }
+    const accessorio=M.distinta([{tipo:'ACCESSORIO',nome:'KIT GAMING MINIMAL GAMERS 4IN1 NERO | Antonio 15/10'}],[],[],[],'WHITE')[0];
+    assert.doesNotMatch(accessorio.nome,/Antonio/);assert.match(accessorio.nome,/NERO.*mouse, tastiera, cuffie e tappetino/);
 });
 function collector(options={}){
     const {s,M,A}=env();
@@ -99,6 +148,29 @@ test('collector reale: ventole fuori DOM, pagato sconosciuto e voci custom inclu
     assert.equal(records.find(x=>x.tipo==='COOLER').nome,'DISSIPATORE A LIQUIDO 360MM');
     assert.equal(JSON.stringify(comps),before);assert.ok(calls.length>0);
 });
+test('accessori dal solo SKU: nome esatto della riga corrispondente, sconosciuto resta da verificare',async()=>{
+    const {s,comps}=collector();
+    comps.push({type:'MONITOR',ean:'MONLG-GAM0046',name:'MONLG-GAM0046 (ACTION)'});
+    s.processedOrdersMap.get('#4824').items.push({sku:'MONLG-GAM0046',name:'LG 34G630A-B - Monitor gaming 34 UltraWide QHD'},
+        {sku:'ALTRO',name:'Monitor differente da non usare'});
+    s.loadCustomItemsFromDB=async()=>[{name:'ACCESSORIO',ean:'IGNOTO123',value:'IGNOTO123'}];
+    let r=(await s.collectOrdersForExport()).orders[0].records;
+    assert.match(r.find(x=>x.tipo==='MONITOR').nome,/LG 34G630A-B - Monitor gaming/);
+    const unknown=r.find(x=>x.nome.includes('IGNOTO123'));assert.match(unknown.nome,/DA VERIFICARE/);assert.equal(unknown.avviso,true);
+    s.processedOrdersMap.get('#4824').items=s.processedOrdersMap.get('#4824').items.filter(x=>x.sku!=='MONLG-GAM0046');
+    r=(await s.collectOrdersForExport()).orders[0].records;
+    assert.match(r.find(x=>x.tipo==='MONITOR').nome,/MONLG-GAM0046.*DA VERIFICARE/);
+    assert.doesNotMatch(r.find(x=>x.tipo==='MONITOR').nome,/differente/);
+});
+test('collector: un software salvato non esclude gli altri pacchetti della stessa categoria',async()=>{
+    const {s,comps}=collector();
+    comps.push({type:'SOFTWARE',ean:'SOFT-UFFICIO',name:'PACCHETTO UFFICIO E STUDIO'});
+    const dati=await s.window.AccoppiamentoAuto.carica();
+    dati.ordini['4824'].pc[0].pezzi.push({tipo:'SOFTWARE',cliente:'UFFICIO E STUDIO'},{tipo:'SOFTWARE',cliente:'PACCHETTO CREATOR'},{tipo:'SOFTWARE',cliente:'PACCHETTO GAMING PRONTO'});
+    const before=JSON.stringify(comps),r=(await s.collectOrdersForExport()).orders[0].records.filter(x=>x.tipo==='SOFTWARE');
+    assert.equal(r.length,3);for(const p of ['LibreOffice','Blender','Steam'])assert.ok(r.some(x=>x.nome.includes(p)));
+    assert.equal(JSON.stringify(comps),before);
+});
 test('collector rispetta scrivania e filtro operatore, non lancia stampe incomplete durante sync o offline senza dati',async()=>{
     const {s}=collector();s.getActiveWorksheetTab=()=>4;assert.equal((await s.collectOrdersForExport()).orders.length,0);
     const operator=collector();operator.s.document.querySelector=()=>({dataset:{operator:'B'}});
@@ -110,6 +182,6 @@ test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file 
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(r\.nome/);
     assert.match(exportSource,/splitTextToSize\(r\.nome, colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=2')<html.indexOf('excel-export.js?v=39'));
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=3')<html.indexOf('excel-export.js?v=40'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });

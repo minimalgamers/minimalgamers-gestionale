@@ -208,7 +208,12 @@ async function collectOrdersForExport() {
                 }
             }
 
-            const testoExtraType = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+            if (ean) {
+                const esatto = A.nomeDaCodice?.(dati, ean, {line_items: order.line_items || order.items || []});
+                if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, ean)) descrizione = esatto.nome;
+            }
+            let testoExtraType = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+            if (M.codiceNonRisolto(testoExtraType, ean)) testoExtraType += ' - DA VERIFICARE: modello del codice non risolto; identificare il prodotto prima della preparazione.';
             if (testoExtraType) pushLine(testoExtraType, compTypeKey);
         }
 
@@ -240,8 +245,11 @@ async function collectOrdersForExport() {
             if (itemEan) {
                 const dbData = await getComponentDataFromDB(itemEan, itemSupplier);
                 if (dbData && dbData.nome) itemDesc = dbData.nome;
+                const esatto = A.nomeDaCodice?.(dati, itemEan, {line_items: order.line_items || order.items || []});
+                if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, itemEan)) itemDesc = esatto.nome;
             }
-            const testoExtra = itemDesc || itemEan;
+            let testoExtra = itemDesc || itemEan;
+            if (M.codiceNonRisolto(testoExtra, itemEan)) testoExtra += ' - DA VERIFICARE: modello del codice non risolto; identificare il prodotto prima della preparazione.';
             if (testoExtra) pushLine(testoExtra, item.name || 'EXTRA');
         }
 
@@ -249,7 +257,7 @@ async function collectOrdersForExport() {
         // prima erano escluse. Il motore copre anche schede non ancora renderizzate.
         const presenti = new Set(componentRecords.map(x => M.categoria(x.tipo)));
         const opzioni = (auto?.pezzi || []).filter(p => !M.base.includes(M.categoria(p.tipo)) &&
-            (!presenti.has(M.categoria(p.tipo)) || M.categoria(p.tipo) === 'EXTRA')).map(p => ({
+            (!presenti.has(M.categoria(p.tipo)) || ['EXTRA','SOFTWARE'].includes(M.categoria(p.tipo)))).map(p => ({
             tipo:p.tipo, nome:p.cliente || p.fisso?.descrizione || p.manuale?.codice || p.auto?.descrizione || '',
             scelta:p.cliente || p.fisso?.descrizione || ''
         }));
@@ -398,7 +406,8 @@ async function exportProcessedOrdersToPDF() {
         const timeStr = `${now.getHours()}-${now.getMinutes()}`;
         doc.save(`Ordini_PDF_E${worksheetNumber}_${dateStr}_${timeStr}.pdf`);
 
-        showNotification(`✅ PDF generato: ${orders.length} ordini`, 'success');
+        const daVerificare = orders.reduce((n,o) => n + (o.records || []).filter(r => r.avviso).length, 0);
+        showNotification(`PDF generato: ${orders.length} ordini` + (daVerificare ? `; ${daVerificare} voci DA VERIFICARE nella distinta.` : ''), daVerificare ? 'warning' : 'success');
     } catch (error) {
         console.error('❌ Errore durante export PDF:', error);
         showNotification('Errore durante export PDF: ' + error.message, 'error');

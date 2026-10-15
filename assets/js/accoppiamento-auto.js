@@ -620,13 +620,21 @@
         return /AK400/.test(s) && /AK400/.test(d) && /DIGITAL|DISPLAY|LCD/.test(d);
     }
 
-    function scelteUpgradeMontaggio(auto) {
-        const ultime = new Map();
+    function upgradePagatiDellUnita(auto) {
+        const out = [];
         for (const u of (auto && auto.upgrade_pagati) || []) {
             if (!u || !u.ordine_upgrade || !u.valore) continue;
             if (u.unita != null && Number(u.unita) !== Number(auto.unita || 0)) continue;
             if (u.unita == null && Number(auto.pc_totale || auto.quantita || 1) > 1) continue;
             if (u.linea_id && auto.linea_id && String(u.linea_id).split('/').pop() !== String(auto.linea_id).split('/').pop()) continue;
+            out.push(u);
+        }
+        return out;
+    }
+
+    function scelteUpgradeMontaggio(auto) {
+        const ultime = new Map();
+        for (const u of upgradePagatiDellUnita(auto)) {
             const k = s => chiave(String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
             const tipo = TIPI_UPGRADE_MONTAGGIO[k(u.categoria)] || TIPI_UPGRADE_MONTAGGIO[k(u.chiave)];
             if (tipo) ultime.set(tipo, u); // elenco cronologico già riconciliato dal motore
@@ -721,6 +729,8 @@
             const col = COLORI[forn] || '#95a5a6';
             const riga = document.createElement('div');
             riga.className = 'acc-riga-opzione';
+            riga.dataset.exportType = x.tipo;
+            riga.dataset.exportValue = x.scelta || x.pezzo || '';
             riga.title = [`Scelta del cliente: ${x.scelta}`, x.pezzo ? `Pezzo: ${x.pezzo}` : 'Nessun pezzo trovato dall\'automatico',
                 forn ? `Fornitore: ${forn}` : '', x.costo == null ? 'Costo da inserire' : (x.costo === 0 ? 'Nessun costo' : `Costo netto ${eur(x.costo)}`)].filter(Boolean).join('\n');
             riga.innerHTML = `<div class="acc-opz-testo"><strong>${esc(String(x.nome || x.tipo).toUpperCase())}:</strong>` +
@@ -3465,7 +3475,7 @@
         finestraProposte, salvaProposte, URL_UPGRADE_CLIENTI, UPGRADE_AMMESSI, upgradeAmmessi, ordineDiShopify, nomeDelCliente,
         propostePaginaUpgrade, richiestaPaginaUpgrade, messaggioPaginaUpgrade, messaggioEmailPaginaUpgrade, creaPaginaUpgrade, statoPaginaUpgrade, testoStatoPaginaUpgrade,
         upgradeInAttesa, upgradeDaAllineare, rigaUpgradeAttesa, aggiornaSchedeUpgrade,
-        pianoMontaggioUpgrade, requisitoUpgradeUguale, mostraMontaggioUpgrade, dettagliMontaggioUpgrade };
+        pianoMontaggioUpgrade, requisitoUpgradeUguale, mostraMontaggioUpgrade, dettagliMontaggioUpgrade, upgradePagatiDellUnita };
     if (typeof window !== 'undefined') window.AccoppiamentoAuto = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

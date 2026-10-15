@@ -1,0 +1,27 @@
+<!doctype html><html lang="it"><meta charset="utf-8"><title>PDF montaggio - prova locale</title>
+<style>body{font:16px Arial;background:#f1f3f4;color:#202326;max-width:1000px;margin:40px auto}button{padding:15px 24px;font:inherit;cursor:pointer}pre{white-space:pre-wrap;background:white;padding:24px;border:1px solid #ccd0d5;line-height:1.7}</style>
+<h1>Verifica PDF assemblatori</h1><p>Esempi fittizi ispirati ai due casi segnalati. Nessun cliente, ordine o pagamento reale.</p>
+<button id="export-pdf-btn">Genera PDF di prova</button><p id="status"></p><pre id="preview"></pre>
+<script src="../../assets/vendor/jspdf.umd.min.js"></script><script src="../../assets/vendor/jspdf.plugin.autotable.min.js"></script>
+<script src="../../assets/js/montaggio-export.js"></script><script src="../../assets/js/accoppiamento-auto.js"></script><script src="../../assets/js/excel-export.js"></script>
+<script>
+var processedOrdersCache={},processedOrdersMap=new Map();
+const componenti=[['CPU','Intel Core Ultra 5 225F'],['MOBO','ASRock B860M-H2 WHITE'],['GPU','RTX 5060 Ti 8GB WHITE'],['RAM','ADATA DDR5-5600 16GB'],['SSD','SSD 480GB NVMe'],['PSU','DEEPCOOL PF-600X 80+ BRONZE'],['CASE','CASE ATX WHITE'],['COOLER','DeepCool AG300 AIR']];
+const data={ordini:{}};
+for(const [id,config,caseName] of [['4824','DEMO - PC GAMING SPARTAN','CASE ATX WHITE'],['4816','DEMO - MSI LEVIATHAN','MPG VELOX 300R AFPZW']]){
+  const components=componenti.map(([type,name])=>({type,ean:type==='CASE'?caseName:name,name:type==='CASE'?caseName:name,supplier:'TEST',price:10}));
+  const order={id,name:'#DEMO-'+id,items:[{name:config,customProperties:{CASE:'CASE WHITE'}}]};
+  processedOrdersMap.set(order.name,order);processedOrdersCache[id]={components,configName:config,customProperties:{CASE:'CASE WHITE'},foglioDiLavoro:3};
+  data.ordini[id]={pc:[{quantita:1,unita:0,linea_id:'L'+id,pezzi:[{tipo:'VENTOLE',cliente:'BUILD FULL VENTOLE'},{tipo:'SOFTWARE',cliente:'Pacchetto Ufficio e Studio - installazione e configurazione'}],
+    upgrade_pagati:[{ordine_upgrade:'#DEMO-UP',linea_id:'L'+id,unita:0,categoria:'DISSIPATORE',chiave:'COOLER',valore:'DISSIPATORE A LIQUIDO 360MM'},
+    {ordine_upgrade:'#DEMO-UP',linea_id:'L'+id,unita:0,categoria:'ESPERIENZA ASSEMBLAGGIO IN LIVE',valore:'Esperienza assemblaggio in live - concordare appuntamento con il cliente'},
+    {ordine_upgrade:'#DEMO-UP',linea_id:'L'+id,unita:0,categoria:'FPS BOOSTER',valore:'FPS Booster - preparazione e ottimizzazione della build'}]}]};
+}
+AccoppiamentoAuto.carica=async()=>data;
+getActiveWorksheetTab=()=>3;getOperatorAssignment=()=> 'A';extractSupplierFromText=()=>'';
+showNotification=(text)=>document.getElementById('status').textContent=text;
+loadCustomItemsFromDB=async()=>[{name:'PERSONALIZZAZIONE',value:'Preparare anche il kit richiesto dal cliente'}];
+getComponentDataFromDB=async code=>({nome:code});
+document.getElementById('export-pdf-btn').addEventListener('click',exportProcessedOrdersToPDF);
+collectOrdersForExport().then(d=>{document.getElementById('preview').textContent=d.orders.map(o=>o.orderName+' '+o.configName+'\n'+o.records.map(r=>r.tipo+': '+r.nome).join('\n')).join('\n\n');});
+</script></html>

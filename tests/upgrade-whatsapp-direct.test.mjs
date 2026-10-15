@@ -228,8 +228,8 @@ test('email usa la stessa proposta personale; vecchia selezione rimossa e cache 
     assert.doesNotMatch(source, /scegliUpgradeWhatsApp|data-pagina|data-up="/);
     assert.match(source, /aria-busy/);
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    assert.match(html, /app\.js\?v=75/);
-    assert.match(html, /accoppiamento-auto\.js\?v=36/);
+    assert.match(html, /app\.js\?v=76/);
+    assert.match(html, /accoppiamento-auto\.js\?v=37/);
 });
 
 test('email: tutte le alternative, destinatario e PC esatti, testo equivalente senza asterischi di formattazione', async () => {

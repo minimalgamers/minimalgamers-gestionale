@@ -57,6 +57,20 @@ test('ventole e servizi non si duplicano fra DOM, motore e upgrade; scelte softw
         [{tipo:'VENTOLE',nome:'BUILD FULL VENTOLE'}],[ev({categoria:'VENTOLE RGB',valore:'BUILD FULL VENTOLE'})],[],'BLACK');
     assert.equal(r.length,1);assert.match(r[0].nome,/NERO/);
 });
+test('PDF senza firme/data e storico sostituzione: modello/codici e fonte salvata intatti',()=>{
+    const {M}=env();
+    const modello='DeepCool AG300 AIR | ABACO DPAG300 | MPN R-AG300-BKNNMN-G';
+    const originale=modello+' | Antonio 04/10 (al posto del Wraith)';
+    const rows=[{tipo:'COOLER',nome:originale},{tipo:'GPU',nome:'GPU BLACK | Mario Rossi 05/10/2026'},
+        {tipo:'CPU',nome:'AMD Ryzen 5 (Socket AM5) | MPN 04/10'},
+        {tipo:'SOFTWARE',nome:'Appuntamento 04/10'}];
+    const before=JSON.stringify(rows),r=M.distinta(rows,[],[],[],'');
+    assert.equal(r[0].nome,modello);assert.equal(r[0].scelta,originale);
+    assert.equal(r[1].nome,'GPU BLACK');assert.equal(r[2].nome,rows[2].nome);
+    assert.equal(r[3].nome,rows[3].nome);assert.equal(JSON.stringify(rows),before);
+    const paid=M.distinta([],[],[ev({valore:originale})],[{tipo:'COOLER',descrizione:originale}],'');
+    assert.equal(paid[0].nome,modello);assert.equal(M.descrizioneHardware(modello),modello);
+});
 function collector(options={}){
     const {s,M,A}=env();
     const order={id:'4824',name:'#4824',items:[{name:'PC GAMING SPARTAN',customProperties:{CASE:'CASE ATX WHITE'}}]};
@@ -96,6 +110,6 @@ test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file 
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(r\.nome/);
     assert.match(exportSource,/splitTextToSize\(r\.nome, colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=1')<html.indexOf('excel-export.js?v=39'));
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=2')<html.indexOf('excel-export.js?v=39'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });

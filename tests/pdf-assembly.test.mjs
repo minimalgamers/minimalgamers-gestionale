@@ -95,6 +95,7 @@ test('collector rispetta scrivania e filtro operatore, non lancia stampe incompl
 test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file helper locale prima degli utilizzatori',()=>{
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(r\.nome/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=1')<html.indexOf('excel-export.js?v=38'));
+    assert.match(exportSource,/splitTextToSize\(r\.nome, colConfigW - 2\)\.join\('\\n'\)/);
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=1')<html.indexOf('excel-export.js?v=39'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });

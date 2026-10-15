@@ -346,7 +346,13 @@ async function exportProcessedOrdersToPDF() {
                 { content: ord.configName, colSpan:2, styles: { fontStyle: 'bold', fontSize: 9 } }
             ]);
             records.forEach(r => {
-                body.push([{ content:r.tipo, styles:{fontStyle:'bold',fontSize:8} }, { content:r.nome, styles:{fontSize:8} }]);
+                // Con rowSpan il plugin legacy non avvolge sempre le righe lunghe:
+                // precompongo le linee con la stessa font e la larghezza stampabile.
+                doc.setFont('helvetica','bold'); doc.setFontSize(8);
+                const categoria = doc.splitTextToSize(r.tipo, colTypeW - 2).join('\n');
+                doc.setFont('helvetica','normal');
+                const nome = doc.splitTextToSize(r.nome, colConfigW - 2).join('\n');
+                body.push([{ content:categoria, styles:{fontStyle:'bold',fontSize:8} }, { content:nome, styles:{fontSize:8} }]);
             });
 
             doc.autoTable({

@@ -5,6 +5,14 @@
 // ============================================================
 async function collectOrdersForExport() {
     const componentOrder = ['CPU', 'MOBO', 'SSD', 'RAM', 'GPU', 'PSU', 'COOLER', 'CASE'];
+    const M = window.MontaggioExport, A = window.AccoppiamentoAuto;
+    if (!M || !A?.upgradePagatiDellUnita) throw Error('Ricarica il gestionale per aggiornare la stampa.');
+    // Legge i requisiti pagati, non ricalcola né salva la distinta acquistata.
+    let dati = A.stato?.dati;
+    try { dati = await A.carica(); } catch (e) {
+        if (!dati) throw Error('Dati upgrade non disponibili: riprova prima di stampare una distinta incompleta.');
+        showNotification('Stampa con gli ultimi dati upgrade disponibili; verifica eventuali pagamenti recenti.', 'warning');
+    }
 
     const getWorksheetNumberForOrder = (order) => {
         const cachedOrder = processedOrdersCache[order.id] || {};
@@ -28,12 +36,14 @@ async function collectOrdersForExport() {
     const result = [];
 
     for (const [orderName, order] of ordersToExport) {
+        if (A.upgradeDaAllineare?.(order.id)) throw Error('Upgrade pagato in aggiornamento per ' + orderName + ': attendi prima di stampare.');
+        const auto = A.pcAutomatico(dati, order.id);
         const savedOrder = processedOrdersCache[order.id];
         const savedComponents = savedOrder?.components || [];
 
         const componentsByType = {};
         for (const comp of savedComponents) {
-            componentsByType[comp.type] = comp;
+            componentsByType[String(comp.type || '').trim().toUpperCase()] = comp;
         }
 
         const domComponents = {};
@@ -78,23 +88,29 @@ async function collectOrdersForExport() {
         });
 
         const componentLines = [];
+        const componentRecords = [];
         const seenLines = new Set();
-        const pushLine = (t) => {
+        const pushLine = (t, tipo = 'EXTRA', scelta) => {
             const v = String(t || '').trim();
             if (!v) return;
-            const k = v.toUpperCase();
+            const k = tipo + '|' + v.toUpperCase();
             if (seenLines.has(k)) return;
             seenLines.add(k);
             componentLines.push(v);
+            componentRecords.push({ tipo, nome: v, scelta: scelta || v });
         };
 
         // v35: colore del case per applicare l'etichetta a GPU/MOBO nel PDF
-        let pdfCaseColor = '';
+        const componentiColore = Object.entries(componentsByType).map(([tipo,c]) => ({...c,tipo}));
+        for (const [tipo,c] of Object.entries(domComponents)) {
+            const i = componentiColore.findIndex(x => x.tipo === tipo);
+            if (i >= 0) componentiColore[i] = {...componentiColore[i],...c}; else componentiColore.push({...c,tipo});
+        }
+        let pdfCaseColor = M.coloreCase(componentiColore, order, savedOrder);
         {
             const caseComp = domComponents['CASE'] || componentsByType['CASE'];
             const caseTxt = `${caseComp?.name || ''} ${caseComp?.ean || ''}`.toUpperCase();
-            if (/WHITE|BIANCO|BIANCA/.test(caseTxt)) pdfCaseColor = 'WHITE';
-            else if (/BLACK|NERO|NERA/.test(caseTxt)) pdfCaseColor = 'BLACK';
+            pdfCaseColor = M.colore(caseTxt) || pdfCaseColor;
             if (!pdfCaseColor && caseComp?.ean) {
                 try {
                     const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
@@ -103,8 +119,7 @@ async function collectOrdersForExport() {
                     if (r.ok) {
                         const rows = await r.json();
                         const nm = `${rows[0]?.component_name || ''} ${rows[0]?.variant_value || ''}`.toUpperCase();
-                        if (/WHITE|BIANCO|BIANCA|SNOW/.test(nm)) pdfCaseColor = 'WHITE';
-                        else if (/BLACK|NERO|NERA|PITCH/.test(nm)) pdfCaseColor = 'BLACK';
+                        pdfCaseColor = M.colore(nm);
                     }
                 } catch (e) {}
             }
@@ -150,7 +165,7 @@ async function collectOrdersForExport() {
             }
 
             const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
-            if (testo) pushLine(testo);
+            if (testo) pushLine(testo, compType);
         }
 
         // Tipi EXTRA presenti nell'ordine ma non tra gli 8 base
@@ -194,7 +209,7 @@ async function collectOrdersForExport() {
             }
 
             const testoExtraType = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
-            if (testoExtraType) pushLine(testoExtraType);
+            if (testoExtraType) pushLine(testoExtraType, compTypeKey);
         }
 
         // Custom items (HDD aggiuntivo, monitor, kit, ecc.)
@@ -227,13 +242,28 @@ async function collectOrdersForExport() {
                 if (dbData && dbData.nome) itemDesc = dbData.nome;
             }
             const testoExtra = itemDesc || itemEan;
-            if (testoExtra) pushLine(testoExtra);
+            if (testoExtra) pushLine(testoExtra, item.name || 'EXTRA');
         }
+
+        // Opzioni derivate (ventole, software, scatole...) non hanno data-ean e
+        // prima erano escluse. Il motore copre anche schede non ancora renderizzate.
+        const presenti = new Set(componentRecords.map(x => M.categoria(x.tipo)));
+        const opzioni = (auto?.pezzi || []).filter(p => !M.base.includes(M.categoria(p.tipo)) &&
+            (!presenti.has(M.categoria(p.tipo)) || M.categoria(p.tipo) === 'EXTRA')).map(p => ({
+            tipo:p.tipo, nome:p.cliente || p.fisso?.descrizione || p.manuale?.codice || p.auto?.descrizione || '',
+            scelta:p.cliente || p.fisso?.descrizione || ''
+        }));
+        document.querySelectorAll(`#components-${CSS.escape(String(order.id))} .acc-riga-opzione`).forEach(row => {
+            if (row.dataset.exportValue) opzioni.push({tipo:row.dataset.exportType,nome:row.dataset.exportValue});
+        });
+        const righeSalvate = savedComponents.map(c => ({tipo:c.type,ean:c.ean,nome:c.name,fornitore:c.supplier}));
+        const piano = A.pianoMontaggioUpgrade(auto, righeSalvate, {});
+        const records = M.distinta(componentRecords, opzioni, A.upgradePagatiDellUnita(auto), piano, pdfCaseColor);
 
         const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);
         const configName = (configBadge ? configBadge.textContent.trim() : (savedOrder?.configName || '')) || 'PC GAMING';
 
-        result.push({ orderName, configName, lines: componentLines });
+        result.push({ orderName, configName, lines: componentLines, records });
     }
 
     return { orders: result, worksheetNumber: activeWorksheetNumber };
@@ -278,8 +308,9 @@ async function exportProcessedOrdersToPDF() {
         const marginX = 12;
 
         // larghezze colonne
-        const colOrderW = 32;                       // NUMERO ORDINE
-        const colConfigW = pageWidth - marginX * 2 - colOrderW; // resto
+        const colOrderW = 27;
+        const colTypeW = 27;
+        const colConfigW = pageWidth - marginX * 2 - colOrderW - colTypeW;
 
         // stima altezza riga (autotable usa ~ font 10 -> ~6-7mm con padding)
         const headerRowH = 6;   // intestazione tabella
@@ -296,10 +327,14 @@ async function exportProcessedOrdersToPDF() {
 
         for (const ord of orders) {
             // altezza totale del blocco di questo ordine
-            const blockHeight = headerRowH + titleRowH + (ord.lines.length * lineRowH) + 4;
+            const records = ord.records || ord.lines.map(nome => ({tipo:'EXTRA',nome}));
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+            const blockHeight = headerRowH + titleRowH + records.reduce((h,r) => h + 1.6 + Math.max(
+                doc.splitTextToSize(r.nome, colConfigW - 2).length,
+                doc.splitTextToSize(r.tipo, colTypeW - 2).length) * 3.3, 0) + 4;
 
             // se non ci sta nella pagina corrente -> nuova pagina (anti-spezzamento)
-            if (cursorY + blockHeight > pageHeight - marginBottom) {
+            if (cursorY > marginTop && cursorY + blockHeight > pageHeight - marginBottom) {
                 doc.addPage();
                 cursorY = marginTop;
             }
@@ -307,11 +342,11 @@ async function exportProcessedOrdersToPDF() {
             // Costruisco le righe del corpo: prima il nome config, poi i componenti numerati
             const body = [];
             body.push([
-                { content: ord.orderName, rowSpan: ord.lines.length + 1, styles: { fontStyle: 'bold', fontSize: 9, valign: 'top', halign: 'left' } },
-                { content: ord.configName, styles: { fontStyle: 'bold', fontSize: 8.5 } }
+                { content: ord.orderName, rowSpan: records.length + 1, styles: { fontStyle: 'bold', fontSize: 9, valign: 'top', halign: 'left' } },
+                { content: ord.configName, colSpan:2, styles: { fontStyle: 'bold', fontSize: 9 } }
             ]);
-            ord.lines.forEach((line, i) => {
-                body.push([{ content: `${i + 1}. ${line}`, styles: { fontSize: 7.5 } }]);
+            records.forEach(r => {
+                body.push([{ content:r.tipo, styles:{fontStyle:'bold',fontSize:8} }, { content:r.nome, styles:{fontSize:8} }]);
             });
 
             doc.autoTable({
@@ -319,7 +354,8 @@ async function exportProcessedOrdersToPDF() {
                 margin: { left: marginX, right: marginX },
                 head: [[
                     { content: 'NUMERO ORDINE', styles: { halign: 'left' } },
-                    { content: 'CONFIGURAZIONE PC GAMING', styles: { halign: 'left' } }
+                    { content: 'CATEGORIA', styles: { halign: 'left' } },
+                    { content: 'COMPONENTE / EXTRA', styles: { halign: 'left' } }
                 ]],
                 body: body,
                 theme: 'grid',
@@ -340,7 +376,8 @@ async function exportProcessedOrdersToPDF() {
                 },
                 columnStyles: {
                     0: { cellWidth: colOrderW },
-                    1: { cellWidth: colConfigW }
+                    1: { cellWidth: colTypeW },
+                    2: { cellWidth: colConfigW }
                 },
                 // evita che autotable spezzi una riga a metà
                 rowPageBreak: 'avoid',

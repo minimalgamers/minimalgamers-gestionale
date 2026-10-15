@@ -4715,6 +4715,20 @@ async function loadProductNamesForEANs(orderId, orderItems = []) {
                     }
                 } catch (e2) {}
             }
+            // Colore leggibile anche con soli codici SKU: dalla scelta CASE di
+            // questa singola scheda, mai dal colore di GPU o motherboard.
+            const M = window.MontaggioExport;
+            if (M) {
+                const saved = processedOrdersCache[orderId] || {};
+                const order = getCurrentProcessedOrderById(orderId);
+                const componenti = Array.from(displays).map(d => ({tipo:d.dataset.componentType,ean:d.dataset.ean,nome:d.textContent}));
+                caseColor = M.coloreCase(componenti, order, saved) || caseColor;
+                displays.forEach(d => {
+                    if (String(d.dataset.componentType || '').toUpperCase() === 'CASE' && d.textContent && d.textContent !== 'Caricamento...') {
+                        d.textContent = M.descrizioneCase(d.textContent, caseColor);
+                    }
+                });
+            }
             displays.forEach(d => {
                 const type = String(d.dataset.componentType || '').toUpperCase();
                 if (type !== 'GPU' && type !== 'SSD' && type !== 'MOBO') return;

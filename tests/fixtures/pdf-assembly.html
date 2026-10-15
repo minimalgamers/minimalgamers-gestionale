@@ -20,7 +20,7 @@ for(const [id,config,caseName] of [['4824','DEMO - PC GAMING SPARTAN','CASE ATX 
 AccoppiamentoAuto.carica=async()=>data;
 getActiveWorksheetTab=()=>3;getOperatorAssignment=()=> 'A';extractSupplierFromText=()=>'';
 showNotification=(text)=>document.getElementById('status').textContent=text;
-loadCustomItemsFromDB=async()=>[{name:'PERSONALIZZAZIONE',value:'Preparare anche il kit richiesto dal cliente'}];
+loadCustomItemsFromDB=async()=>[{name:'ACCESSORIO',value:'Kit gaming 4-in-1 bianco: mouse, tastiera, cuffie e tappetino (esempio DEMO)'}];
 getComponentDataFromDB=async code=>({nome:code});
 document.getElementById('export-pdf-btn').addEventListener('click',exportProcessedOrdersToPDF);
 collectOrdersForExport().then(d=>{document.getElementById('preview').textContent=d.orders.map(o=>o.orderName+' '+o.configName+'\n'+o.records.map(r=>r.tipo+': '+r.nome).join('\n')).join('\n\n');});

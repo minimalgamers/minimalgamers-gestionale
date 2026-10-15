@@ -45,6 +45,15 @@
         if (!/BUILD\s+FULL\s+VENTOLE/i.test(String(nome))) return String(nome || '');
         return 'BUILD FULL VENTOLE - 5X VENTOLE RGB - ' + nomeColore(c) + ' - stesso colore del case';
     }
+    function descrizioneHardware(nome) {
+        // Note di provenienza interne: non sono istruzioni per l'assemblatore.
+        // Manteniamo modello, fornitore e identificativi tecnici, senza toccare la fonte.
+        return String(nome || '').replace(/\s*\(\s*al posto (?:di|del|dello|della|dei|degli|delle)\b[^)]*\)/gi, '')
+            .split('|').map(s => s.trim()).filter(s => s && !(
+                !/^(?:MPN|SKU|EAN|CODICE|MODELLO|REV(?:ISIONE)?|SN)\b/i.test(s) &&
+                /^[\p{L}][\p{L} .'-]*\s+\d{1,2}[\/.]\d{1,2}(?:[\/.]\d{2,4})?\s*$/u.test(s)
+            )).join(' | ').trim();
+    }
     function distinta(righe, opzioni, pagati, piano, c) {
         const records = [], seen = new Set();
         const add = (tipo, nome, scelta) => {
@@ -72,10 +81,13 @@
             }
         }
         // La chiave di deduplica resta quella della scelta, non il testo arricchito.
-        return records.map(r => ({ ...r, nome: r.tipo === 'CASE' ? descrizioneCase(r.nome, c)
-            : r.tipo === 'VENTOLE' ? descrizioneVentole(r.nome, c) : r.nome }));
+        return records.map(r => {
+            const nome = base.includes(r.tipo) ? descrizioneHardware(r.nome) : r.nome;
+            return { ...r, nome: r.tipo === 'CASE' ? descrizioneCase(nome, c)
+                : r.tipo === 'VENTOLE' ? descrizioneVentole(nome, c) : nome };
+        });
     }
-    const api = { categoria, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, distinta, base };
+    const api = { categoria, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, distinta, base };
     if (typeof window !== 'undefined') window.MontaggioExport = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

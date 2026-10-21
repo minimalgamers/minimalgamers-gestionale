@@ -88,7 +88,11 @@ function normalizeGpoVariableName(value) {
 // chiave una sola riga di mappatura continua a servire prima e dopo il rename,
 // senza dover toccare il database ne' perdere lo storico ordini.
 const GPO_LEGACY_VALUE_ALIASES = Object.freeze([
-    { pattern: /^(?:HDD|HARD\s*DISK)\s+(?=\d+\s*TB\b)/, replacement: '' }
+    { pattern: /^(?:HDD|HARD\s*DISK)\s+(?=\d+\s*TB\b)/, replacement: '' },
+    // Il Minimal Case include tre ventole RGB. Accetta la precedente etichetta
+    // negli ordini storici senza riscrivere ordini, EAN o regole di fornitura.
+    { pattern: /^(MINIMAL CASE (?:BLACK|WHITE)) - 1\s*[X×]\s*RGB$/, replacement: '$1 - 3X RGB' },
+    { pattern: /^(MINIMAL CASE (?:BLACK|WHITE)) - 3\s*[X×]\s*RGB$/, replacement: '$1 - 3X RGB' }
 ]);
 
 function applyGpoLegacyValueAliases(normalized) {

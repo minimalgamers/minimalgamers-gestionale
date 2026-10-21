@@ -40,4 +40,14 @@ assert.equal(caso('PC GAMING REX', { CASE: 'DEEPCOOL CG530 BLACK - 4x RGB', 'SCH
 assert.equal(caso('MSI ORION', { CASE: 'MINIMAL CASE BLACK - 1x RGB' }), 'VALORE DISTINTA | X');
 assert.equal(caso('DEEPCOOL CRYO', { CASE: 'MINIMAL CASE BLACK - 1x RGB' }), 'VALORE DISTINTA | X');
 
+// Il nuovo nome 3x RGB conserva la scelta del case per build, colore e scheda madre.
+for (const config of ['PC GAMING VOLT', 'PC GAMING SPARTAN', 'MSI ORION', 'DEEPCOOL CRYO']) {
+  for (const color of ['BLACK', 'WHITE']) {
+    for (const mobo of ['', 'ASUS PRIME B860-PLUS WIFI']) {
+      assert.equal(caso(config, { CASE: `MINIMAL CASE ${color} - 3x RGB`, 'SCHEDA MADRE': mobo }),
+        caso(config, { CASE: `MINIMAL CASE ${color} - 1x RGB`, 'SCHEDA MADRE': mobo }));
+    }
+  }
+}
+
 console.log('case-minimal: tutti i test passati');

@@ -74,6 +74,24 @@
         return JSON.parse(new TextDecoder().decode(chiaro));
     }
 
+    async function richiediJson(url, options = {}, timeout = 45000) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        let timer;
+        const richiesta = (async () => {
+            const r = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
+            if (!r.ok) throw new Error(r.status === 404 ? 'dati automatici non ancora pubblicati' : `errore HTTP ${r.status}`);
+            return await r.json();
+        })();
+        try {
+            return await Promise.race([richiesta, new Promise((_, reject) => {
+                timer = setTimeout(() => {
+                    controller?.abort();
+                    reject(new Error('il servizio non risponde: riprova tra poco'));
+                }, timeout);
+            })]);
+        } finally { clearTimeout(timer); }
+    }
+
     async function carica(forza) {
         const vecchio = Date.now() - stato.caricatoIl > 10 * 60 * 1000;
         if (stato.inCorso && stato.promessa) return stato.promessa;
@@ -82,9 +100,8 @@
         stato.promessa = (async () => {
             const pwd = password();
             if (!pwd) throw new Error('accedi al gestionale per vedere l\'automatico');
-            const r = await fetch(URL_DATI, { cache: 'no-store' });
-            if (!r.ok) throw new Error(r.status === 404 ? 'dati automatici non ancora pubblicati' : `errore ${r.status}`);
-            const dati = annota(await decifra(await r.json(), pwd));
+            const pacchetto = await richiediJson(URL_DATI, { cache: 'no-store' });
+            const dati = annota(await decifra(pacchetto, pwd));
             stato.dati = dati;
             stato.errore = null;
             stato.caricatoIl = Date.now();
@@ -2115,10 +2132,9 @@
             scrivi(`E${n}: chiedo ai fornitori i listini di adesso…`);
             let esito = null;
             try {
-                const r = await fetch(URL_AGGIORNA_LISTINI, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                esito = await richiediJson(URL_AGGIORNA_LISTINI, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password: password() || '' }) });
-                esito = await r.json();
-            } catch (e) { esito = { stato: 'errore' }; }
+            } catch (e) { throw new Error(`richiesta dei nuovi listini non riuscita (${e.message}). Nessun cambio effettuato`); }
             const dati = await attendiListini(esito, prima, { scrivi });
             verificaListini(dati, 5 * 60 * 1000, Date.now(), ids);
             const quando = oraBreve(dati && dati.generato);
@@ -2479,6 +2495,7 @@
     async function renderPagina(forza) {
         const cont = document.getElementById('automatico-container');
         if (!cont) return;
+        const cerca = String((document.getElementById('acc-cerca') || {}).value || '').replace(/\D/g, '');
         stile();
         if (forza || !stato.dati) cont.innerHTML = `<div class="acc-pagina"><div class="acc-vuoto">Carico la Panoramica…</div></div>`;
         let dati;
@@ -2495,7 +2512,6 @@
         const filtro = leggiLS(K_FILTRO, 'da-fare');
         const esclusi = leggiLS(K_ESCLUSI, {});
         const salvati = leggiLS(K_FISSI, {});
-        const cerca = String((document.getElementById('acc-cerca') || {}).value || '').replace(/\D/g, '');
         const tutti = Object.entries(dati.ordini || {}).sort((a, b) =>
             String(b[1].data).localeCompare(String(a[1].data)) || String(b[1].nome).localeCompare(String(a[1].nome)));
         const visibili = tutti.filter(([, o]) => (filtro === 'tutti' || !(o.elaborato && o.elaborato.stato))
@@ -3593,7 +3609,7 @@
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
-        offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori,
+        offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,

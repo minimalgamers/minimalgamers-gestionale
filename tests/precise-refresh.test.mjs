@@ -86,6 +86,14 @@ test('refresh accepts a new matching publication and recent valid one',async()=>
  assert.equal((await A.attendiListini({stato:'avviato'},fresh(),{leggi:async()=>latest,now:()=>ticks,pausa:async ms=>{ticks+=ms}})).generato,latest.generato);
  assert.equal((await A.attendiListini({stato:'recente'},fresh(),{leggi:async()=>fresh(),now:()=>NOW})).generato,fresh().generato);
 });
+
+test('a fresh publication with missing Shopify orders or PC units cannot complete the refresh',()=>{
+ const {A}=env();const d=fresh();
+ assert.throws(()=>A.verificaListini(d,300000,NOW,['77']),/ordini incompleti/);
+ d.ordini[77]={pc:[{quantita:1,pezzi:[]}]};
+ assert.equal(A.verificaListini(d,300000,NOW,['77']),d);
+ assert.throws(()=>A.verificaListini(d,300000,NOW,['77.2']),/ordini incompleti/);
+});
 test('stock and exact customer requirement are checked again across the entire purchase plan',()=>{
  const {A}=env();const a={codice:'GPU-A',fornitore:'ACTION',costo:100,costo_unitario:100,quantita:1,stock:1,ordinabile:true};
  const part={tipo:'GPU',auto:a,alternative:[a]},d=fresh();d.offerte_ordinabili=[a];

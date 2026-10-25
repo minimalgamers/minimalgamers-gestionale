@@ -1962,7 +1962,7 @@
     // Salva i pezzi scelti nelle schede (come prima); il costo netto del Buyer Desk resta come costo inserito
     // se i dati automatici non lo conoscono ancora (come «Cambia» del riquadro)
     async function salvaProposte(scelte, consenso = {}) {
-        const attuali = verificaListini(await carica(true), 5 * 60 * 1000);
+        const attuali = verificaListini(await carica(true), 5 * 60 * 1000, Date.now(), scelte.map(x => x.orderId));
         validaScelte(attuali, scelte.filter(x => !x.riparazioneAccessori));
         if (scelte.some(x => x.riparazioneAccessori) && consenso.confermaAccessori !== true)
             throw new Error('Conferma prima il confronto degli articoli Shopify');
@@ -2013,7 +2013,7 @@
         }
     }
 
-    function verificaListini(dati, maxEta = 24 * 60 * 60 * 1000, now = Date.now()) {
+    function verificaListini(dati, maxEta = 24 * 60 * 60 * 1000, now = Date.now(), ids = []) {
         if (dati?.regole_acquisto !== 'buyerdesk-netto-stock-v1') throw new Error('il motore aggiornato non è ancora disponibile');
         for (const t of [dati.listini, dati.generato]) {
             const age = now - Date.parse(t || '');
@@ -2021,6 +2021,8 @@
             if (!Number.isFinite(age) || age < -60000 || age > limite) throw new Error('i listini non sono aggiornati: nessun cambio proposto');
         }
         if (!dati.ordini || !Array.isArray(dati.offerte_ordinabili)) throw new Error('dati di acquisto incompleti');
+        if (ids.some(id => !pcAutomatico(dati, id)))
+            throw new Error('dati degli ordini incompleti: ricarica Shopify e riprova. Nessun cambio effettuato');
         return dati;
     }
 
@@ -2118,6 +2120,7 @@
                 esito = await r.json();
             } catch (e) { esito = { stato: 'errore' }; }
             const dati = await attendiListini(esito, prima, { scrivi });
+            verificaListini(dati, 5 * 60 * 1000, Date.now(), ids);
             const quando = oraBreve(dati && dati.generato);
             const nota = '';
             const mancanti = ids.reduce((tot, id) => tot + (pcAutomatico(dati, id)?.pezzi || []).filter(p => !p.auto && !p.fisso && !pezzoPreso(p)).length, 0);

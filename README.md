@@ -89,11 +89,21 @@ node tests/config-components.test.mjs
 node tests/accoppiamento-auto.test.mjs
 node tests/gpu-psu.test.mjs
 node tests/build-configuratore.test.mjs
+node tests/assembly-labels.test.mjs
 ```
 
 Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verificano
 la mappa dei `product_id` (unicità compresa) e la cascata degli scope GPO.
 Vanno eseguiti prima di ogni merge.
+
+Le etichette di montaggio distinguono lo SKU di un bundle dal monitor incluso:
+`MG-BUNDLE-*` e `MG-SETUP-*` non sono codici monitor. La descrizione viene dalla
+distinta, confrontata con le specifiche del titolo acquistato; i vecchi ordini con
+lo SKU PC nella riga MONITOR vengono corretti in visualizzazione, senza cambiare
+codici o prezzi d'acquisto. Il colore del case deriva dal pezzo o dalla sola riga
+PC, escludendo le righe OPZIONI. Le note interne di sostituzione e le firme con data
+vengono nascoste nelle schede, PDF ed Excel, conservando modello, MPN e fornitore.
+La regola che abbina il colore mostrato di GPU e scheda madre al case resta attiva.
 
 ## Accoppiamento automatico e Panoramica
 

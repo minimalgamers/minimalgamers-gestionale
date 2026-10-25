@@ -6,7 +6,7 @@ const read = f => readFileSync(new URL('../'+f,import.meta.url),'utf8');
 const moduleSource=read('assets/js/montaggio-export.js'), autoSource=read('assets/js/accoppiamento-auto.js');
 const exportSource=read('assets/js/excel-export.js');
 function env(){const s={window:{},console:{log(){},warn(){}},localStorage:{getItem(){return null;}}};vm.createContext(s);
-    vm.runInContext(moduleSource,s);vm.runInContext(autoSource,s);return {s,M:s.window.MontaggioExport,A:s.window.AccoppiamentoAuto};}
+    vm.runInContext(read('assets/js/order-config-matcher.js'),s);vm.runInContext(moduleSource,s);vm.runInContext(autoSource,s);return {s,M:s.window.MontaggioExport,A:s.window.AccoppiamentoAuto};}
 const ev=(x={})=>({ordine_upgrade:'#4838',categoria:'DISSIPATORE',chiave:'COOLER',valore:'DISSIPATORE A LIQUIDO 360MM',linea_id:'LINEA',unita:0,...x});
 test('categorie hardware, accessori e fallback EXTRA senza inventare modelli',()=>{
     const {M}=env();
@@ -182,6 +182,6 @@ test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file 
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(r\.nome/);
     assert.match(exportSource,/splitTextToSize\(r\.nome, colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=3')<html.indexOf('excel-export.js?v=40'));
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=4')<html.indexOf('excel-export.js?v=41'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });

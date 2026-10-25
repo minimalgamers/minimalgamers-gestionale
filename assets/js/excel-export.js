@@ -161,7 +161,7 @@ async function collectOrdersForExport() {
             // v35: normalizzazione generici + colore anche nel PDF/Excel
             if (descrizione && typeof window.normalizeDisplayName === 'function' &&
                 (compType === 'GPU' || compType === 'SSD' || compType === 'MOBO')) {
-                descrizione = window.normalizeDisplayName(compType, descrizione, pdfCaseColor);
+                descrizione = window.normalizeDisplayName(compType, descrizione, ['WHITE', 'BLACK'].includes(pdfCaseColor) ? pdfCaseColor : '');
             }
 
             const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
@@ -209,7 +209,9 @@ async function collectOrdersForExport() {
             }
 
             if (ean) {
-                const esatto = A.nomeDaCodice?.(dati, ean, {line_items: order.line_items || order.items || []});
+                const esatto = (compTypeKey === 'MONITOR' && typeof window.nomeLeggibileDelCodice === 'function'
+                    ? await window.nomeLeggibileDelCodice(order.id, ean, 'MONITOR') : null) ||
+                    A.nomeDaCodice?.(dati, ean, {line_items: order.line_items || order.items || []}, compTypeKey);
                 if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, ean)) descrizione = esatto.nome;
             }
             let testoExtraType = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
@@ -245,7 +247,7 @@ async function collectOrdersForExport() {
             if (itemEan) {
                 const dbData = await getComponentDataFromDB(itemEan, itemSupplier);
                 if (dbData && dbData.nome) itemDesc = dbData.nome;
-                const esatto = A.nomeDaCodice?.(dati, itemEan, {line_items: order.line_items || order.items || []});
+                const esatto = A.nomeDaCodice?.(dati, itemEan, {line_items: order.line_items || order.items || []}, item.name);
                 if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, itemEan)) itemDesc = esatto.nome;
             }
             let testoExtra = itemDesc || itemEan;
@@ -513,8 +515,10 @@ async function exportProcessedOrdersToExcel() {
 
                 const componentLines = [];
 
-                // v35: colore case per etichetta GPU/MOBO nell'Excel
-                let xlsCaseColor = '';
+                // Stessa regola della scheda: solo la riga PC, senza confondere le OPZIONI.
+                let xlsCaseColor = window.MontaggioExport?.coloreCase(
+                    [domComponents['CASE'] || componentsByType['CASE'] || {}].map(c => ({...c,type:'CASE'})), order, savedOrder) || '';
+                if (!['WHITE', 'BLACK'].includes(xlsCaseColor)) xlsCaseColor = '';
                 {
                     const caseComp = domComponents['CASE'] || componentsByType['CASE'];
                     const caseTxt = `${caseComp?.name || ''} ${caseComp?.ean || ''}`.toUpperCase();
@@ -571,7 +575,7 @@ async function exportProcessedOrdersToExcel() {
                             (compType === 'GPU' || compType === 'SSD' || compType === 'MOBO')) {
                             testoNorm = window.normalizeDisplayName(compType, descrizione, xlsCaseColor);
                         }
-                        componentLines.push(testoNorm);
+                        componentLines.push(window.MontaggioExport?.descrizioneHardware(testoNorm) || testoNorm);
                     }
                 }
                 {
@@ -607,7 +611,12 @@ async function exportProcessedOrdersToExcel() {
                                 if (dbData && dbData.nome) descrizione = dbData.nome;
                             }
                         }
-                        const testoX = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+                        if (compTypeKey === 'MONITOR' && ean && typeof window.nomeLeggibileDelCodice === 'function') {
+                            const esatto = await window.nomeLeggibileDelCodice(order.id, ean, 'MONITOR');
+                            if (esatto?.nome) descrizione = esatto.nome;
+                        }
+                        const rawTestoX = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
+                        const testoX = window.MontaggioExport?.descrizioneHardware(rawTestoX) || rawTestoX;
                         if (testoX && !seenExcel.has(testoX.toUpperCase())) {
                             seenExcel.add(testoX.toUpperCase());
                             componentLines.push(testoX);
@@ -644,7 +653,7 @@ async function exportProcessedOrdersToExcel() {
                         if (dbData && dbData.nome) itemDesc = dbData.nome;
                     }
                     const testoExtra = itemDesc || itemEan;
-                    if (testoExtra) componentLines.push(testoExtra);
+                    if (testoExtra) componentLines.push(window.MontaggioExport?.descrizioneHardware(testoExtra) || testoExtra);
                 }
 
                 const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);

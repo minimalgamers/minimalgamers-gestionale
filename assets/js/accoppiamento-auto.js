@@ -544,12 +544,21 @@
 
     // Nome leggibile di un codice della scheda: la riga dell'ordine Shopify con quello SKU (es. «LG 34G630A-B -
     // Monitor gaming 34" UltraWide QHD»), altrimenti la descrizione del listino con lo stesso codice.
-    function nomeDaCodice(dati, codice, ordine) {
+    function nomeDaCodice(dati, codice, ordine, tipo = null) {
         const k = chiave(codice);
         if (!k) return null;
         const pezzo = pezzoDelCodice(dati, codice);
         const righe = ordine && Array.isArray(ordine.line_items) ? ordine.line_items : [];
         const li = righe.find(l => chiave(l && l.sku) === k);
+        // Il codice di un PC non e' mai il nome di un suo componente.
+        // Per MONITOR estraiamo quello incluso; gli altri tipi restano da risolvere.
+        const pc = li && (window.MontaggioExport?.rigaPc(li) || /\bPC\s+GAMING\b|^\s*(?:BUNDLE|SETUP)\b/i.test(li.name || li.title || ''));
+        if (pc) {
+            if (String(tipo || '').toUpperCase() !== 'MONITOR') return null;
+            const nome = typeof getMonitorDisplayValue === 'function' ? getMonitorDisplayValue(li)
+                : window.MontaggioExport?.monitorIncluso(li);
+            return nome && nome !== 'Generico (AMAZON)' ? { nome, fornitore: '', fonte: 'monitor_incluso' } : null;
+        }
         const nome = li ? String(li.name || li.title || '').trim() : '';
         if (nome) return { nome, fornitore: pezzo ? pezzo.fornitore : '', fonte: 'ordine' };
         return pezzo && pezzo.descrizione ? { nome: pezzo.descrizione, fornitore: pezzo.fornitore, fonte: 'listino' } : null;
@@ -1663,7 +1672,7 @@
             // vanno il fornitore del listino e il nome del prodotto, cosi' l'assemblatore sa quale monitor spedire
             if (tipo === 'MONITOR' && !c.isCustom && !c.is_custom && fornitoreVago(c.supplier)) {
                 const pezzo = pezzoDelCodice(dati, c.ean);
-                const n = nomeDaCodice(dati, c.ean, ordine);
+                const n = nomeDaCodice(dati, c.ean, ordine, 'MONITOR');
                 if (pezzo) c.supplier = pezzo.fornitore;
                 if (n && n.nome && !c.name) c.name = n.nome;
             }

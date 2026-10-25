@@ -35,26 +35,54 @@
         const s = String(testo || '').toUpperCase();
         const bianco = /\bWHITE\b|\bBIANC[OAHEI]*\b|\bSNOW\b/.test(s);
         const nero = /\bBLACK\b|\bNER[OAHEI]*\b|\bPITCH\b/.test(s);
-        return bianco === nero ? '' : bianco ? 'WHITE' : 'BLACK';
+        const rosa = /\bPINK\b|\bROSA\b/.test(s);
+        return [bianco, nero, rosa].filter(Boolean).length !== 1 ? '' : bianco ? 'WHITE' : nero ? 'BLACK' : 'PINK';
+    }
+    function rigaPc(item) {
+        const nome = String(item?.name || item?.title || '');
+        if (/^\s*(?:OPZIONI|AGGIORNAMENTO ORDINE)\b/i.test(nome)) return false;
+        const id = String(item?.product_id || item?.productId || '').replace(/^gid:\/\/shopify\/Product\//, '');
+        const mappa = typeof window !== 'undefined' ? window.OrderConfigMatcher?.PRODUCT_ID_CONFIG_KEYS || {} : {};
+        if (mappa[id]) return true;
+        const n = nome.trim().replace(/\s+/g, ' ').toUpperCase();
+        if (Object.values(mappa).some(k => /^(?:MSI|DEEPCOOL) /.test(k) && (n === k || n.startsWith(k + ' ') || n.startsWith(k + ' -')))) return true;
+        return /\bPC\s+GAMING\b|^\s*(?:SETUP|BUNDLE)\b/i.test(nome);
+    }
+    function monitorIncluso(item, componente = '') {
+        const titolo = String(item?.name || item?.title || '');
+        // Legge solo la porzione monitor: mai il titolo intero o lo SKU del PC.
+        const scelta = (titolo.match(/\bMONITOR\s+[^+|]+/i) || [''])[0].trim();
+        const valore = String(componente || '').trim();
+        const hz = s => (s.match(/\b(\d{2,3})\s*HZ\b/i) || [])[1] || '';
+        const ms = s => (s.match(/\b(\d+(?:[.,]\d+)?)\s*MS\b/i) || [])[1]?.replace(',', '.') || '';
+        // Il modello viene dalla distinta; se nel vecchio ordine era venduta
+        // un'altra frequenza/risposta, resta la specifica storica, senza inventare un modello.
+        const compatibile = (!hz(scelta) || hz(scelta) === hz(valore)) && (!ms(scelta) || ms(scelta) === ms(valore));
+        if (valore && !/^MG-/i.test(valore) && !rigaPc({name:valore}) && (!scelta || compatibile)) return valore;
+        return scelta;
     }
     function proprietaCase(props) {
+        if (Array.isArray(props)) props = Object.fromEntries(props.map(p => [p.name || '', p.value]));
         return Object.entries(props || {}).filter(([k]) => /^(CASE|COLORE CASE|CASE COLOR)$/i.test(k.trim())).map(([,v]) => v).join(' ');
     }
     function coloreCase(componenti, ordine, salvato) {
         const c = (componenti || []).find(x => categoria(x.tipo || x.type) === 'CASE') || {};
         // Il colore del pezzo effettivamente salvato prevale. Mai derivarlo da GPU/MOBO.
-        const reale = colore(c.nome || c.name) || colore(c.ean || c.value);
+        const reale = colore(String(c.nome || c.name || '').replace(/\s*[-·]\s*COLORE(?: CASE)?:.*$/i, '')) || colore(c.ean || c.value);
         if (reale) return reale;
-        const noti = { 'GEHY-037':'BLACK', 'GEHY-034':'WHITE', 'GELI-975':'BLACK', 'GELI-976':'WHITE' };
+        // Identificativi CG530 verificati sulla distinta, non un generico "BK" in qualsiasi codice.
+        const mpn = String(c.nome || c.name || '').match(/\bR-CG530-(BK|WH)[A-Z0-9-]*\b/i);
+        if (mpn) return mpn[1].toUpperCase() === 'WH' ? 'WHITE' : 'BLACK';
+        const noti = { 'GEHY-037':'BLACK', 'GEHY-034':'WHITE', 'GELI-975':'BLACK', 'GELI-976':'WHITE', 'DPCG5304F':'BLACK', 'DPCG530WH4F':'WHITE' };
         if (noti[String(c.ean || c.value || '').toUpperCase()]) return noti[String(c.ean || c.value).toUpperCase()];
-        const props = colore(proprietaCase(salvato?.customProperties));
+        const props = colore(proprietaCase(salvato?.customProperties || salvato?.custom_properties));
         if (props) return props;
         // items contiene solo il PC di questa scheda (anche per ordini divisi).
-        const pcs = (ordine?.items || []).filter(x => /PC GAMING|MSI|DEEPCOOL/i.test(x.name || ''));
-        if (pcs.length === 1) return colore(proprietaCase(pcs[0].customProperties || pcs[0].custom_properties));
+        const pcs = (ordine?.items || ordine?.line_items || []).filter(rigaPc);
+        if (pcs.length === 1) return colore(proprietaCase(pcs[0].customProperties || pcs[0].custom_properties || pcs[0].properties));
         return '';
     }
-    const nomeColore = c => c === 'WHITE' ? 'BIANCO (WHITE)' : c === 'BLACK' ? 'NERO (BLACK)' : 'DA VERIFICARE';
+    const nomeColore = c => c === 'WHITE' ? 'BIANCO (WHITE)' : c === 'BLACK' ? 'NERO (BLACK)' : c === 'PINK' ? 'ROSA (PINK)' : 'DA VERIFICARE';
     function descrizioneCase(nome, c) {
         return String(nome || '').replace(/\s*[-·]\s*COLORE(?: CASE)?:.*$/i, '').trim() + ' - COLORE: ' + nomeColore(c);
     }
@@ -132,7 +160,7 @@
                 : r.tipo === 'VENTOLE' ? descrizioneVentole(nome, c) : preparazione.nome };
         });
     }
-    const api = { categoria, categoriaVoce, codiceNonRisolto, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, descrizioneExtra, distinta, base, software };
+    const api = { categoria, categoriaVoce, codiceNonRisolto, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, descrizioneExtra, distinta, rigaPc, monitorIncluso, base, software };
     if (typeof window !== 'undefined') window.MontaggioExport = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

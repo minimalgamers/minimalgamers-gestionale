@@ -242,7 +242,7 @@ assert.equal(A.wattAlimentatore('0512'), null);                     // codice so
 assert.equal(A.wattAlimentatore('8435099500123'), null);            // EAN
 const pcPsu = (codice, descrizione) => ({ pezzi: [{ tipo: 'PSU', nome_tipo: 'Alimentatore', fisso: null,
   manuale: { codice, descrizione, fornitore: 'ABACO' },
-  auto: { codice, descrizione, fornitore: 'ACTION', costo: 90 } }] });
+  auto: { stock: 100, ordinabile: true, codice, descrizione, fornitore: 'ACTION', costo: 90 } }] });
 const msi = pcPsu('MAG A850GL', 'MSI ALIMENTATORE MAG A850GL PCIE5, EU, 850W, FULLY-MODULAR, 80 PLUS GOLD');
 let dv = A.pezziDiversi([{ tipo: 'PSU', ean: 'DEEPCOOL PF-600X 80+ BRONZE' }, { tipo: 'GPU', ean: 'X' }], msi);
 assert.equal(dv.length, 1);
@@ -288,7 +288,7 @@ const pcExtra = { pezzi: [
     auto: null, fisso: { id: 'office', descrizione: 'Microsoft Office', fornitore: '', costo: null } },
   { tipo: 'ACCESSORIO', nome_tipo: 'Accessori', cliente: 'KIT', manuale: { codice: 'KIT' },
     auto: null, fisso: { id: 'kit_gaming', descrizione: 'Kit gaming', fornitore: 'AMAZON', costo: 40 } },
-  { tipo: 'GPU', nome_tipo: 'Scheda video', manuale: { codice: 'X' }, auto: { costo: 300, fornitore: 'ACTION' }, fisso: null }
+  { tipo: 'GPU', nome_tipo: 'Scheda video', manuale: { codice: 'X' }, auto: { stock: 100, ordinabile: true, costo: 300, fornitore: 'ACTION' }, fisso: null }
 ] };
 let ex = A.extraOrdine(pcExtra, ['GPU', 'KIT GAMING'], [{ name: 'WIFI PCI', value: 'WIFI PCI' }], {});
 assert.deepEqual(Array.from(ex, x => x.tipo), ['WIFI', 'SERVIZIO', 'SOFTWARE']);   // il kit e' gia' una riga della scheda
@@ -352,7 +352,7 @@ assert.match(dp, /a magazzino: prezzo pagato/);
 assert.match(dp, /CASE<\/b> · NOUA C<\/span><span><span class="acc-incompleto">manca/);
 assert.equal(A.dettaglioPezzi([]), '');
 // pezzo della scheda che e' quello a magazzino: prezzo pagato
-const pcMag = { pezzi: [{ tipo: 'PSU', manuale: { codice: 'DEEPCOOL PN850-D V2 80+ GOLD' }, auto: { costo: 70, fornitore: 'ABACO', descrizione: 'PQ850G' }, fisso: null }] };
+const pcMag = { pezzi: [{ tipo: 'PSU', manuale: { codice: 'DEEPCOOL PN850-D V2 80+ GOLD' }, auto: { stock: 100, ordinabile: true, costo: 70, fornitore: 'ABACO', descrizione: 'PQ850G' }, fisso: null }] };
 Object.defineProperty(pcMag.pezzi[0], 'mag', { value: { def: { costo: 50 } } });
 assert.equal(A.costoMagazzino(pcMag, 'ALIMENTATORE', 'DEEPCOOL PN850-D V2 80+ GOLD'), 50);
 assert.equal(A.costoMagazzino(pcMag, 'PSU', 'ALTRO ALIMENTATORE'), null);
@@ -410,15 +410,15 @@ const datiM = {
   generato: 'prova',
   voci: [
     { manuale: { codice: '9019', fornitore: 'TIER ONE', quantita: 1, descrizione: 'AMD Ryzen 7 7800X3D Box', costo: 250 },
-      auto: { fornitore: 'TIER ONE', codice: '2520', mpn: '', descrizione: 'AMD Ryzen 7 7800X3D Tray', quantita: 1, costo: 205 }, fisso: null },
+      auto: { stock: 100, ordinabile: true, fornitore: 'TIER ONE', codice: '2520', mpn: '', descrizione: 'AMD Ryzen 7 7800X3D Tray', quantita: 1, costo: 205 }, fisso: null },
     { manuale: { codice: 'GPU-MSI-OLD', fornitore: 'ABACO', quantita: 1, descrizione: 'MSI RTX 5070 VENTUS', costo: 600 },
-      auto: { fornitore: 'ACTION', codice: 'GPU-ASUS', mpn: '', descrizione: 'ASUS Dual RTX 5070', quantita: 1, costo: 560 }, fisso: null },
+      auto: { stock: 100, ordinabile: true, fornitore: 'ACTION', codice: 'GPU-ASUS', mpn: '', descrizione: 'ASUS Dual RTX 5070', quantita: 1, costo: 560 }, fisso: null },
     { manuale: { codice: 'COOL-BIANCO', fornitore: 'ACTION', quantita: 1, descrizione: 'AIO 240 WHITE', costo: 70 },
-      auto: { fornitore: 'ACTION', codice: 'COOL-NERO', mpn: '', descrizione: 'AIO 240 nero', quantita: 1, costo: 55 }, fisso: null },
+      auto: { stock: 100, ordinabile: true, fornitore: 'ACTION', codice: 'COOL-NERO', mpn: '', descrizione: 'AIO 240 nero', quantita: 1, costo: 55 }, fisso: null },
     { manuale: { codice: 'RAM-KIT', fornitore: 'ACTION', quantita: 1, descrizione: 'RAM 16GB kit 2x8', costo: 60 },
-      auto: { fornitore: 'ACTION', codice: 'RAM-8', mpn: '', descrizione: 'RAM 8GB', quantita: 2, costo: 40 }, fisso: null },
+      auto: { stock: 100, ordinabile: true, fornitore: 'ACTION', codice: 'RAM-8', mpn: '', descrizione: 'RAM 8GB', quantita: 2, costo: 40 }, fisso: null },
     { manuale: { codice: 'SSD-1TB', fornitore: 'OMEGA', quantita: 1, descrizione: 'SSD 1TB NVMe', costo: 60 },
-      auto: { fornitore: 'ACTION', codice: 'SSD-A', mpn: '', descrizione: 'Crucial P3 1TB NVMe', quantita: 1, costo: 52 }, fisso: null }
+      auto: { stock: 100, ordinabile: true, fornitore: 'ACTION', codice: 'SSD-A', mpn: '', descrizione: 'Crucial P3 1TB NVMe', quantita: 1, costo: 52 }, fisso: null }
   ],
   distinte: { 'PC MINIMAL': { CPU: 0, COOLER: 2, RAM: 3, SSD: 4 }, 'MSI BUILD': { GPU: 1 } },
   linee: { 'PC MINIMAL': 'MINIMAL', 'MSI BUILD': 'MSI' },
@@ -429,14 +429,14 @@ const datiM = {
     '700': { nome: '#9700', pc: [
       { build: 'PC MINIMAL', linea: 'MINIMAL', quantita: 2, pezzi: [
         { tipo: 'CPU', cliente: '', manuale: { codice: '9019', descrizione: 'AMD Ryzen 7 7800X3D Box' },
-          auto: { codice: '2520', fornitore: 'TIER ONE', descrizione: 'AMD Ryzen 7 7800X3D Tray', quantita: 1, costo: 205 }, fisso: null },
+          auto: { stock: 100, ordinabile: true, codice: '2520', fornitore: 'TIER ONE', descrizione: 'AMD Ryzen 7 7800X3D Tray', quantita: 1, costo: 205 }, fisso: null },
         { tipo: 'COOLER', cliente: '', manuale: { codice: 'COOL-BIANCO', descrizione: 'AIO 240 WHITE' },
-          auto: { codice: 'COOL-NERO', fornitore: 'ACTION', descrizione: 'AIO 240 nero', quantita: 1, costo: 55 }, fisso: null }] },
+          auto: { stock: 100, ordinabile: true, codice: 'COOL-NERO', fornitore: 'ACTION', descrizione: 'AIO 240 nero', quantita: 1, costo: 55 }, fisso: null }] },
       { build: 'MSI BUILD', linea: 'MSI', quantita: 1, pezzi: [
         { tipo: 'GPU', cliente: 'RTX 5070', manuale: { codice: 'GPU-MSI-OLD', descrizione: 'MSI RTX 5070 VENTUS' },
-          auto: { codice: 'GPU-MSI-NEW', fornitore: 'ABACO', descrizione: 'GeForce RTX 5070 12G SHADOW 2X OC', quantita: 1, costo: 590 }, fisso: null },
+          auto: { stock: 100, ordinabile: true, codice: 'GPU-MSI-NEW', fornitore: 'ABACO', descrizione: 'GeForce RTX 5070 12G SHADOW 2X OC', quantita: 1, costo: 590 }, fisso: null },
         { tipo: 'PSU', cliente: '', manuale: { codice: 'MSI MAG A850GL', descrizione: 'MSI MAG A850GL 850W' },
-          auto: { codice: 'MSI-A650', fornitore: 'ABACO', descrizione: 'MSI MAG A650BN 650W', quantita: 1, costo: 50 }, fisso: null }] }] }
+          auto: { stock: 100, ordinabile: true, codice: 'MSI-A650', fornitore: 'ABACO', descrizione: 'MSI MAG A650BN 650W', quantita: 1, costo: 50 }, fisso: null }] }] }
   }
 };
 // il gestionale fa un PC per unita' (quantita' 2 -> .1 e .2), l'automatico una voce per riga
@@ -551,10 +551,7 @@ assert.equal(A.vocePerCodice(datiCodice, { configKey: 'PC TOP', variants: {} }, 
 vm.runInContext(`processedOrdersCache['800'] = { components: [{ type: 'CASE', ean: 'NOUA VITRA WHITE', supplier: 'NOUA', name: '', price: null, quantity: 1 }] };`, sandbox);
 const datiCase = { ordini: { '800': { nome: '#9800', pc: [{ ...pcBundle, quantita: 1 }] } } };
 prop = A.proposteOrdine(datiCase, '800', [{ tipo: 'CASE', ean: 'NOUA VITRA WHITE', fornitore: 'NOUA', nome: 'NOUA Vitra', costo: 27, fonte: 'fisso' }]);
-assert.equal(prop.length, 1);
-assert.equal(prop[0].a.codice, 'CASE ATX WHITE');
-assert.equal(prop[0].a.fornitore, 'ALTRO');
-assert.equal(prop[0].a.costo, 40);
+assert.equal(prop.length, 0); // il budget non è un'offerta realmente disponibile
 // gia' CASE ATX: niente da cambiare; all'elaborazione (stesso pezzo) la regola del gestionale non si tocca
 assert.equal(A.proposteOrdine(datiCase, '800', [{ tipo: 'CASE', ean: 'CASE ATX WHITE', fornitore: 'ALTRO', costo: 40 }]).length, 0);
 assert.equal(A.sostitutoDaOrdine(pcBundle, { tipo: 'CASE', ean: 'NOUA VITRA WHITE', fornitore: 'NOUA', quantita: 1 }, true), null);
@@ -562,11 +559,11 @@ assert.equal(A.sostitutoDaOrdine(pcBundle, { tipo: 'CASE', ean: 'NOUA VITRA WHIT
 // --- 30/09 «a scalare»: un pezzo diviso tra piu' fornitori per i PC di una riga (dati di prova) ---
 // Riga con 3 PC uguali: RAM 2 PC dal fornitore AAA (l'unico con pezzi), 1 PC da BBB; processore tutto da CCC.
 const pezzoDiviso = { tipo: 'RAM', nome_tipo: 'RAM', manuale: { codice: 'RAM-X' }, fisso: null, costo: 11,
-  auto: { fornitore: 'AAA', codice: 'R-A', descrizione: 'RAM prova A', quantita: 1, costo: 10, disponibilita: '2 pz' },
+  auto: { stock: 100, ordinabile: true, fornitore: 'AAA', codice: 'R-A', descrizione: 'RAM prova A', quantita: 1, costo: 10, disponibilita: '2 pz' },
   auto_parti: [{ fornitore: 'AAA', codice: 'R-A', descrizione: 'RAM prova A', quantita: 1, costo: 10, pc: 2, disponibilita: '2 pz' },
                { fornitore: 'BBB', codice: 'R-B', descrizione: 'RAM prova B', quantita: 1, costo: 13, pc: 1, disponibilita: '9 pz' }] };
 const pezzoIntero = { tipo: 'CPU', nome_tipo: 'Processore', manuale: { codice: 'CPU-X' }, fisso: null, costo: 50,
-  auto: { fornitore: 'CCC', codice: 'C-1', descrizione: 'CPU prova', quantita: 1, costo: 50 } };
+  auto: { stock: 100, ordinabile: true, fornitore: 'CCC', codice: 'C-1', descrizione: 'CPU prova', quantita: 1, costo: 50 } };
 const datiScala = { ordini: { '900': { nome: '#9900', pc: [{ build: 'PC PROVA', quantita: 3, pezzi: [pezzoDiviso, pezzoIntero] }] } } };
 const rs = A.riepilogoFornitori(datiScala, ['900'], {});
 assert.deepEqual([rs.AAA[0].codice, rs.AAA[0].quantita, rs.AAA[0].costo], ['R-A', 2, 20]);
@@ -832,9 +829,9 @@ assert.equal(rigaMon.disponibilita, '2 pz');
 console.log('ok monitor #4821');
 
 // --- 02/10: «nei pezzi i nomi precisi con fornitore e prezzo (IVA esclusa o inclusa, intermediario o no)» ---
-assert.match(A.comeSiPaga('ACTION', 'GPU', 392.18), /^tramite intermediario: si pagano 478,46\s€ IVA inclusa \(listino ACTION 434,96\s€ \+ 10%\)$/);
-assert.match(A.comeSiPaga('TIER ONE', 'CPU', 121), /CPU diretta da TIER ONE \(art\. 17, reverse charge\): costo = listino, senza IVA/);
-assert.match(A.comeSiPaga('ABACO', 'PSU', 28.69), /si pagano 28,69\s€ \+ IVA 22% = 35,00\s€ \(IVA detraibile\)/);
+assert.match(A.comeSiPaga('ACTION', 'GPU', 392.18), /costo netto d’acquisto 392,18.*listino fornitore 434,96.*intermediario \+10%/);
+assert.match(A.comeSiPaga('TIER ONE', 'CPU', 121), /TIER ONE: CPU diretta, costo netto uguale al listino/);
+assert.match(A.comeSiPaga('ABACO', 'PSU', 28.69), /ABACO: costo netto uguale al listino \(28,69/);
 assert.equal(A.comeSiPaga('AMAZON', 'CASE', 49.18), '');
 assert.equal(A.comeSiPaga('ACTION', 'GPU', null), '');
 const pz = A.righePezziConto([
@@ -842,7 +839,7 @@ const pz = A.righePezziConto([
   { tipo: 'PSU', fornitore: 'ABACO', nome: 'DEEPCOOL PF-600X', ean: 'DEEPCOOL PF-600X 80+ BRONZE', costo: 28.69, fonte: 'magazzino' },
   { tipo: 'GPU', fornitore: 'AAA', nome: 'X', ean: 'INTEGRATA', costo: 0, fonte: 'listino' }], true);
 assert.match(pz, /GPU<\/b> · ACTION Karta graf\. INNO3D RTX 5060 Ti Twin X2 8GB<\/span>/);       // nome preciso, non il chipset
-assert.match(pz, /codice VGAIN3NVD0156 · tramite intermediario: si pagano 478,46/);
+assert.match(pz, /codice VGAIN3NVD0156 · costo netto d’acquisto 392,18/);
 assert.match(pz, /data-cambia="0"/);
 assert.match(pz, /data-cambia="1"/);                                                          // anche il pezzo a magazzino si puo' cambiare
 assert.doesNotMatch(pz, /data-cambia="2"/);                                                   // riga senza pezzo
@@ -912,7 +909,7 @@ assert.equal(A.ricercaProposta(pr('SSD', 'SSD 1TB M.2 NVMe', '')), '1TB NVMe');
 assert.equal(A.ricercaProposta(pr('CASE', 'NOUA Vitra M-ATX WHITE ARGB', '')), 'NOUA Vitra M-ATX ARGB');
 // offerta del Buyer Desk: prezzo netto se confrontabile, altrimenti nessun costo (non 0)
 assert.deepEqual(J(A.sceltaDaBuyerDesk({ codice: 'K1', fornitore: 'TIER ONE', descrizione: 'Cooler K', prezzo: 9.456, disponibilita: '5 pz' })),
-  { codice: 'K1', fornitore: 'TIER ONE', descrizione: 'Cooler K', costo: 9.46, disponibilita: '5 pz', daBuyerDesk: true });
+  { codice: 'K1', fornitore: 'TIER ONE', descrizione: 'Cooler K', costo: 9.46, quantita: 1, disponibilita: '5 pz', daBuyerDesk: true });
 assert.equal(A.sceltaDaBuyerDesk({ codice: 'K2', fornitore: 'X', prezzo: null }).costo, null);
 // prezzi inventati (questo repo e' pubblico: niente costi veri dei fornitori)
 const wr = { ean: 'WRAITH', fornitore: 'ACTION', nome: 'AMD AM4 + AM5 Wraith Stealth CPU Cooling', costo: 5 };
@@ -959,7 +956,16 @@ const lsScritti = {};
 sandbox.localStorage.getItem = (k) => (k in lsScritti ? lsScritti[k] : null);
 sandbox.localStorage.setItem = (k, v) => { lsScritti[k] = v; };
 vm.runInContext('var updateProcessedOrderComponent = async (id, tipo, codice, nome, fornitore) => { globalThis.__salvati.push([id, tipo, codice, fornitore]); return id !== "KO"; };', Object.assign(sandbox, { __salvati: salvati }));
+const stockContract = {regole_acquisto:'buyerdesk-netto-stock-v1', generato:new Date().toISOString(), listini:new Date().toISOString(), ordini:{}, offerte_ordinabili:[]};
+for (const x of [propS[0],propS[1],{...propS[2],orderId:'KO'}]) {
+  const target=x.scelta||x.a;
+  const available={...target, costo_unitario:target.costo, quantita:1, stock:100, ordinabile:true};
+  stockContract.offerte_ordinabili.push(available);
+  stockContract.ordini[x.orderId]={pc:[{quantita:1,pezzi:[{tipo:x.tipo,auto:available,alternative:[available]}]}]};
+}
+A.stato.inCorso=true; A.stato.promessa=Promise.resolve(stockContract);
 assert.equal(await A.salvaProposte([propS[0], propS[1], { ...propS[2], orderId: 'KO' }]), 2);
+A.stato.inCorso=false; A.stato.promessa=null;
 assert.deepEqual(J(salvati), [['4814', 'COOLER', 'AG300-TO', 'TIER ONE'], ['4813', 'GPU', 'G2', 'OMEGA'], ['KO', 'COOLER', 'DPAG300', 'ABACO']]);
 assert.equal(JSON.parse(lsScritti.accoppiamento_costi_manuali)['COOLER|AG300TO'], 11.5);   // costo del Buyer Desk ricordato
 assert.equal(JSON.parse(lsScritti.accoppiamento_costi_manuali)['GPU|G2'], undefined);      // la proposta ha gia' il suo costo
@@ -973,7 +979,7 @@ const datiConf = { ordini: { 9100: { nome: '#9100', data: '03/10', pc: [{
   pezzi: [
     { tipo: 'CPU', nome_tipo: 'Processore', cliente: 'AMD Ryzen 7 8700G', costo: 200,
       manuale: { codice: 'A87', fornitore: 'ACTION', quantita: 1 },
-      auto: { codice: 'O87', fornitore: 'OMEGA', descrizione: 'AMD RYZEN 7 8700G BOX', quantita: 1, costo: 200 } },
+      auto: { stock: 100, ordinabile: true, codice: 'O87', fornitore: 'OMEGA', descrizione: 'AMD RYZEN 7 8700G BOX', quantita: 1, costo: 200 } },
     { tipo: 'GPU', nome_tipo: 'Scheda video', cliente: 'Grafica integrata', costo: 0, senza_costo: true,
       manuale: { codice: 'INTEGRATA', fornitore: 'INTEGRATA', quantita: 1 }, auto: null, fisso: { costo: 0 } }
   ] }] } } };

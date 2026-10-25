@@ -490,6 +490,7 @@
         const wGiusto = wattAlimentatore(giustoNome);
         const out = [];
         for (const r of righeScheda) {
+            if (['MONITOR','TASTIERA','MOUSE','CUFFIE','KIT GAMING'].includes(r.tipo)) continue;
             if ((TIPI[r.tipo] || r.tipo) !== 'PSU' || !r.ean) continue;
             const wScheda = wattAlimentatore(r.ean);
             const pocaPotenza = wGiusto != null && wScheda != null && wScheda < wGiusto;
@@ -812,11 +813,11 @@
         if (netto == null || isNaN(Number(netto))) return '';
         const n = Number(netto);
         if (CANALE_INT.includes(f)) {
-            if ((TIPI[tipo] || tipo) === 'CPU') return `CPU diretta da ${f} (art. 17, reverse charge): costo = listino, senza IVA`;
+            if ((TIPI[tipo] || tipo) === 'CPU') return `${f}: CPU diretta, costo netto uguale al listino`;
             const pagato = tonda(n * IVA);
-            return `tramite intermediario: si pagano ${eur(pagato)} IVA inclusa (listino ${f} ${eur(tonda(pagato / 1.10))} + 10%)`;
+            return `costo netto d’acquisto ${eur(n)}; listino fornitore ${eur(tonda(pagato / 1.10))}; intermediario +10% = ${eur(pagato)} IVA inclusa`;
         }
-        if (CANALE_DIST.includes(f)) return `si pagano ${eur(n)} + IVA 22% = ${eur(tonda(n * IVA))} (IVA detraibile)`;
+        if (CANALE_DIST.includes(f)) return `${f}: costo netto uguale al listino (${eur(n)})`;
         return '';
     }
 
@@ -1230,8 +1231,13 @@
             const vStesso = v && v.manuale && chiave(v.manuale.codice) === chiave(man.ean) ? v : vocePerCodice(dati, ctx, tipo, man.ean, man.fornitore);
             const pRiga = pezzoDellaRiga(auto, tipo, man.ean);
             const mag = costoMagazzino(auto, tipo, man.ean);
+            const quantita = Math.max(1, Number(row.dataset.quantity) || Number(componentiSalvati(orderId).find(c => c.type === tipo && chiave(c.ean) === chiave(man.ean))?.quantity) || 1);
+            const offertaAttuale = (dati?.offerte_ordinabili || []).find(a => chiave(a.codice) === chiave(man.ean) &&
+                String(a.fornitore).toUpperCase() === String(man.fornitore).toUpperCase());
             if (pagato != null) { costo = pagato; fonte = 'acquistato'; }
             else if (mag != null) { costo = mag; fonte = 'magazzino'; }     // a terra: prezzo pagato, come nell'Excel
+            else if (offertaAttuale) { costo = tonda(offertaAttuale.costo_unitario * quantita); fonte = 'listino'; }
+            else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = tonda(sch.costo * quantita); fonte = 'listino'; }
             else if (vStesso && vStesso.manuale && vStesso.manuale.costo != null && chiave(vStesso.manuale.codice) === chiave(man.ean)) { costo = vStesso.manuale.costo; fonte = 'listino'; }
             else if (scelto != null) { costo = scelto; fonte = 'listino'; }
             else if (pRiga && pRiga.manuale && pRiga.manuale.costo != null) { costo = pRiga.manuale.costo; fonte = 'listino'; }
@@ -1252,7 +1258,7 @@
             const salvatoRiga = componentiSalvati(orderId).find(x => x.type === tipo && chiave(x.ean) === chiave(man.ean));
             const descrizione = stessoCodice(vStesso && vStesso.manuale) || stessoCodice(pRiga && pRiga.manuale) ||
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
-            conti.righe.push({ tipo, ean: man.ean, fornitore: daCodice ? delCodice.fornitore : man.fornitore,
+            conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: daCodice ? delCodice.fornitore : man.fornitore,
                 nome: man.nome, descrizione, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push({ tipo, ean: man.ean });
             else { conti.man += costo; if (stima) conti.stime++; }
@@ -1585,13 +1591,20 @@
 
     function rispettaScheda(linea, tipo, scheda, a, quantita) {
         const nuovo = [a.descrizione, a.codice, a.mpn].filter(Boolean).join(' ');
-        if (!coloreRispettato(scheda, nuovo) || !marcaRispettata(linea, tipo, scheda, nuovo)) return false;
+        const coloreConta = tipo === 'CASE' || (tipo === 'COOLER' && /LIQUID|AIO|CORE\s*LIQUID|KRAKEN|\bL[STEC]\d{3}\b/i.test(scheda + ' ' + nuovo));
+        if ((coloreConta && !coloreRispettato(scheda, nuovo)) || !marcaRispettata(linea, tipo, scheda, nuovo)) return false;
         if (!stessaQuantita(a.quantita, quantita)) return false;
         if (tipo === 'PSU') {
             const wScheda = wattAlimentatore(scheda), wNuovo = wattAlimentatore(nuovo);
             if (wScheda != null && (wNuovo == null || wNuovo < wScheda)) return false;
         }
         return true;
+    }
+
+    function offertaOrdinabile(a) {
+        if (!a || a.ordinabile === false || a.da_confermare || /riservat|in arrivo|da confermare|non (?:ordinabile|disponibile)/i.test(a.disponibilita || '')) return false;
+        const stock = a.stock ?? (/\b(\d+)\s*pz\b/i.exec(a.disponibilita || '') || [])[1];
+        return Number(stock) >= Math.max(1, Number(a.quantita) || 1) && Number(a.costo) > 0;
     }
 
     // Pezzo dell'automatico di quest'ordine da mettere al posto della riga r {tipo, ean, fornitore, nome,
@@ -1606,7 +1619,7 @@
         if (stessoPezzo && chiave(m.codice) !== chiave(r.ean)) return null;
         // 30/09: il case che la regola del gestionale vuole oggi (TOP o scheda madre cambiata: CASE ATX) quando nella
         // scheda c'e' ancora quello vecchio (es. NOUA Vitra M-ATX con una scheda madre ATX)
-        if (!stessoPezzo && p.tipo === 'CASE' && /regola case/i.test(p.origine || '') && m.codice &&
+        if (!stessoPezzo && p.tipo === 'CASE' && p.auto && offertaOrdinabile(p.auto) && /regola case/i.test(p.origine || '') && m.codice &&
             chiave(m.codice) !== chiave(r.ean) && !(p.auto && [p.auto.codice, p.auto.mpn].map(chiave).includes(chiave(r.ean)))) {
             const regolaCase = { ...p, auto: p.auto || { codice: m.codice, fornitore: m.fornitore || (p.fisso && p.fisso.fornitore) || 'ALTRO',
                 descrizione: m.codice, costo: p.costo, quantita: 1, disponibilita: p.fisso ? 'budget del case (regola del gestionale)' : '' } };
@@ -1614,7 +1627,7 @@
             const schedaCase = [r.ean, r.nome, p.cliente].filter(Boolean).join(' ');
             return rispettaScheda(auto.linea, 'CASE', schedaCase, { ...regolaCase.auto, descrizione: `${regolaCase.auto.descrizione || ''} ${m.codice}` }, r.quantita) ? regolaCase : null;
         }
-        if (!p.auto || !p.auto.codice || p.fisso) return null;
+        if (!p.auto || !p.auto.codice || p.fisso || !offertaOrdinabile(p.auto)) return null;
         const codici = [p.auto.codice, p.auto.mpn].filter(Boolean).map(chiave);
         const stessoFornitore = String(r.fornitore || '').toUpperCase().trim() === String(p.auto.fornitore || '').toUpperCase().trim();
         if (codici.includes(chiave(r.ean)) && stessoFornitore) return null;
@@ -1632,7 +1645,7 @@
         const tipo = TIPI[c.type] || c.type;
         if (!TIPI_VOCE_MIGLIORE.includes(tipo)) return null;
         const v = voceAutomatica(dati, ctx, c.type, c.ean, c.supplier);
-        if (!v || !v.auto || !v.auto.codice || v.fisso) return null;
+        if (!v || !v.auto || !v.auto.codice || v.fisso || !offertaOrdinabile(v.auto)) return null;
         const m = v.manuale || {};
         if (chiave(m.codice) !== chiave(c.ean)) return null;               // la voce non parla di questo pezzo
         const codici = [v.auto.codice, v.auto.mpn].filter(Boolean).map(chiave);
@@ -1709,9 +1722,10 @@
                 nome: salvato ? salvato.name : '', quantita: salvato ? salvato.quantity : 1 });
             if (!p) continue;
             out.push({ orderId, ordine: (dati.ordini[String(orderId).split('.')[0]] || {}).nome || `#${orderId}`,
-                tipo: r.tipo, da: { ean: r.ean, fornitore: r.fornitore, nome: r.nome, costo: r.costo, fonte: r.fonte },
+                tipo: r.tipo, quantita: Math.max(1, Number(salvato?.quantity) || 1), da: { ean: r.ean, fornitore: r.fornitore, nome: r.nome, costo: r.costo, fonte: r.fonte },
                 a: { codice: p.auto.codice, fornitore: p.auto.fornitore, descrizione: p.auto.descrizione || p.auto.codice,
-                    costo: p.auto.costo, disponibilita: p.auto.disponibilita, daConfermare: !!p.auto.da_confermare } });
+                    costo: p.auto.costo, quantita: p.auto.quantita, stock: p.auto.stock, ordinabile: p.auto.ordinabile,
+                    disponibilita: p.auto.disponibilita, daConfermare: !!p.auto.da_confermare } });
         }
         return out;
     }
@@ -1783,10 +1797,12 @@
     }
 
     // L'offerta mandata dal Buyer Desk («Scegli»), col prezzo netto se e' confrontabile
-    function sceltaDaBuyerDesk(d) {
+    function sceltaDaBuyerDesk(d, quantita = 1) {
         const prezzo = d && d.prezzo != null && d.prezzo !== '' ? Number(d.prezzo) : NaN;
         return { codice: String(d.codice), fornitore: String(d.fornitore), descrizione: String(d.descrizione || d.codice),
-            costo: !isNaN(prezzo) && prezzo > 0 ? tonda(prezzo) : null, disponibilita: String(d.disponibilita || ''), daBuyerDesk: true };
+            costo: !isNaN(prezzo) && prezzo > 0 ? tonda(prezzo * quantita) : null, quantita,
+            stock: d.stock, ordinabile: d.ordinabile, da_confermare: d.da_confermare,
+            disponibilita: String(d.disponibilita || ''), daBuyerDesk: true };
     }
 
     // Le altre righe con lo stesso cambio (stesso tipo, stesso pezzo nella scheda, stessa proposta)
@@ -1823,7 +1839,7 @@
             `<input type="checkbox" id="acc-prop-${i}" data-prop="${i}" data-prop-di="${k}" checked aria-label="Cambia ${esc(x.tipo)} di ${esc(x.ordine)}">` +
             `<div class="acc-prop-corpo"><label class="acc-prop-testo" for="acc-prop-${i}"><b>${esc(x.tipo)}</b>: ${esc(x.da.fornitore || '')} ${esc(x.da.nome || x.da.ean)}` +
             `${x.da.costo != null ? ` (${x.da.fonte === 'stima' ? '≈ ' : ''}${eur(x.da.costo)})` : ''}<br>→ <span data-prop-nuovo="${i}">${htmlNuovoProposta(x)}</span></label>` +
-            `<div class="acc-prop-azioni"><button type="button" class="acc-prop-bd" data-prop-bd="${i}" title="Cerca un'alternativa nel Buyer Desk: l'offerta che scegli va al posto di questa proposta">🔁 Altro dal Buyer Desk</button>` +
+            `<div class="acc-prop-azioni"><button type="button" class="acc-prop-bd" data-prop-bd="${i}"${x.riparazioneAccessori ? ' hidden disabled' : ''} title="Cerca un'alternativa nel Buyer Desk: l'offerta che scegli va al posto di questa proposta">🔁 Altro dal Buyer Desk</button>` +
             `<button type="button" data-prop-auto="${i}" hidden title="Rimetti il pezzo proposto dall'automatico">↩ Proposta</button>` +
             `<button type="button" data-prop-copia="${i}" hidden></button></div></div>` +
             `<span class="acc-prop-lato"><span data-prop-diff="${i}">${htmlDifferenza(differenzaProposta(x))}</span>` +
@@ -1911,7 +1927,7 @@
                         pezzi: [{ nome: ricercaProposta(x) }],
                         applica: (d) => {
                             if (!ov.isConnected) return;
-                            x.scelta = sceltaDaBuyerDesk(d);
+                            x.scelta = sceltaDaBuyerDesk(d, x.quantita || 1);
                             spunta(i, true);
                             ridisegna(i);
                             aggiorna();
@@ -1934,7 +1950,7 @@
                 } else if (b.dataset.propCambia) {
                     const tutti = b.dataset.propCambia === 'tutti';
                     const s = spunte();
-                    chiudi({ modo: tutti ? 'tutti' : 'selezionati', scelte: proposte.filter((_, i) => tutti || s[i]) });
+                    chiudi({ modo: tutti ? 'tutti' : 'selezionati', confermaAccessori: true, scelte: proposte.filter((_, i) => tutti || s[i]) });
                 } else if (b.hasAttribute('data-no')) {
                     chiudi(null);
                 }
@@ -1945,11 +1961,31 @@
 
     // Salva i pezzi scelti nelle schede (come prima); il costo netto del Buyer Desk resta come costo inserito
     // se i dati automatici non lo conoscono ancora (come «Cambia» del riquadro)
-    async function salvaProposte(scelte) {
+    async function salvaProposte(scelte, consenso = {}) {
+        const attuali = verificaListini(await carica(true), 5 * 60 * 1000);
+        validaScelte(attuali, scelte.filter(x => !x.riparazioneAccessori));
+        if (scelte.some(x => x.riparazioneAccessori) && consenso.confermaAccessori !== true)
+            throw new Error('Conferma prima il confronto degli articoli Shopify');
+        for (const x of scelte.filter(x => x.riparazioneAccessori)) {
+            const corrente = proposteAccessori([x.orderId], attuali).find(p => p.orderId === x.orderId);
+            if (!corrente || JSON.stringify(corrente.riparazioneAccessori) !== JSON.stringify(x.riparazioneAccessori))
+                throw new Error('Gli articoli Shopify sono cambiati: ricarica il confronto prima di confermare');
+        }
         let fatti = 0;
         const costi = leggiLS(K_COSTI, {});
         let nuoviCosti = false;
         for (const x of scelte) {
+            if (x.riparazioneAccessori) {
+                if (acquistoConfermato(x.orderId)) throw new Error('Acquisto già confermato: storico protetto');
+                const backups = leggiLS('accoppiamento_backup_accessori', []);
+                backups.push({ orderId: x.orderId, il: new Date().toISOString(), piano: x.riparazioneAccessori });
+                // Se il browser non conserva il backup, la rettifica non parte.
+                localStorage.setItem('accoppiamento_backup_accessori', JSON.stringify(backups));
+                if (!window.SupabaseDB?.reconcileOrderAccessories) throw new Error('Salvataggio accessori non disponibile');
+                await window.SupabaseDB.reconcileOrderAccessories(x.orderId, x.riparazioneAccessori);
+                fatti++;
+                continue;
+            }
             const t = bersaglio(x);
             const salvato = typeof updateProcessedOrderComponent === 'function'
                 ? await updateProcessedOrderComponent(x.orderId, x.tipo, t.codice, t.descrizione || t.codice, t.fornitore) : false;
@@ -1977,6 +2013,94 @@
         }
     }
 
+    function verificaListini(dati, maxEta = 24 * 60 * 60 * 1000, now = Date.now()) {
+        if (dati?.regole_acquisto !== 'buyerdesk-netto-stock-v1') throw new Error('il motore aggiornato non è ancora disponibile');
+        for (const t of [dati.listini, dati.generato]) {
+            const age = now - Date.parse(t || '');
+            const limite = t === dati.listini && maxEta < 24 * 60 * 60 * 1000 ? maxEta + 10 * 60 * 1000 : maxEta;
+            if (!Number.isFinite(age) || age < -60000 || age > limite) throw new Error('i listini non sono aggiornati: nessun cambio proposto');
+        }
+        if (!dati.ordini || !Array.isArray(dati.offerte_ordinabili)) throw new Error('dati di acquisto incompleti');
+        return dati;
+    }
+
+    function proposteAccessori(ids, dati) {
+        if (typeof shopifyAccessoryRepairPlan !== 'function') return [];
+        let orders = [];
+        try { orders = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]'); } catch (e) { return []; }
+        const out = [], descrivi = cs => cs.map(c => `${c.type}: ${c.name || c.ean} ×${Number(c.quantity) || 1}`).join(' · ') || 'Nessun articolo registrato';
+        for (const id of ids) {
+            const [base, n] = String(id).split('.');
+            const order = orders.find(o => String(o.id) === base);
+            if (!order || acquistoConfermato(id)) continue;
+            const pc = dati ? pcAutomatico(dati, id) : null;
+            if (dati && !pc) continue;
+            const extras = pc ? (pc.pezzi || []).filter(p => p.origine === 'articolo Shopify').map(p => ({
+                type: p.tipo, ean: p.manuale?.codice || '', name: p.cliente || p.manuale?.descrizione || '',
+                supplier: p.manuale?.fornitore || null, quantity: Number(p.manuale?.quantita) || 1,
+                sourceLineId: p.source_line_id })) : null;
+            const plan = shopifyAccessoryRepairPlan(order, (Number(n) || 1) - 1, componentiSalvati(id), extras);
+            if (!plan?.changed) continue;
+            out.push({ orderId: id, ordine: order.name || `#${id}`, tipo: 'Articoli Shopify', riparazioneAccessori: plan,
+                da: { nome: descrivi(plan.previous), costo: null }, a: { descrizione: descrivi(plan.components), costo: null,
+                    disponibilita: 'Rettifica di nomi e quantità: non conferma un acquisto o una disponibilità' } });
+        }
+        return out;
+    }
+
+    function validaScelte(dati, scelte) {
+        const offKey = a => `${String(a.fornitore || '').toUpperCase()}|${chiave(a.codice)}`;
+        const offerte = new Map((dati.offerte_ordinabili || []).map(a => [offKey(a), a]));
+        const selected = new Set(scelte.map(x => `${String(x.orderId).split('.')[0]}.${String(x.orderId).split('.')[1] || 1}|${TIPI[x.tipo] || x.tipo}`));
+        const usati = new Map();
+        const riserva = (a, q) => usati.set(offKey(a), (usati.get(offKey(a)) || 0) + q);
+        for (const [id, order] of Object.entries(dati.ordini || {})) {
+            if (order.elaborato?.acquistato || order.elaborato?.stato === 'finalizzati') continue;
+            const n = (order.pc || []).reduce((s, pc) => s + (Number(pc.quantita) || 1), 0);
+            for (let i = 1; i <= n; i++) {
+                for (const p of pcAutomatico(dati, `${id}.${i}`)?.pezzi || []) {
+                    if (p.auto && !selected.has(`${id}.${i}|${p.tipo}`)) riserva(p.auto, Number(p.auto.quantita) || 1);
+                }
+            }
+        }
+        for (const x of scelte) {
+            if (acquistoConfermato(x.orderId)) throw new Error(`${x.ordine}: acquisto già confermato`);
+            const t = bersaglio(x), q = Number(x.quantita || t.quantita) || 1;
+            const off = offerte.get(offKey(t));
+            if (!off || !offertaOrdinabile(off)) throw new Error(`${x.ordine} · ${x.tipo}: offerta non più disponibile`);
+            if (tonda(Number(t.costo)) !== tonda(Number(off.costo_unitario) * q)) throw new Error(`${x.ordine} · ${x.tipo}: prezzo cambiato, aggiorna il confronto`);
+            const p = pcAutomatico(dati, x.orderId)?.pezzi?.find(p => p.tipo === (TIPI[x.tipo] || x.tipo));
+            const compatibili = [p?.auto, ...(p?.alternative || [])].filter(Boolean);
+            if (!compatibili.some(a => offKey(a) === offKey(t) && Number(a.quantita || 1) === q))
+                throw new Error(`${x.ordine} · ${x.tipo}: il pezzo non corrisponde alla scelta Shopify`);
+            riserva(off, q);
+        }
+        for (const [key, q] of usati) {
+            const off = offerte.get(key);
+            if (off && q > Number(off.stock)) throw new Error(`Quantità insufficiente per ${off.fornitore} ${off.codice}: aggiorna il confronto`);
+        }
+        return true;
+    }
+
+    async function attendiListini(esito, prima, opzioni = {}) {
+        const leggi = opzioni.leggi || (() => carica(true));
+        const now = opzioni.now || Date.now;
+        const pausa = opzioni.pausa || (ms => new Promise(r => setTimeout(r, ms)));
+        const scrivi = opzioni.scrivi || (() => {});
+        if (esito?.stato === 'recente') return verificaListini(await leggi(), 5 * 60 * 1000, now());
+        if (!['avviato', 'in_corso'].includes(esito?.stato)) throw new Error('aggiornamento dei fornitori non riuscito: riprova');
+        const inizio = now();
+        while (now() - inizio < (opzioni.timeout ?? ATTESA_LISTINI_MS)) {
+            scrivi('Listini in aggiornamento dai fornitori: attendo la nuova pubblicazione…');
+            await pausa(20000);
+            let dati;
+            try { dati = await leggi(); } catch (e) { continue; }
+            if (Date.parse(dati?.listini || '') > Date.parse(prima?.listini || '') &&
+                Date.parse(dati?.generato || '') > Date.parse(prima?.generato || '')) return verificaListini(dati, 5 * 60 * 1000, now());
+        }
+        throw new Error('i nuovi listini non sono ancora arrivati. Nessun cambio effettuato: riprova tra poco');
+    }
+
     async function aggiornaScrivania(n, barra) {
         const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
         const bottoni = Array.from(barra.querySelectorAll('button'));
@@ -1984,6 +2108,7 @@
         try {
             const ids = ordiniScrivania().filter(id => !acquistoConfermato(id));
             if (!ids.length) { scrivi(`E${n}: i PC di questa scrivania hanno già i pezzi acquistati.`); return; }
+            const prima = await carica(true);
             // 1) listini dei fornitori di adesso (lo stesso aggiornamento che parte da solo ogni mezz'ora)
             scrivi(`E${n}: chiedo ai fornitori i listini di adesso…`);
             let esito = null;
@@ -1992,36 +2117,28 @@
                     body: JSON.stringify({ password: password() || '' }) });
                 esito = await r.json();
             } catch (e) { esito = { stato: 'errore' }; }
-            let dati = await carica(true);
-            const prima = dati && dati.generato;
-            if (esito && (esito.stato === 'avviato' || esito.stato === 'in_corso')) {
-                const inizio = Date.now();
-                while (Date.now() - inizio < ATTESA_LISTINI_MS) {
-                    const sec = Math.round((Date.now() - inizio) / 1000);
-                    scrivi(`E${n}: listini in aggiornamento dai fornitori (${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}, di solito 4-5 minuti)…`);
-                    await new Promise(r => setTimeout(r, 20000));
-                    try { dati = await carica(true); } catch (e) { /* si riprova */ }
-                    if (dati && dati.generato && dati.generato !== prima) break;
-                }
-            }
+            const dati = await attendiListini(esito, prima, { scrivi });
             const quando = oraBreve(dati && dati.generato);
-            const nota = !esito || esito.stato === 'errore' || esito.stato === 'non_autorizzato'
-                ? ' (aggiornamento dei fornitori non partito: uso gli ultimi listini)' : '';
+            const nota = '';
+            const mancanti = ids.reduce((tot, id) => tot + (pcAutomatico(dati, id)?.pezzi || []).filter(p => !p.auto && !p.fisso && !pezzoPreso(p)).length, 0);
+            const disponibilitaNota = mancanti ? ` ${mancanti} righe senza offerta disponibile: controlla la Panoramica.` : '';
             // 2) prezzi di adesso in ogni riquadro
             for (const id of ids) await aggiornaOrdine(id);
             // 3) pezzi migliori di oggi
             const proposte = [];
             for (const id of ids) proposte.push(...proposteOrdine(dati, id, (ultimiConti[id] && ultimiConti[id].righe) || []));
+            proposte.push(...proposteAccessori(ids, dati));
             if (!proposte.length) {
-                scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. I pezzi sono già i migliori di oggi.`);
+                scrivi(`E${n}: confronto aggiornato con i listini delle ${quando}. Nessun cambio disponibile da proporre.${disponibilitaNota}`);
                 return;
             }
-            const intro = `<p>Listini delle ${esc(quando)}${esc(nota)}. Con le regole di sempre questi pezzi oggi conviene prenderli così. ` +
+            const intro = `<p>Listini delle ${esc(quando)}${esc(nota)}.${esc(disponibilitaNota)} Queste sono le offerte disponibili al costo d’acquisto più basso che rispettano le scelte del cliente. ` +
                 `Togli la spunta ai pezzi che vuoi lasciare come sono; con «🔁 Altro dal Buyer Desk» scegli un'altra offerta per quel pezzo.</p>` +
-                `<p><small>I PC con i pezzi già acquistati non si toccano. Se un pezzo l'hai già comprato, togli la spunta e poi premi «CONFERMA ACQUISTO PEZZI».</small></p>`;
+                `<p><small>I PC con i pezzi già acquistati non si toccano. Se un pezzo l'hai già comprato, togli la spunta e poi premi «CONFERMA ACQUISTO PEZZI».</small></p>` +
+                `<p>Le righe «Articoli Shopify» mostrano prima e dopo la rettifica degli accessori. Si applicano soltanto confermando qui; il browser conserva una copia dei dati precedenti.</p>`;
             const scelta = await finestraProposte(`🔄 Scrivania E${n}: ${proposte.length === 1 ? '1 pezzo da cambiare' : `${proposte.length} pezzi da cambiare`}`, intro, proposte);
             if (!scelta || !scelta.scelte.length) { scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. Pezzi lasciati come sono.`); return; }
-            const fatti = await salvaProposte(scelta.scelte);
+            const fatti = await salvaProposte(scelta.scelte, { confermaAccessori: scelta.confermaAccessori });
             const lasciati = proposte.length - scelta.scelte.length;
             const daBd = scelta.scelte.filter(x => x.scelta).length;
             scrivi(`E${n}: ${fatti} di ${scelta.scelte.length} pezzi cambiati${daBd ? ` (${daBd} scelti dal Buyer Desk)` : ''}` +
@@ -3473,6 +3590,7 @@
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
+        offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,

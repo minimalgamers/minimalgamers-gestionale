@@ -1577,6 +1577,10 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
         
         
         const components = [];
+        if (modifiedType && Array.from(componentRows).filter(r => r.dataset.componentType === modifiedType).length > 1) {
+            if (showNotif) showNotification('Ci sono più articoli di questo tipo: verifica le singole righe prima di modificarli.', 'warning');
+            return false;
+        }
         // Antonio 30/09: i prezzi pagati («CONFERMA ACQUISTO PEZZI») restano ai pezzi che non cambiano
         const precedenti = (processedOrdersCache[orderId] && processedOrdersCache[orderId].components) || [];
         const prezzoPagato = (type, ean) => {
@@ -1607,7 +1611,7 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
             } else {
                 
                 ean = componentSpan?.dataset.ean || componentSpan?.dataset.originalValue || '';
-                name = componentSpan?.textContent || '';
+                name = precedenti.find(c => c.type === componentType && String(c.ean || '') === String(ean))?.name || componentSpan?.textContent || '';
                 supplier = supplierBadge?.dataset.supplier || '';
             }
             
@@ -1617,6 +1621,8 @@ async function saveAllCurrentComponentsToDB(orderId, modifiedType, modifiedEan, 
                     ean: ean,
                     name: name || null,
                     supplier: supplier || null,
+                    quantity: Math.max(1, parseInt(row.dataset.quantity || precedenti.find(c => c.type === componentType &&
+                        String(c.ean || '') === String(componentSpan?.dataset.manEan || componentSpan?.dataset.ean || ''))?.quantity, 10) || 1),
                     price: prezzoPagato(componentType, ean)
                 });
             }
@@ -2750,7 +2756,7 @@ async function processShopifyOrders(ordersData) {
         
         let totalPCs = 0;
         for (const pcItem of pcItems) {
-            totalPCs += (pcItem.quantity || 1);
+            totalPCs += shopifyItemQuantity(pcItem);
         }
         
         if (totalPCs > 1) {
@@ -4257,9 +4263,9 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         else if (supplier === 'MSI') supplierColor = '#d35400';
         
         html += `
-            <div class="component-row" data-order-id="${orderId}" data-component-type="${component.type}" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; transition: background 0.3s;">
+            <div class="component-row" data-order-id="${orderId}" data-component-type="${component.type}" data-quantity="${Math.max(1, parseInt(component.quantity, 10) || 1)}" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; transition: background 0.3s;">
                 <div style="flex: 1; overflow: hidden; display: flex; align-items: center; flex-wrap: nowrap;">
-                    <strong style="color: #5dade2; font-size: 0.9em; white-space: nowrap;">${component.type}:</strong>
+                    <strong style="color: #5dade2; font-size: 0.9em; white-space: nowrap;">${component.type}${Number(component.quantity) > 1 ? ` ×${Number(component.quantity)}` : ''}:</strong>
                     <span data-order-id="${orderId}" data-component-type="${component.type}" data-original-value="${ean}" data-ean="${ean}" class="component-name-display" title="EAN: ${ean}" style="color: rgba(255,255,255,0.95); padding: 2px 4px; font-size: 0.88em; font-weight: 600; margin-left: 8px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Caricamento...</span>
                 </div>
                 <span class="supplier-badge-clickable" data-order-id="${orderId}" data-component-type="${component.type}" data-supplier="${supplier || ''}" style="background: ${supplier ? supplierColor + '33' : 'rgba(149,165,166,0.2)'}; color: ${supplier ? supplierColor : '#95a5a6'}; padding: 2px 4px; border-radius: 4px; font-size: 0.75em; font-weight: 600; border: 1px solid ${supplier ? supplierColor + '66' : 'rgba(149,165,166,0.4)'}; min-width: 28px; text-align: center; display: inline-block; flex-shrink: 0; cursor: pointer;">${supplier ? getSupplierAbbreviation(supplier) : '--'}</span>
@@ -4267,7 +4273,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         `;
     }
     
-    componentsContainer.innerHTML = html;
+    componentsContainer.innerHTML = html + (typeof shopifyAccessorySummary === 'function' ? shopifyAccessorySummary(orderId, savedComponents) : '');
     
     await loadProductNamesForEANs(orderId, allItems);
     highlightMismatchedColors(orderId);
@@ -4349,9 +4355,9 @@ async function renderComponentsFromDatabase(orderId, savedComponents, allItems =
         else if (supplier === 'MSI') supplierColor = '#d35400';
         
         html += `
-            <div class="component-row" data-order-id="${orderId}" data-component-type="${component.type}" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; transition: background 0.3s;">
+            <div class="component-row" data-order-id="${orderId}" data-component-type="${component.type}" data-quantity="${Math.max(1, parseInt(component.quantity, 10) || 1)}" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; transition: background 0.3s;">
                 <div style="flex: 1; overflow: hidden; display: flex; align-items: center; flex-wrap: nowrap;">
-                    <strong style="color: #5dade2; font-size: 0.9em; white-space: nowrap;">${component.type}:</strong>
+                    <strong style="color: #5dade2; font-size: 0.9em; white-space: nowrap;">${component.type}${Number(component.quantity) > 1 ? ` ×${Number(component.quantity)}` : ''}:</strong>
                     <span data-order-id="${orderId}" data-component-type="${component.type}" data-original-value="${ean}" data-ean="${ean}" class="component-name-display" title="EAN: ${ean}" style="color: rgba(255,255,255,0.95); padding: 2px 4px; font-size: 0.88em; font-weight: 600; margin-left: 8px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Caricamento...</span>
                 </div>
                 <span class="supplier-badge-clickable" data-order-id="${orderId}" data-component-type="${component.type}" data-supplier="${supplier || ''}" style="background: ${supplier ? supplierColor + '33' : 'rgba(149,165,166,0.2)'}; color: ${supplier ? supplierColor : '#95a5a6'}; padding: 2px 4px; border-radius: 4px; font-size: 0.75em; font-weight: 600; border: 1px solid ${supplier ? supplierColor + '66' : 'rgba(149,165,166,0.4)'}; min-width: 28px; text-align: center; display: inline-block; flex-shrink: 0; cursor: pointer;">${supplier ? getSupplierAbbreviation(supplier) : '--'}</span>
@@ -4359,7 +4365,7 @@ async function renderComponentsFromDatabase(orderId, savedComponents, allItems =
         `;
     }
     
-    componentsContainer.innerHTML = html;
+    componentsContainer.innerHTML = html + (typeof shopifyAccessorySummary === 'function' ? shopifyAccessorySummary(orderId, savedComponents) : '');
     
     // La distinta salvata è già leggibile e l'upgrade pagato non aspetta i lookup dei nomi.
     for (const display of componentsContainer.querySelectorAll('.component-name-display')) {
@@ -5445,7 +5451,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
     
     let totalPCs = 0;
     for (const pcItem of pcItems) {
-        totalPCs += (pcItem.quantity || 1);
+        totalPCs += shopifyItemQuantity(pcItem);
     }
     
     
@@ -5661,107 +5667,8 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     console.warn('NORM v35 fallito (non bloccante):', e);
                 }
 
-                const kitUnits = [];
-                const monitorUnits = [];
-                for (const item of (fullOrder?.line_items || [])) {
-                    const itemName = item?.name || item?.title || '';
-                    const upperItemName = String(itemName).toUpperCase();
-                    const isKitItem = (upperItemName.includes('KIT') ||
-                                       upperItemName.includes('TASTIERA') ||
-                                       upperItemName.includes('MOUSE') ||
-                                       upperItemName.includes('CUFFIE')) &&
-                                      !upperItemName.includes('PC GAMING') &&
-                                      identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
-                    const itemCustomProps = item?.custom_properties || item?.customProperties || {};
-                    const hasItemCustomProps = itemCustomProps && Object.keys(itemCustomProps).length > 0;
-                    const hasExplicitMonitor = upperItemName.includes('MONITOR');
-                    const hasMonitorKeyword = hasExplicitMonitor ||
-                                           upperItemName.includes('DISPLAY') ||
-                                           upperItemName.includes('SCHERMO');
-                    const nonMonitorHints = [
-                        'DISSIPAT', 'COOLER', 'AIO', 'LIQUID', 'CPU', 'GPU', 'RAM', 'SSD', 'NVME',
-                        'M.2', 'M2', 'ALIMENTAT', 'PSU', 'SCHEDA MADRE', 'MOBO', 'CASE', 'VENTOLA',
-                        'FAN', 'KIT', 'TASTIERA', 'MOUSE', 'CUFFIE'
-                    ];
-                    const hasNonMonitorHints = !hasExplicitMonitor && nonMonitorHints.some(hint => upperItemName.includes(hint));
-                    const isMonitorItem = hasMonitorKeyword &&
-                                          !hasNonMonitorHints &&
-                                          !hasItemCustomProps &&
-                                          !upperItemName.includes('PC GAMING') &&
-                                          identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
+                appendShopifyAccessories(finalComponents, fullOrder, 0);
 
-                    const quantity = Math.max(1, parseInt(item.quantity, 10) || 1);
-                    if (isKitItem) {
-                        for (let index = 0; index < quantity; index++) {
-                            kitUnits.push(item);
-                        }
-                    }
-                    if (isMonitorItem) {
-                        for (let index = 0; index < quantity; index++) {
-                            monitorUnits.push(item);
-                        }
-                    }
-                }
-
-                if (kitUnits.length > 0) {
-                    const kitItem = kitUnits[0];
-                    // v17: stessa logica del kit smart (priorità SKU > color > variant > nome)
-                    const rawSku = String(kitItem?.sku || '').trim();
-                    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawSku);
-                    let kitValue;
-                    if (rawSku && !looksLikeUuid) {
-                        kitValue = rawSku;
-                    } else {
-                        const variantTitle = String(kitItem?.variant_title || '').trim();
-                        const fullName = String(kitItem?.name || kitItem?.title || '').toUpperCase();
-                        const sourceForColor = `${variantTitle.toUpperCase()} ${fullName}`;
-                        let color = '';
-                        if (/\bNERO\b|\bBLACK\b/.test(sourceForColor)) color = 'BLACK';
-                        else if (/\bBIANCO\b|\bWHITE\b/.test(sourceForColor)) color = 'WHITE';
-                        if (color) kitValue = `KIT GAMING ${color}`;
-                        else if (variantTitle && variantTitle.toLowerCase() !== 'null') kitValue = `KIT GAMING ${variantTitle}`;
-                        else kitValue = kitItem?.name || kitItem?.title || '';
-                    }
-
-                    if (kitValue) {
-                        const kitIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'KIT GAMING');
-                        if (kitIndex !== -1) {
-                            finalComponents[kitIndex] = {
-                                type: finalComponents[kitIndex].type,
-                                value: kitValue,
-                                quantity: kitUnits.length
-                            };
-                        } else {
-                            finalComponents.push({
-                                type: 'KIT GAMING',
-                                value: kitValue,
-                                quantity: kitUnits.length
-                            });
-                        }
-                    }
-                }
-
-                if (monitorUnits.length > 0) {
-                    const monitorIndex = finalComponents.findIndex(component => String(component.type || '').toUpperCase() === 'MONITOR');
-                    // v21: passo il primo monitorUnit per derivare label specifica (size/Hz/risoluzione)
-                    const monitorValue = getMonitorDisplayValue(monitorUnits[0]);
-
-                    if (monitorIndex !== -1) {
-                        finalComponents[monitorIndex] = {
-                            type: finalComponents[monitorIndex].type,
-                            value: monitorValue,
-                            quantity: monitorUnits.length
-                        };
-                    } else {
-                        finalComponents.push({
-                            type: 'MONITOR',
-                            value: monitorValue,
-                            quantity: monitorUnits.length
-                        });
-                    }
-                }
-                
-                
                 // v19: propaga il colore del CASE al COOLER generico.
                 // Cerco il colore nelle custom_properties Shopify GPO (es. "CASE": "MINIMAL CASE WHITE - 1x RGB"),
                 // perché caseComp.value contiene l'EAN numerico (es. "8053323507000") e la regex non scatta.
@@ -5835,7 +5742,7 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     componentsToSave.push({
                         type: comp.type,
                         ean: ean,
-                        name: null,
+                        name: comp.name || null,
                         supplier: supplier || null,
                         price: null,
                         quantity: Math.max(1, parseInt(comp.quantity, 10) || 1)
@@ -5843,6 +5750,8 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                 }
             }
         }
+
+        if (daConfiguratore) appendShopifyAccessories(componentsToSave, fullOrder, 0);
 
         // Antonio 30/09: nella scheda i pezzi piu' convenienti di oggi con le regole di sempre (Minimal: stesso
         // chipset di qualunque marca; MSI e DeepCool: la loro marca). All'assemblatore resta il chipset.

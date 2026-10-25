@@ -23,6 +23,120 @@
 
 
 
+// La stessa assegnazione viene usata dal percorso singolo e da quello multiplo.
+// Ogni articolo conserva SKU, nome e quantità: tastiere e mouse non sono kit intercambiabili.
+function shopifyItemQuantity(item) {
+    return Math.max(0, parseInt(item?.current_quantity ?? item?.quantity ?? 1, 10) || 0);
+}
+
+function shopifyAccessoryType(item) {
+    const name = String(item?.name || item?.title || '').toUpperCase();
+    if (/^OPZIONI\b|PC GAMING/.test(name) || identifyPCConfig(name, true, item?.product_id ?? item?.productId)) return null;
+    if (isMonitorLineItem(item)) return 'MONITOR';
+    if (/\bKIT\b/.test(name)) return 'KIT GAMING';
+    if (/TASTIERA|KEYBOARD/.test(name)) return 'TASTIERA';
+    if (/\bMOUSE\b/.test(name)) return 'MOUSE';
+    if (/CUFFIE|HEADSET|HEADPHONE/.test(name)) return 'CUFFIE';
+    return null;
+}
+
+function shopifyAccessoryAssignments(order) {
+    const pcs = [];
+    for (const item of order?.line_items || []) {
+        if (/^OPZIONI\b/i.test(item?.name || item?.title || '')) continue;
+        if (!identifyPCConfig(item?.name || item?.title || '', true, item?.product_id ?? item?.productId) &&
+            !/PC GAMING/i.test(item?.name || item?.title || '')) continue;
+        for (let i = 0; i < shopifyItemQuantity(item); i++) pcs.push(item);
+    }
+    if (!pcs.length) return [];
+    const assigned = pcs.map(() => []), counters = {};
+    const props = item => ({ ...(item?.custom_properties || item?.customProperties || {}),
+        ...Object.fromEntries((item?.properties || []).map(p => [p.name, p.value])) });
+    for (const [lineIndex, item] of (order?.line_items || []).entries()) {
+        const type = shopifyAccessoryType(item);
+        if (!type) continue;
+        const count = shopifyItemQuantity(item);
+        const parent = props(item)._gpo_parent_product_group;
+        const targets = pcs.map((pc, i) => !parent || props(pc)._gpo_product_group === parent ? i : -1).filter(i => i >= 0);
+        if (!targets.length) continue; // collegamento esplicito sconosciuto: non indovinare un altro PC
+        const key = `${type}|${parent || ''}`;
+        for (let unit = 0; unit < count; unit++) {
+            const index = targets[(counters[key] || 0) % targets.length];
+            counters[key] = (counters[key] || 0) + 1;
+            const lineId = String(item.id ?? `line-${lineIndex}`);
+            let entry = assigned[index].find(c => c.sourceLineId === lineId);
+            if (!entry) {
+                const sku = String(item.sku || '').trim();
+                const value = sku && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(sku)
+                    ? sku : String(item.name || item.title || type);
+                entry = { type, value, ean: value, name: item.name || item.title || value,
+                    supplier: item.supplier || null, quantity: 0, sourceLineId: lineId };
+                assigned[index].push(entry);
+            }
+            entry.quantity++;
+        }
+    }
+    return assigned;
+}
+
+function appendShopifyAccessories(components, order, pcIndex = 0) {
+    for (const item of shopifyAccessoryAssignments(order)[pcIndex] || []) components.push({ ...item });
+    return components;
+}
+
+// Piano di sola lettura: nessun ordine storico viene riscritto durante il ricalcolo.
+function shopifyAccessoryRepairPlan(order, pcIndex, saved, verifiedExtras = null) {
+    const expected = verifiedExtras || shopifyAccessoryAssignments(order)[pcIndex] || [];
+    const hasAccessoryLines = (order?.line_items || []).some(item => shopifyAccessoryType(item));
+    if ((!expected.length && !hasAccessoryLines) || saved.some(c => c.price != null && c.price !== '')) return null;
+    const pcs = [];
+    for (const item of order?.line_items || []) {
+        if (/^OPZIONI\b/i.test(item.name || item.title || '')) continue;
+        if (!identifyPCConfig(item.name || item.title || '', true, item.product_id ?? item.productId)) continue;
+        for (let i = 0; i < shopifyItemQuantity(item); i++) pcs.push(item);
+    }
+    const item = pcs[pcIndex];
+    const config = item && identifyPCConfig(item.name || item.title || '', true, item.product_id ?? item.productId);
+    if (!config) return null;
+    const types = ['MONITOR', 'KIT GAMING', 'TASTIERA', 'MOUSE', 'CUFFIE'];
+    const externalCodes = new Set(expected.map(c => String(c.ean)));
+    const desired = [];
+    for (const base of config.components || []) {
+        if (!types.includes(base.type)) continue;
+        const present = saved.find(c => c.type === base.type && !externalCodes.has(String(c.ean)) && !c.isCustom && !c.is_custom);
+        const value = String(base.value || base.ean || '');
+        const match = /^(.*\S)\s*\(([^()]+)\)$/.exec(value);
+        desired.push(present ? { ...present, quantity: Math.max(1, Number(base.quantity) || 1) } : {
+            type: base.type, ean: match ? match[1].trim() : value,
+            name: base.type === 'MONITOR' && typeof getMonitorDisplayValue === 'function' ? getMonitorDisplayValue(item) : base.name || value,
+            supplier: base.supplier || (match ? match[2].trim() : null), quantity: Math.max(1, Number(base.quantity) || 1), price: null
+        });
+    }
+    for (const extra of expected) {
+        const present = saved.find(c => c.ean === extra.ean);
+        desired.push({ type: extra.type, ean: extra.ean, name: extra.name,
+            supplier: present?.supplier || extra.supplier || null, quantity: extra.quantity, price: null });
+    }
+    const canonical = list => JSON.stringify(list.map(c => [c.type, c.ean || '', c.name || '', c.supplier || '', Number(c.quantity) || 1]).sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    const previous = saved.filter(c => types.includes(c.type) && !c.isCustom && !c.is_custom);
+    return { types, components: desired, previous, changed: canonical(previous) !== canonical(desired) };
+}
+
+function shopifyAccessorySummary(orderId, saved) {
+    let order;
+    const [base, n] = String(orderId).split('.');
+    try { order = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]').find(o => String(o.id) === base); } catch (e) { return ''; }
+    if (!order) return '';
+    const index = (Number(n) || 1) - 1;
+    const extras = shopifyAccessoryAssignments(order)[index] || [];
+    if (!extras.length) return '';
+    const esc = s => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const plan = shopifyAccessoryRepairPlan(order, index, saved);
+    return '<div class="shopify-accessories-summary" style="margin:10px 0;padding:10px;border:1px solid rgba(128,128,128,.4);border-radius:8px;font-size:.85rem"><strong>Articoli acquistati su Shopify</strong>' +
+        extras.map(c => `<div>${esc(c.type)}: ${esc(c.name)} ×${c.quantity} <small>(${esc(c.ean)})</small></div>`).join('') +
+        (plan?.changed ? '<p role="status">Gli accessori salvati differiscono dall’ordine. «Aggiorna prezzi» mostra la rettifica da verificare prima di applicarla.</p>' : '') + '</div>';
+}
+
 function isKitGamingLineItem(itemName, productId = null) {
     const upperName = String(itemName || '').toUpperCase();
     return (upperName.includes('KIT') ||
@@ -68,7 +182,6 @@ function isMonitorLineItem(item) {
 
     return hasMonitorKeyword &&
            !hasNonMonitorHints &&
-           !hasCustomProps &&
            !upperName.includes('PC GAMING') &&
            identifyPCConfig(itemName, true, item.product_id ?? item.productId) === null;
 }
@@ -188,7 +301,7 @@ function processPendingOrdersWithSplitting(pendingOrders, pendingOrdersMap, proc
         const pcConfigurations = [];
         
         for (const pcItem of pcItems) {
-            const quantity = pcItem.quantity || 1;
+            const quantity = shopifyItemQuantity(pcItem);
             for (let i = 0; i < quantity; i++) {
                 pcConfigurations.push(pcItem);
             }
@@ -465,7 +578,7 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
     
     const allPCs = [];
     for (const pcItem of pcItems) {
-        const quantity = pcItem.quantity || 1;
+        const quantity = shopifyItemQuantity(pcItem);
         for (let i = 0; i < quantity; i++) {
             allPCs.push(pcItem);
         }
@@ -538,8 +651,6 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
             }
         } catch (e) { console.warn('CONFIG-PSU v31 split fail:', e); }
         const variants = targetPcItem.custom_properties || {};
-        const kitUnits = extractKitUnitsFromOrder(fullOrder);
-        const monitorUnits = extractMonitorUnitsFromOrder(fullOrder);
         
         
         const normalVariants = [];
@@ -663,28 +774,22 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
             }
         } catch (e) { console.warn('NORM v35 split fail:', e); }
 
-        if (kitUnits.length > 0) {
-            applyKitGamingToComponents(finalComponents, kitUnits[0], kitUnits.length);
-        }
-
-        if (monitorUnits.length > 0) {
-            applyMonitorToComponents(finalComponents, monitorUnits[0], monitorUnits.length);
-        }
+        appendShopifyAccessories(finalComponents, fullOrder, pcItemIndex);
         
         for (const comp of finalComponents) {
-            const match = comp.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
-            let ean = comp.value;
-            let supplier = '';
+            const match = String(comp.value || comp.ean || '').match(/^(.*\S)\s*\(([^()]+)\)$/);
+            let ean = comp.value || comp.ean;
+            let supplier = comp.supplier || '';
             
             if (match) {
                 ean = match[1].trim();
-                supplier = match[2].trim();
+                if (!supplier) supplier = match[2].trim();
             }
             
             componentsToSave.push({
                 type: comp.type,
                 ean: ean,
-                name: null,
+                name: comp.name || null,
                 supplier: supplier || null,
                 price: null,
                 quantity: Math.max(1, parseInt(comp.quantity, 10) || 1)
@@ -692,6 +797,8 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
         }
     }
     
+    if (daConfiguratore) appendShopifyAccessories(componentsToSave, fullOrder, pcItemIndex);
+
     // Antonio 30/09: pezzi piu' convenienti di oggi con le regole di sempre (app.js, applicaPezziMigliori)
     // (PC del configuratore: i pezzi migliori sono gia' quelli della lista, stesso prodotto)
     if (!daConfiguratore && typeof window.applicaPezziMigliori === 'function') {
@@ -746,7 +853,7 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
     const pcConfigurations = [];
     
     for (const pcItem of pcItems) {
-        const quantity = pcItem.quantity || 1;
+        const quantity = shopifyItemQuantity(pcItem);
         const config = identifyPCConfig(pcItem.name, false, pcItem.product_id ?? pcItem.productId);
         
         
@@ -760,8 +867,6 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
     }
     
     let successCount = 0;
-    const kitUnits = extractKitUnitsFromOrder(fullOrder);
-    const monitorUnits = extractMonitorUnitsFromOrder(fullOrder);
     
     for (let pcIndex = 0; pcIndex < pcConfigurations.length; pcIndex++) {
         const { item: pcItem, config } = pcConfigurations[pcIndex];
@@ -940,31 +1045,23 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                 }
             } catch (e) { console.warn('NORM v35 split-multi fail:', e); }
 
-            const kitForCurrentPc = kitUnits[pcIndex] || null;
-            if (kitForCurrentPc) {
-                applyKitGamingToComponents(finalComponents, kitForCurrentPc, 1);
-            }
-
-            const monitorForCurrentPc = monitorUnits[pcIndex] || null;
-            if (monitorForCurrentPc) {
-                applyMonitorToComponents(finalComponents, monitorForCurrentPc, 1);
-            }
+            appendShopifyAccessories(finalComponents, fullOrder, pcIndex);
             
             
             for (const comp of finalComponents) {
-                const match = comp.value.match(/^(.*\S)\s*\(([^()]+)\)$/);
-                let ean = comp.value;
-                let supplier = '';
+                const match = String(comp.value || comp.ean || '').match(/^(.*\S)\s*\(([^()]+)\)$/);
+                let ean = comp.value || comp.ean;
+                let supplier = comp.supplier || '';
                 
                 if (match) {
                     ean = match[1].trim();
-                    supplier = match[2].trim();
+                    if (!supplier) supplier = match[2].trim();
                 }
                 
                 componentsToSave.push({
                     type: comp.type,
                     ean: ean,
-                    name: null,
+                    name: comp.name || null,
                     supplier: supplier || null,
                     price: null,
                     quantity: Math.max(1, parseInt(comp.quantity, 10) || 1)
@@ -973,6 +1070,8 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
         }
         
         
+    if (daConfiguratore) appendShopifyAccessories(componentsToSave, fullOrder, pcIndex);
+
         // Antonio 30/09: pezzi piu' convenienti di oggi con le regole di sempre (app.js, applicaPezziMigliori)
         if (!daConfiguratore && typeof window.applicaPezziMigliori === 'function') {
             await window.applicaPezziMigliori(componentsToSave, configName, pcItem, orderIdWithSuffix);

@@ -94,6 +94,18 @@ test('a fresh publication with missing Shopify orders or PC units cannot complet
  assert.equal(A.verificaListini(d,300000,NOW,['77']),d);
  assert.throws(()=>A.verificaListini(d,300000,NOW,['77.2']),/ordini incompleti/);
 });
+
+test('unresponsive HTTP or JSON body times out; invalid HTTP responses fail and completed ones pass',async()=>{
+ const {s,A}=env();
+ s.fetch=async()=>new Promise(()=>{});
+ await assert.rejects(()=>A.richiediJson('test',{},10),/servizio non risponde/);
+ s.fetch=async()=>({ok:true,json:()=>new Promise(()=>{})});
+ await assert.rejects(()=>A.richiediJson('test',{},10),/servizio non risponde/);
+ s.fetch=async()=>({ok:false,status:403});
+ await assert.rejects(()=>A.richiediJson('test'),/HTTP 403/);
+ s.fetch=async()=>({ok:true,json:async()=>({stato:'avviato'})});
+ assert.equal((await A.richiediJson('test')).stato,'avviato');
+});
 test('stock and exact customer requirement are checked again across the entire purchase plan',()=>{
  const {A}=env();const a={codice:'GPU-A',fornitore:'ACTION',costo:100,costo_unitario:100,quantita:1,stock:1,ordinabile:true};
  const part={tipo:'GPU',auto:a,alternative:[a]},d=fresh();d.offerte_ordinabili=[a];

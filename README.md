@@ -90,6 +90,7 @@ node tests/accoppiamento-auto.test.mjs
 node tests/gpu-psu.test.mjs
 node tests/build-configuratore.test.mjs
 node tests/assembly-labels.test.mjs
+node --test tests/precise-refresh.test.mjs
 ```
 
 Girano senza dipendenze esterne: caricano i sorgenti in una sandbox `vm` e verificano
@@ -109,7 +110,7 @@ La regola che abbina il colore mostrato di GPU e scheda madre al case resta atti
 
 La pagina **Panoramica** (accanto a «Ordini»; fino al 03/10/2026 si chiamava «Automatico», il codice
 usa ancora `data-tab="automatico"`) mostra, per ogni ordine ancora da spedire, i pezzi
-scelti dal motore dei listini: fornitori prioritari al costo più basso, e ogni pezzo segue quello
+scelti dal motore dei listini: costo netto minimo fra le offerte disponibili, e ogni pezzo segue quello
 che quel cliente ha comprato (opzioni scelte e titolo del prodotto nel suo ordine, anche se nel
 frattempo il titolo è cambiato). Per ogni PC riporta costo, utile (prezzo del PC più le opzioni
 collegate, diviso 1,22, meno il 4,5% di commissioni, meno il costo dei pezzi) e gli avvisi quando
@@ -122,6 +123,30 @@ I dati arrivano da `https://minimal-gamers-listini.pages.dev/accoppiamento.bin`,
 Buyer Desk dei listini ogni 30 minuti e cifrato con la password del gestionale: i costi dei
 fornitori non sono mai in chiaro né in questo repository (la fixture dei test usa dati inventati).
 Codice in `assets/js/accoppiamento-auto.js`.
+
+Il 25/10/2026 Antonio ha riconfermato il canale di acquisto: ACTION, OMEGA, TIER ONE
+e CASEKING tramite intermediario (`listino ×1,10` come totale IVA inclusa, poi `÷1,22`
+per il costo netto), con CPU dirette al netto di listino. Gli altri distributori restano
+al netto di listino. Il Buyer Desk mostra separatamente costo d’acquisto e listino fornitore,
+e usa lo stesso costo del gestionale per scegliere il minimo. I prezzi pagati già
+confermati restano storici. Le automazioni GPU Watch non cambiano per questa correzione.
+
+«Aggiorna prezzi» attende un nuovo catalogo e una nuova elaborazione oppure verifica
+che l'ultima pubblicazione sia recente. Un errore, un timeout o il contratto dati
+precedente non diventano un messaggio di successo. Prima del salvataggio si ricontrollano
+prezzo, identità del prodotto, requisiti Shopify e quantità complessive degli ordini.
+Arrivi, riservati e stock da confermare non sono proposte automatiche acquistabili.
+Il colore limita gli acquisti soltanto per case e AIO; l'etichetta GPU/MOBO rimane invariata.
+Gli SSD 480GB sono ammessi nella classe 500GB, come confermato da Antonio.
+
+I tre percorsi di elaborazione condividono l'assegnazione degli accessori per unità di PC:
+tastiere, mouse, cuffie, kit e monitor conservano SKU, nome e quantità, senza sostituire
+gli accessori inclusi nel bundle. Le schede mostrano anche gli articoli acquistati su Shopify.
+Per schede storiche non acquistate il pulsante prepara una rettifica prima/dopo:
+nessuna riscrittura durante il semplice ricalcolo. Solo la conferma nella finestra
+applica le righe selezionate, dopo un backup locale in `accoppiamento_backup_accessori`.
+La rettifica modifica esclusivamente gli accessori, controlla eventuali modifiche concorrenti
+e si blocca se trova prezzi pagati o un ordine finalizzato.
 
 L'alimentatore lo decide la scheda video finale (`applyGpuPsuRule` in `app.js`, 26/09/2026):
 fino alla RX 9060 XT il DeepCool PF-600X 600W, dalla RX 7800 XT / 9070 / RTX 5070 alla RTX 5080

@@ -268,6 +268,54 @@ async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
     }
 }
 
+// Rettifica accessori dopo il confronto e la conferma nella finestra del gestionale.
+// Non sostituisce la distinta hardware e non modifica componenti con un prezzo pagato.
+async function dbReconcileOrderAccessories(shopifyOrderId, plan) {
+    const allowed = new Set(['MONITOR', 'KIT GAMING', 'TASTIERA', 'MOUSE', 'CUFFIE']);
+    if (!plan || !Array.isArray(plan.components) || !Array.isArray(plan.previous) ||
+        plan.components.some(c => !allowed.has(c.type) || !c.ean || !Number.isInteger(Number(c.quantity)) || Number(c.quantity) < 1))
+        throw new Error('Piano accessori non valido');
+    const { data: order, error: orderError } = await supabase.from('processed_orders').select('id,stato')
+        .eq('shopify_order_id', String(shopifyOrderId)).single();
+    if (orderError) throw orderError;
+    if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
+    const { data: rows, error: readError } = await supabase.from('processed_order_components')
+        .select('id,component_type,ean,product_name,supplier,quantity,price').eq('order_id', order.id)
+        .or('is_custom.is.null,is_custom.eq.0');
+    if (readError) throw readError;
+    if (rows.some(c => c.price != null)) throw new Error('Acquisto confermato: storico protetto');
+    const managed = rows.filter(c => allowed.has(c.component_type));
+    const canonical = list => JSON.stringify(list.map(c => [c.type, c.ean || '', c.name || '', c.supplier || '', Number(c.quantity) || 1])
+        .sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    if (canonical(managed.map(c => ({ type:c.component_type,ean:c.ean,name:c.product_name,supplier:c.supplier,quantity:c.quantity }))) !== canonical(plan.previous))
+        throw new Error('Gli accessori sono cambiati: ricarica il confronto prima di confermare');
+    const unused = [...managed];
+    for (const desired of plan.components) {
+        let i = unused.findIndex(c => c.component_type === desired.type && c.ean === desired.ean);
+        if (i < 0) i = unused.findIndex(c => c.ean === desired.ean);
+        if (i < 0 && unused.length) i = 0;
+        const fields = { component_type: desired.type, ean: desired.ean, product_name: desired.name || null,
+            supplier: desired.supplier || null, quantity: Number(desired.quantity), price: null };
+        if (i >= 0) {
+            const old = unused.splice(i, 1)[0];
+            const { data: written, error } = await supabase.from('processed_order_components').update(fields)
+                .eq('order_id', order.id).eq('id', old.id).is('price', null).select('id');
+            if (error) throw error;
+            if (written?.length !== 1) throw new Error('Componente cambiato durante la conferma: ricarica');
+        } else {
+            const { error } = await supabase.from('processed_order_components').insert({ ...fields, order_id: order.id, is_custom: 0 });
+            if (error) throw error;
+        }
+    }
+    // Le righe superate si eliminano solo dopo avere scritto tutte quelle corrette.
+    for (const old of unused) {
+        const { data: deleted, error } = await supabase.from('processed_order_components').delete()
+            .eq('order_id', order.id).eq('id', old.id).is('price', null).select('id');
+        if (error) throw error;
+        if (deleted?.length !== 1) throw new Error('Componente cambiato durante la conferma: ricarica');
+    }
+}
+
 // PUT: aggiorna SOLO i campi scalari dell'ordine (operator, configName, stato, foglio).
 // Non tocca i componenti.
 async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
@@ -895,6 +943,7 @@ window.SupabaseDB = {
     updateProcessedOrder: dbUpdateProcessedOrder,
     deleteProcessedOrder: dbDeleteProcessedOrder,
     upsertSingleComponent: dbUpsertSingleComponent,
+    reconcileOrderAccessories: dbReconcileOrderAccessories,
     setComponentPrices: dbSetComponentPrices,
     // Custom items per ordine
     getCustomItemsByOrder: dbGetCustomItemsByOrder,

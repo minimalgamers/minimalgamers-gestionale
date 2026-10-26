@@ -8,6 +8,7 @@ Queste regole prevalgono sulle note storiche del progetto.
 - Montaggio e collaudo: 32,79 € netti. Spedizione BRT: 11 € netti. Le spese specifiche di una build restano aggiuntive secondo i dati della build.
 - ACTION, OMEGA, TIER ONE e CASEKING tramite intermediario: costo netto = listino ×1,10 /1,22. CPU dirette: netto di listino. Gli altri distributori: netto di listino.
 - Un costo mancante deve avere nome, codice, quantità e un comando di inserimento visibile nella scheda. Un costo noto e una disponibilità assente sono due fatti distinti.
+- Il costo di un altro modello, di un altro fornitore o di un accessorio della stessa famiglia non completa il conto del pezzo scritto in scheda. Senza prezzo esatto, budget esplicitamente previsto o costo inserito, l’importo resta mancante. Le alternative restano proposte separate.
 - Il costo inserito per un ordine è un costo netto unitario condiviso nel database, separato dal prezzo pagato e dalla giacenza. Non conferma acquisti. Un valore zero esplicito è valido; un campo vuoto resta mancante.
 - Nessun utile completo viene mostrato con costi mancanti. Il riepilogo somma l’utile SRL soltanto dei PC con costi completi e dichiara i totali di costo parziali.
 - Ogni approvazione Telegram riuscita aggiorna i riferimenti di GPU Watch, l’Excel e il gestionale. Il gestionale riceve la nuova pubblicazione e aggiorna i conti aperti non confermati; i componenti continuano a rispettare ciò che il cliente aveva acquistato.

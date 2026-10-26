@@ -1356,7 +1356,7 @@
             const sch = costoScheda(dati, man.ean, man.fornitore);
             // scheda senza fornitore ma con il codice di un fornitore (es. monitor MONLG-GAM0046 di ACTION): e' quel pezzo
             const delCodice = fornitoreVago(man.fornitore) ? pezzoDelCodice(dati, man.ean) : null;
-            let costo = null, stima = false, fonte = null, daCodice = false;
+            let costo = null, stima = false, fonte = null;
             const pagato = prezzoAcquisto(orderId, tipo, man.ean);
             // 30/09 (Antonio: «il gestionale mi ha detto di non sapere il costo del kit»): conta sempre il pezzo scritto
             // nella scheda. La voce dell'opzione del cliente vale solo se la scheda ha proprio quel pezzo; altrimenti
@@ -1382,7 +1382,7 @@
             else if (pRiga && !pRiga.auto && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; fonte = 'fisso'; }
             else if (vStesso && vStesso.fisso && vStesso.fisso.costo != null) { costo = vStesso.fisso.costo; fonte = 'fisso'; }
             else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = sch.costo; fonte = 'listino'; }
-            else if (delCodice && delCodice.costo != null) { costo = delCodice.costo; fonte = 'listino'; daCodice = true; }   // 02/10: monitor #4821
+            else if (delCodice && delCodice.costo != null) { costo = delCodice.costo; fonte = 'listino'; }   // 02/10: monitor #4821
             else if (pRiga && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; stima = true; fonte = 'stima'; }
             else if (sch && sch.costo != null) { costo = sch.costo; stima = true; fonte = 'altro'; }
             else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; stima = true; fonte = 'stima'; }
@@ -1395,7 +1395,8 @@
             const salvatoRiga = componentiSalvati(orderId).find(x => x.type === tipo && chiave(x.ean) === chiave(man.ean));
             const descrizione = stessoCodice(vStesso && vStesso.manuale) || stessoCodice(pRiga && pRiga.manuale) ||
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
-            conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: daCodice ? delCodice.fornitore : man.fornitore,
+            // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
+            conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
                 nome: man.nome, descrizione, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
             else { conti.man += costo; if (stima) conti.stime++; }

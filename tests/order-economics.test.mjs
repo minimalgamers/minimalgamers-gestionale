@@ -84,9 +84,10 @@ function dbMock({paid=false,race=false,locked=false}={}){
  const writes=[];
  class Q{
   constructor(table){this.table=table;this.filters=[];this.op='read';}
-  select(){return this;}eq(k,v){this.filters.push(r=>r[k]===v);return this;}is(k,v){return this.eq(k,v);}or(){return this;}
+  select(){return this;}eq(k,v){this.filters.push(r=>r[k]===v);return this;}is(k,v){return this.eq(k,v);}or(){return this;}order(){return this;}
   update(data){this.op='update';this.data=data;return this;}
   single(){return this.then(x=>({...x,data:x.data[0]}));}
+  maybeSingle(){return this.single();}
   then(resolve,reject){
    if(race&&this.table==='processed_order_components'&&this.op==='read')order.updated_at='v2';
    const rows=(this.table==='processed_orders'?[order]:parts).filter(r=>this.filters.every(f=>f(r)));
@@ -98,6 +99,7 @@ function dbMock({paid=false,race=false,locked=false}={}){
  const source=read('assets/js/supabase-config.js');
  const start=source.indexOf('async function dbSaveOrderCost('),end=source.indexOf('// PATCH: aggiorna o inserisce',start);
  vm.runInContext(source.slice(start,end),s);
+ vm.runInContext(source.slice(source.indexOf('async function dbGetCustomItemsByOrder('),source.indexOf('async function dbSaveCustomItemsForOrder(')),s);
  return {s,order,parts,writes};
 }
 const purchase=()=>({righe:[{tipo:'CPU',ean:'C',fornitore:'ACTION',quantita:1,costo:100}],
@@ -141,4 +143,11 @@ test('moving a confirmed order or editing customer properties cannot erase its c
  assert.equal(order.foglio_di_lavoro,2);assert.equal(order.custom_properties.CASE,'WHITE');
  assert.equal(JSON.stringify(order.custom_properties._acquisto_confermato_gestionale),before);
  assert.equal(parts[0].price,null);
+});
+
+test('custom expense rows retain distinct identifiers, quantities and explicit zero costs',async()=>{
+ const {s,parts}=dbMock();parts.push({id:10,order_id:1,component_type:'Ventole',product_name:'Due ventole',is_custom:1,quantity:2,price:12},
+ {id:11,order_id:1,component_type:'Servizio',product_name:'Servizio incluso',is_custom:1,quantity:1,price:0});
+ const rows=await s.dbGetCustomItemsByOrder('77');
+ assert.deepEqual(Array.from(rows,x=>[x.id,x.quantity,x.price]),[[10,2,12],[11,1,0]]);
 });

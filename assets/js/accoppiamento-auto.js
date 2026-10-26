@@ -1418,9 +1418,12 @@
         try { ordini = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]'); } catch (e) { ordini = []; }
         const auto = pcAutomatico(dati, orderId);
         const vendita = prezzoVendita(orderId, ordini, auto);
-        let extra = 0, vociPers = [], personalizzatiMancanti = [];
+        const congelato = acquistoSnapshot(orderId);
+        let extra = 0, vociPers = [], personalizzatiMancanti = [], erroreVoci = false;
         try {
-            const voci = typeof loadCustomItemsFromDB === 'function' ? await loadCustomItemsFromDB(orderId) : [];
+            const voci = congelato ? [] : (window.SupabaseDB?.getCustomItemsByOrder
+                ? await window.SupabaseDB.getCustomItemsByOrder(orderId)
+                : (typeof loadCustomItemsFromDB === 'function' ? await loadCustomItemsFromDB(orderId) : []));
             vociPers = voci || [];
             for (const it of voci || []) {
                 const q = Math.max(1,Number(it.quantity ?? it.quantita)||1);
@@ -1430,9 +1433,9 @@
                 const p = raw == null || raw === '' ? NaN : Number(raw);
                 if (manuale != null) extra += manuale;
                 else if (Number.isFinite(p) && p >= 0) extra += p * q;
-                else personalizzatiMancanti.push({tipo:'PERSONALIZZATO',ean:codice,descrizione:it.name || it.value || 'Voce personalizzata',quantita:q,extra:true});
+                else personalizzatiMancanti.push({tipo:'PERSONALIZZATO',ean:codice,descrizione:it.value || it.name || 'Voce personalizzata',quantita:q,extra:true});
             }
-        } catch (e) { /* voci personalizzate non leggibili */ }
+        } catch (e) { erroreVoci = true; }
         // 02/10: mentre la scheda si ridisegna (cambio di scrivania) le righe dei pezzi possono non esserci ancora:
         // senza pezzi il conto darebbe tutto il pagato come utile (es. #4821 «1002,81 € in target» per qualche secondo)
         if (!(conti && conti.righe && conti.righe.length) && !vociPers.length) {
@@ -1440,7 +1443,6 @@
             el.innerHTML = '<div class="riga"><span>⏳ Conto in calcolo…</span></div>';
             return;
         }
-        const congelato = acquistoSnapshot(orderId);
         const serviziLista = congelato?.spese?.servizi || serviziPc(auto);
         const servizi = tonda(serviziLista.reduce((t, x) => t + (x.costo || 0), 0));
         const extraLista = congelato?.spese?.opzioni || extraOrdine(auto, righe(orderId).map(row => row.dataset.componentType), vociPers, leggiLS(K_FISSI, {}));
@@ -1464,7 +1466,7 @@
             ...x, ean: x.codice || x.chiave, quantita: 1, extra: true
         })), ...montaggio.filter(x => x.costo == null).map(x => ({ tipo: x.tipo, ean: x.codice || x.scelta,
             descrizione: x.scelta, fornitore: x.fornitore || '', quantita: 1, extra: true }))];
-        const nMancanti = vociMancanti.length;
+        const nMancanti = vociMancanti.length + (erroreVoci ? 1 : 0);
         conti.nMancantiExtra = nMancanti - lista.length;
         const obiettivoConto = congelato ? congelato.spese.obiettivo : auto?.obiettivo;
         conti.spese = { servizi: serviziLista, opzioni: extraLista.filter(x => !x.personalizzata), personalizzati: extra, montaggio,
@@ -1537,6 +1539,7 @@
             (montaggio.length ? '<div class="acc-esito" role="status">⬆ Distinta di montaggio aggiornata · conto provvisorio, nuovi pezzi da verificare</div>' : '') +
             (montaggio.length && !nMancanti ? `<div class="acc-esito">UTILE SRL STIMATO · ${eur(u.srl)} · include il pezzo sostituito</div>` : rigaEsito(u, nMancanti, obiettivoConto)) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ acquisti precedenti conservati</div>' : '') +
             pannelloCostiMancanti(vociMancanti) +
+            (erroreVoci ? '<div class="acc-costi-mancanti" role="alert">Voci personalizzate non leggibili: impossibile verificare i loro costi. Ricarica la scheda prima di confermare l’acquisto.</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
             (auto ? `<button type="button" data-vai="${esc(String(orderId).split('.')[0])}" title="Apri quest'ordine nella Panoramica">↗ Panoramica</button>` : '') + `</div>` +

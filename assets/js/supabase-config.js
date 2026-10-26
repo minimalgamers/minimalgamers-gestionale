@@ -549,22 +549,26 @@ async function dbDeleteProcessedOrder(shopifyOrderId) {
 // Replica fedele di processed_orders_service/api-custom-items.php
 // ============================================================
 async function dbGetCustomItemsByOrder(shopifyOrderId) {
-    const { data: orderRow } = await supabase
+    const { data: orderRow, error: orderError } = await supabase
         .from('processed_orders').select('id')
         .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    if (orderError) throw orderError;
     if (!orderRow) return [];
     const { data, error } = await supabase
         .from('processed_order_components')
-        .select('component_type, product_name, supplier, ean')
+        .select('id, component_type, product_name, supplier, ean, price, quantity')
         .eq('order_id', orderRow.id)
         .eq('is_custom', 1)
         .order('id', { ascending: true });
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(it => ({
+        id: it.id,
         name: it.component_type,
         value: it.product_name,
         supplier: it.supplier || '',
-        ean: it.ean || ''
+        ean: it.ean || '',
+        price: it.price,
+        quantity: it.quantity || 1
     }));
 }
 

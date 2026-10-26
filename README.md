@@ -130,7 +130,8 @@ per il costo netto), con CPU dirette al netto di listino. Gli altri distributori
 al netto di listino. Il Buyer Desk mostra separatamente costo d’acquisto e listino fornitore,
 e usa lo stesso costo del gestionale per scegliere il minimo. I prezzi pagati già
 confermati restano storici. Le approvazioni Telegram riuscite avviano anche la pubblicazione
-dei conti del gestionale; i costi mancanti si inseriscono nella scheda e le nuove conferme
+dei conti del gestionale; un costo corretto nella scheda vale per lo stesso prodotto e fornitore
+in tutti gli ordini non ancora acquistati, anche futuri; le nuove conferme
 fissano insieme componenti, opzioni e servizi. Vedi le [regole economiche confermate](docs/regole-economiche.md).
 
 «Aggiorna prezzi» attende un nuovo catalogo e una nuova elaborazione oppure verifica

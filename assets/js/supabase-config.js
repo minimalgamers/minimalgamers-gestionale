@@ -332,7 +332,17 @@ async function dbReconcileOrderAccessories(shopifyOrderId, plan) {
     }
 }
 
-// Costo di preventivo per ordine: separato dai prezzi pagati e condiviso fra dispositivi.
+// Registro delle correzioni: conserva la provenienza, senza duplicare costi nei prezzi pagati.
+async function dbGetProductCostCorrections() {
+    const rows = await dbFetchAllRows('processed_orders', 'custom_properties');
+    return rows.map(r => {
+        let cp = r.custom_properties;
+        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { return {}; } }
+        return cp?._costi_netti_gestionale || {};
+    }).filter(m => Object.keys(m).length);
+}
+
+// Correzione del costo prodotto: separata da prezzi pagati, stock e spese personali.
 async function dbSaveOrderCost(shopifyOrderId, voce) {
     const finite = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
     if (!voce?.tipo || !voce.ean || !voce.chiave || (voce.unitario !== null && !finite(voce.unitario)))
@@ -354,8 +364,12 @@ async function dbSaveOrderCost(shopifyOrderId, voce) {
     let cp = order.custom_properties || {};
     if (typeof cp === 'string') cp = JSON.parse(cp);
     cp = { ...cp, _costi_netti_gestionale: { ...(cp._costi_netti_gestionale || {}) } };
-    if (voce.unitario === null) delete cp._costi_netti_gestionale[voce.chiave];
-    else cp._costi_netti_gestionale[voce.chiave] = { unitario: Math.round(voce.unitario * 100) / 100, il: new Date().toISOString() };
+    const ambito = voce.tipo === 'PERSONALIZZATO' ? 'ordine' : 'prodotto';
+    const [tipo, , forn] = voce.chiave.split('|');
+    const alias = [...new Set([voce.chiave, ...(voce.alias || []).filter(k => typeof k === 'string' && k.split('|').length === 3 && k.split('|')[0] === tipo && k.split('|')[2] === forn && k.split('|')[1])])];
+    if (voce.unitario === null && ambito === 'ordine') delete cp._costi_netti_gestionale[voce.chiave];
+    else cp._costi_netti_gestionale[voce.chiave] = { unitario: voce.unitario === null ? null : Math.round(voce.unitario * 100) / 100,
+        il: new Date().toISOString(), ambito, alias, ...(voce.unitario === null ? {annullato:true} : {}) };
     let q = supabase.from('processed_orders').update({ custom_properties: cp, updated_at: new Date().toISOString() }).eq('id', order.id);
     q = order.updated_at == null ? q.is('updated_at', null) : q.eq('updated_at', order.updated_at);
     const result = await q.select('id');
@@ -1050,6 +1064,7 @@ window.SupabaseDB = {
     upsertSingleComponent: dbUpsertSingleComponent,
     reconcileOrderAccessories: dbReconcileOrderAccessories,
     saveOrderCost: dbSaveOrderCost,
+    getProductCostCorrections: dbGetProductCostCorrections,
     confirmOrderPurchase: dbConfirmOrderPurchase,
     setComponentPrices: dbSetComponentPrices,
     // Custom items per ordine

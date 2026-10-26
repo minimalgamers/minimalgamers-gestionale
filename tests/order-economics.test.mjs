@@ -50,24 +50,60 @@ test('cost entry accepts Italian money and explicit zero, rejects incomplete or 
  for(const bad of ['',null,'-1','10abc','Infinity','3,141','1,2,3'])assert.equal(A.numeroCosto(bad),null);
 });
 
-test('order cost is shared via database metadata, preserves paid prices and quantity, resets to automatic',async()=>{
+test('one product correction applies to all orders, preserves paid prices and quantities, resets for all',async()=>{
  const {s,A}=env();const old={CASE:'WHITE',_costi_netti_gestionale:{}};
  s.processedOrdersCache[77]={customProperties:old,components:[{type:'RAM',ean:'R',quantity:2,price:null}]};
- let saved;
+ let saved, sequenza=0;
  s.window.SupabaseDB={saveOrderCost:async(id,v)=>{
   assert.equal(id,77);saved=v;
-  const costs={...old._costi_netti_gestionale};if(v.unitario===null)delete costs[v.chiave];else costs[v.chiave]={unitario:v.unitario};
+  const costs={...old._costi_netti_gestionale};costs[v.chiave]={unitario:v.unitario,il:new Date(1000*++sequenza).toISOString(),ambito:v.ambito,alias:v.alias,...(v.unitario===null?{annullato:true}:{})};
   return {...old,_costi_netti_gestionale:costs};
  }};
  const part={tipo:'RAM',ean:'R',fornitore:'ACTION',quantita:2};
  await A.salvaCostoInserito(77,part,20);
  assert.equal(saved.unitario,20);assert.equal(A.costoInseritoOrdine(77,'RAM','R','ACTION',2),40);
- assert.equal(A.costoInseritoOrdine(78,'RAM','R','ACTION',2),null);
+ assert.equal(A.costoInseritoOrdine(78,'RAM','R','ACTION',2),40);
  assert.equal(A.costoInseritoOrdine(77,'RAM','R','ABACO',2),null);
  assert.equal(s.processedOrdersCache[77].components[0].price,null);
  assert.equal(s.processedOrdersCache[77].customProperties.CASE,'WHITE');
  await A.salvaCostoInserito(77,part,0);assert.equal(A.costoInseritoOrdine(77,'RAM','R','ACTION',2),0);
  await A.salvaCostoInserito(77,part,null);assert.equal(A.costoInseritoOrdine(77,'RAM','R','ACTION',2),null);
+ assert.equal(A.costoInseritoOrdine(78,'RAM','R','ACTION',2),null);
+});
+
+test('already entered AK400 cost is recovered for existing, future and multiple-unit orders',()=>{
+ const {s,A}=env();s.processedOrdersCache[77]={customProperties:JSON.stringify({_costi_netti_gestionale:{
+  'COOLER|6933412729495|ACTION':{unitario:20,il:'2026-10-26T11:40:22.431Z'}}})};
+ for(const id of [77,78,'78.2',999])assert.equal(A.costoInseritoOrdine(id,'COOLER','6933412729495','ACTION',2),40);
+ assert.equal(A.costoInseritoOrdine(78,'COOLER','6933412729495','OMEGA'),null);
+ assert.equal(A.costoInseritoOrdine(78,'COOLER','OTHER','ACTION'),null);
+});
+
+test('product aliases share the latest correction; reset cannot resurrect an older cost',()=>{
+ const {A}=env();const a='COOLER|EAN|ACTION',b='COOLER|SKU|ACTION';
+ const old={unitario:20,il:'2026-10-26T10:00:00Z',alias:[b,'COOLER|SKU|OMEGA']};
+ const newer={unitario:22,il:'2026-10-26T11:00:00Z'};
+ let i=A.indiceCostiProdotto([{[a]:old},{[b]:newer}]);assert.equal(i[a].unitario,22);assert.equal(i[b].unitario,22);
+ assert.equal(i['COOLER|SKU|OMEGA'],undefined);
+ i=A.indiceCostiProdotto([{[a]:old},{[b]:{unitario:null,annullato:true,il:'2026-10-26T12:00:00Z'}}]);
+ assert.equal(i[a].unitario,null);assert.equal(i[b].annullato,true);
+ assert.equal(A.indiceCostiProdotto([{[a]:old},{[a]:{...old,unitario:99}}])[a].conflitto,true);
+});
+
+test('personal order expenses and invalid amounts never spread as product costs',()=>{
+ const {s,A}=env();s.processedOrdersCache[77]={customProperties:{_costi_netti_gestionale:{
+  'PERSONALIZZATO|CUSTOM1|':{unitario:12},'COOLER|R|ACTION':{unitario:-1},'RAM|R|ACTION':{unitario:12,ambito:'ordine'}}}};
+ assert.equal(A.costoInseritoOrdine(77,'PERSONALIZZATO','CUSTOM1',''),12);
+ assert.equal(A.costoInseritoOrdine(78,'PERSONALIZZATO','CUSTOM1',''),null);
+ assert.equal(A.costoInseritoOrdine(78,'RAM','R','ACTION'),null);
+ assert.equal(A.costoInseritoOrdine(78,'COOLER','R','ACTION'),null);
+});
+
+test('another device receives a product correction without requiring a new supplier publication',async()=>{
+ const {s,A}=env();s.window.SupabaseDB={getProductCostCorrections:async()=>[{'COOLER|R|ACTION':{unitario:20,il:'2026-10-26T12:00:00Z'}}]};
+ assert.equal(await A.aggiornaCorrezioniProdotto(),true);
+ assert.equal(A.costoInseritoOrdine(999,'COOLER','R','ACTION'),20);
+ assert.equal(await A.aggiornaCorrezioniProdotto(),false);
 });
 
 test('profit uses the same unrounded formula as GPU Watch, including losses and sold prices',()=>{
@@ -130,10 +166,24 @@ test('confirmed prices stay fixed after new quotes and edits; saved confirmation
  s.processedOrdersCache[77]={customProperties:cp,components:[{type:'CPU',ean:'C',price:null}]};
  assert.equal(A.acquistoConfermato(77),true);assert.equal(A.prezzoAcquisto(77,'CPU','C'),100);
  cp._costi_netti_gestionale={'CPU|C|ACTION':{unitario:1}};
+ s.processedOrdersCache[78]={customProperties:{_costi_netti_gestionale:{'CPU|C|ACTION':{unitario:2,il:'2026-10-26T12:00:00Z'}}}};
+ assert.equal(A.costoInseritoOrdine(79,'CPU','C','ACTION'),2);
  assert.equal(A.prezzoAcquisto(77,'CPU','C'),100);
  assert.equal(A.costoPezzo({acquistato:true,costo:100,auto:{costo:1},costo_inserito:2}).costo,100);
  const paid=JSON.stringify(cp);s.processedOrdersCache[77].customProperties=paid;
  assert.equal(A.prezzoAcquisto(77,'CPU','C'),100);
+});
+
+test('shared corrections reader includes saved corrections from other orders and JSON metadata',async()=>{
+ const s={dbFetchAllRows:async(table,columns)=>{
+  assert.equal(table,'processed_orders');assert.equal(columns,'custom_properties');
+  return [{custom_properties:{_costi_netti_gestionale:{'COOLER|R|ACTION':{unitario:20}}}},
+   {custom_properties:JSON.stringify({_costi_netti_gestionale:{'RAM|S|ACTION':{unitario:0}}})},
+   {custom_properties:null},{custom_properties:'broken'}];
+ }};vm.createContext(s);const src=read('assets/js/supabase-config.js');
+ vm.runInContext(src.slice(src.indexOf('async function dbGetProductCostCorrections('),src.indexOf('// Correzione del costo prodotto:')),s);
+ const registri=await s.dbGetProductCostCorrections();
+ assert.equal(registri.length,2);assert.equal(registri[0]['COOLER|R|ACTION'].unitario,20);assert.equal(registri[1]['RAM|S|ACTION'].unitario,0);
 });
 
 test('moving a confirmed order or editing customer properties cannot erase its cost ledger',async()=>{

@@ -220,6 +220,20 @@ async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
 
     const clean = sanitizeProcessedOrderFields(incoming);
 
+    if (componentsArray || clean.custom_properties !== undefined) {
+        const {data: old, error: errOld} = await supabase.from('processed_orders').select('id,custom_properties')
+            .eq('shopify_order_id',String(shopifyOrderId)).maybeSingle();
+        if (errOld) throw errOld;
+        const cp = typeof old?.custom_properties === 'string' ? JSON.parse(old.custom_properties) : old?.custom_properties;
+        if (old && !componentsArray) return dbUpdateProcessedOrder(shopifyOrderId, clean);
+        if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+        if (old) {
+            const pagati = await supabase.from('processed_order_components').select('id').eq('order_id',old.id).not('price','is',null).limit(1);
+            if (pagati.error) throw pagati.error;
+            if (pagati.data?.length) throw new Error('Acquisto confermato: distinta e costi protetti');
+        }
+    }
+
     // Upsert dell'ordine (RESTITUISCE l'id interno per la FK)
     const { data: upserted, error: errUp } = await supabase
         .from('processed_orders')
@@ -275,10 +289,12 @@ async function dbReconcileOrderAccessories(shopifyOrderId, plan) {
     if (!plan || !Array.isArray(plan.components) || !Array.isArray(plan.previous) ||
         plan.components.some(c => !allowed.has(c.type) || !c.ean || !Number.isInteger(Number(c.quantity)) || Number(c.quantity) < 1))
         throw new Error('Piano accessori non valido');
-    const { data: order, error: orderError } = await supabase.from('processed_orders').select('id,stato')
+    const { data: order, error: orderError } = await supabase.from('processed_orders').select('id,stato,custom_properties')
         .eq('shopify_order_id', String(shopifyOrderId)).single();
     if (orderError) throw orderError;
     if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
+    const prot = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
+    if (prot._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: i costi storici sono protetti');
     const { data: rows, error: readError } = await supabase.from('processed_order_components')
         .select('id,component_type,ean,product_name,supplier,quantity,price').eq('order_id', order.id)
         .or('is_custom.is.null,is_custom.eq.0');
@@ -316,6 +332,66 @@ async function dbReconcileOrderAccessories(shopifyOrderId, plan) {
     }
 }
 
+// Costo di preventivo per ordine: separato dai prezzi pagati e condiviso fra dispositivi.
+async function dbSaveOrderCost(shopifyOrderId, voce) {
+    const finite = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+    if (!voce?.tipo || !voce.ean || !voce.chiave || (voce.unitario !== null && !finite(voce.unitario)))
+        throw new Error('Costo non valido');
+    const { data: order, error } = await supabase.from('processed_orders')
+        .select('id,stato,custom_properties,updated_at').eq('shopify_order_id', String(shopifyOrderId)).single();
+    if (error) throw error;
+    if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
+    const prot = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
+    if (prot._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: i costi storici sono protetti');
+    const { data: componenti, error: errC } = await supabase.from('processed_order_components')
+        .select('component_type,ean,supplier,price').eq('order_id', order.id);
+    if (errC) throw errC;
+    const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^0+/, '');
+    const esatti = componenti.filter(c => c.component_type === voce.tipo && norm(c.ean) === norm(voce.ean) &&
+        String(c.supplier || '').toUpperCase() === String(voce.fornitore || '').toUpperCase());
+    if (!voce.extra && !esatti.length) throw new Error('Il componente è cambiato: ricarica la scheda');
+    if (esatti.some(c => c.price != null)) throw new Error('Prezzo pagato già confermato: storico protetto');
+    let cp = order.custom_properties || {};
+    if (typeof cp === 'string') cp = JSON.parse(cp);
+    cp = { ...cp, _costi_netti_gestionale: { ...(cp._costi_netti_gestionale || {}) } };
+    if (voce.unitario === null) delete cp._costi_netti_gestionale[voce.chiave];
+    else cp._costi_netti_gestionale[voce.chiave] = { unitario: Math.round(voce.unitario * 100) / 100, il: new Date().toISOString() };
+    let q = supabase.from('processed_orders').update({ custom_properties: cp, updated_at: new Date().toISOString() }).eq('id', order.id);
+    q = order.updated_at == null ? q.is('updated_at', null) : q.eq('updated_at', order.updated_at);
+    const result = await q.select('id');
+    if (result.error) throw result.error;
+    if (result.data?.length !== 1) throw new Error('La scheda è stata modificata: ricarica prima di salvare il costo');
+    return cp;
+}
+
+// Conferma completa e atomica: conserva tutte le righe e le spese, senza cancellare prezzi.
+async function dbConfirmOrderPurchase(shopifyOrderId, piano) {
+    if (!piano?.righe?.length || piano.righe.some(r => !r.tipo || !r.ean || !Number.isFinite(r.costo) || r.costo < 0) ||
+        !piano.spese || ['servizi','opzioni','montaggio'].some(k => !Array.isArray(piano.spese[k]) || piano.spese[k].some(x => !Number.isFinite(x.costo) || x.costo < 0)) ||
+        !Number.isFinite(piano.spese.personalizzati) || piano.spese.personalizzati < 0)
+        throw new Error('Completa tutti i costi prima di confermare l’acquisto');
+    const { data: order, error } = await supabase.from('processed_orders').select('id,stato,custom_properties,updated_at')
+        .eq('shopify_order_id', String(shopifyOrderId)).single();
+    if (error) throw error;
+    if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
+    const cp = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
+    if (cp._acquisto_confermato_gestionale) throw new Error('Acquisto già confermato');
+    const { data: righe, error: errR } = await supabase.from('processed_order_components')
+        .select('component_type,ean,supplier,quantity,price').eq('order_id', order.id).or('is_custom.is.null,is_custom.eq.0');
+    if (errR) throw errR;
+    if (righe.some(r => r.price != null)) throw new Error('Acquisto già confermato: prezzi storici conservati');
+    const canon = rs => JSON.stringify(rs.map(r => [r.tipo || r.component_type, r.ean || '', r.fornitore ?? r.supplier ?? '', Number(r.quantita ?? r.quantity) || 1])
+        .sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+    if (canon(righe) !== canon(piano.righe)) throw new Error('La distinta è cambiata: ricarica prima di confermare');
+    const nuovo = { ...cp, _acquisto_confermato_gestionale: { ...piano, il: new Date().toISOString() } };
+    let q = supabase.from('processed_orders').update({ custom_properties: nuovo, updated_at: new Date().toISOString() }).eq('id', order.id);
+    q = order.updated_at == null ? q.is('updated_at', null) : q.eq('updated_at', order.updated_at);
+    const scritto = await q.select('id');
+    if (scritto.error) throw scritto.error;
+    if (scritto.data?.length !== 1) throw new Error('La scheda è cambiata: ricarica prima di confermare');
+    return nuovo;
+}
+
 // PUT: aggiorna SOLO i campi scalari dell'ordine (operator, configName, stato, foglio).
 // Non tocca i componenti.
 async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
@@ -332,11 +408,33 @@ async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
     }
     const clean = sanitizeProcessedOrderFields(f);
     if (Object.keys(clean).length === 0) return;
-    const { error } = await supabase
+    let precedente;
+    if (clean.custom_properties !== undefined) {
+        const letto = await supabase.from('processed_orders').select('custom_properties,updated_at')
+            .eq('shopify_order_id', String(shopifyOrderId)).single();
+        if (letto.error) throw letto.error;
+        precedente = letto.data;
+        const cp = typeof precedente.custom_properties === 'string' ? JSON.parse(precedente.custom_properties) : precedente.custom_properties || {};
+        const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
+        clean.custom_properties = { ...nuove };
+        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale']) {
+            if (cp[k] !== undefined) clean.custom_properties[k] = cp[k];
+            else delete clean.custom_properties[k];
+        }
+    }
+    let richiesta = supabase
         .from('processed_orders')
         .update({ ...clean, updated_at: new Date().toISOString() })
         .eq('shopify_order_id', String(shopifyOrderId));
-    if (error) throw error;
+    if (precedente) {
+        richiesta = precedente.updated_at == null ? richiesta.is('updated_at', null) : richiesta.eq('updated_at', precedente.updated_at);
+        const scritto = await richiesta.select('id');
+        if (scritto.error) throw scritto.error;
+        if (scritto.data?.length !== 1) throw new Error('La scheda è cambiata: ricarica prima di salvare');
+    } else {
+        const {error} = await richiesta;
+        if (error) throw error;
+    }
 }
 
 // PATCH: aggiorna o inserisce UN singolo componente (per type)
@@ -345,17 +443,19 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     // Trovo l'id interno dell'ordine
     const { data: orderRow, error: errOrd } = await supabase
         .from('processed_orders')
-        .select('id')
+        .select('id,custom_properties')
         .eq('shopify_order_id', String(shopifyOrderId))
         .maybeSingle();
     if (errOrd) throw errOrd;
     if (!orderRow) throw new Error('Ordine non trovato');
+    const cp = typeof orderRow.custom_properties === 'string' ? JSON.parse(orderRow.custom_properties) : orderRow.custom_properties;
+    if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
     const internalId = orderRow.id;
 
     // Cerco se esiste già un componente per questo type
     const { data: existing, error: errEx } = await supabase
         .from('processed_order_components')
-        .select('id, ean')
+        .select('id, ean, price')
         .eq('order_id', internalId)
         .eq('component_type', componentType)
         .or('is_custom.is.null,is_custom.eq.0')
@@ -363,6 +463,7 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     if (errEx) throw errEx;
 
     if (existing) {
+        if (existing.price != null) throw new Error('Prezzo pagato confermato: componente protetto');
         const campi = {
             ean: ean || null,
             product_name: productName || null,
@@ -448,22 +549,26 @@ async function dbDeleteProcessedOrder(shopifyOrderId) {
 // Replica fedele di processed_orders_service/api-custom-items.php
 // ============================================================
 async function dbGetCustomItemsByOrder(shopifyOrderId) {
-    const { data: orderRow } = await supabase
+    const { data: orderRow, error: orderError } = await supabase
         .from('processed_orders').select('id')
         .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
+    if (orderError) throw orderError;
     if (!orderRow) return [];
     const { data, error } = await supabase
         .from('processed_order_components')
-        .select('component_type, product_name, supplier, ean')
+        .select('id, component_type, product_name, supplier, ean, price, quantity')
         .eq('order_id', orderRow.id)
         .eq('is_custom', 1)
         .order('id', { ascending: true });
-    if (error) return [];
+    if (error) throw error;
     return (data || []).map(it => ({
+        id: it.id,
         name: it.component_type,
         value: it.product_name,
         supplier: it.supplier || '',
-        ean: it.ean || ''
+        ean: it.ean || '',
+        price: it.price,
+        quantity: it.quantity || 1
     }));
 }
 
@@ -944,6 +1049,8 @@ window.SupabaseDB = {
     deleteProcessedOrder: dbDeleteProcessedOrder,
     upsertSingleComponent: dbUpsertSingleComponent,
     reconcileOrderAccessories: dbReconcileOrderAccessories,
+    saveOrderCost: dbSaveOrderCost,
+    confirmOrderPurchase: dbConfirmOrderPurchase,
     setComponentPrices: dbSetComponentPrices,
     // Custom items per ordine
     getCustomItemsByOrder: dbGetCustomItemsByOrder,

@@ -115,8 +115,8 @@ che quel cliente ha comprato (opzioni scelte e titolo del prodotto nel suo ordin
 frattempo il titolo è cambiato). Per ogni PC riporta costo, utile (prezzo del PC più le opzioni
 collegate, diviso 1,22, meno il 4,5% di commissioni, meno il costo dei pezzi) e gli avvisi quando
 l'ordine non corrisponde alla distinta. In fondo c'è il riepilogo per fornitore. La pagina è in
-consultazione e non ordina nulla: l'unica scrittura è il magazzino, quando si conferma «Prendi dal
-magazzino» o «Annulla». La pagina «Ordini» resta manuale,
+consultazione e non ordina nulla. Le scritture esplicite riguardano magazzino, inserimento costi
+per ordine e conferma dei prezzi pagati. La pagina «Ordini» resta manuale,
 con il riquadro dell'utile sotto ogni build.
 
 I dati arrivano da `https://minimal-gamers-listini.pages.dev/accoppiamento.bin`, prodotto dal
@@ -129,7 +129,9 @@ e CASEKING tramite intermediario (`listino ×1,10` come totale IVA inclusa, poi 
 per il costo netto), con CPU dirette al netto di listino. Gli altri distributori restano
 al netto di listino. Il Buyer Desk mostra separatamente costo d’acquisto e listino fornitore,
 e usa lo stesso costo del gestionale per scegliere il minimo. I prezzi pagati già
-confermati restano storici. Le automazioni GPU Watch non cambiano per questa correzione.
+confermati restano storici. Le approvazioni Telegram riuscite avviano anche la pubblicazione
+dei conti del gestionale; i costi mancanti si inseriscono nella scheda e le nuove conferme
+fissano insieme componenti, opzioni e servizi. Vedi le [regole economiche confermate](docs/regole-economiche.md).
 
 «Aggiorna prezzi» attende un nuovo catalogo e una nuova elaborazione oppure verifica
 che l'ultima pubblicazione sia recente. Un errore, un timeout o il contratto dati

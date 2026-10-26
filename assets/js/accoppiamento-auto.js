@@ -417,10 +417,54 @@
         return `${TIPI[tipo] || tipo}|${chiave(ean)}|${String(fornitore || '').toUpperCase().trim()}`;
     }
 
+    // Le correzioni restano registrate con l'ordine d'origine, ma valgono per il prodotto.
+    // Le voci personalizzate sono spese specifiche dell'ordine, senza identità di catalogo.
+    function indiceCostiProdotto(registri) {
+        const padre = new Map(), eventi = [];
+        const radice = k => { if (!padre.has(k)) padre.set(k, k); const p = padre.get(k); if (p !== k) padre.set(k, radice(p)); return padre.get(k); };
+        for (const registro of registri || []) for (const [k, v] of Object.entries(registro || {})) {
+            const [tipo, codice, forn] = k.split('|');
+            if (!codice || forn === undefined || tipo === 'PERSONALIZZATO' || v?.ambito === 'ordine') continue;
+            const valido = Number.isFinite(v?.unitario) && v.unitario >= 0;
+            if (!valido && !(v?.annullato && v.unitario === null)) continue;
+            const alias = [k, ...(Array.isArray(v.alias) ? v.alias : []).filter(a => typeof a === 'string' && a.split('|').length === 3 && a.split('|')[0] === tipo && a.split('|')[2] === forn && a.split('|')[1])];
+            for (const a of alias) padre.set(radice(a), radice(k));
+            eventi.push({k, v, quando: Date.parse(v.il) || 0});
+        }
+        const gruppi = new Map(), out = {};
+        for (const e of eventi) {
+            const k = radice(e.k), prima = gruppi.get(k);
+            if (!prima || e.quando > prima.quando) gruppi.set(k, { ...e });
+            else if (e.quando === prima.quando && (e.v.unitario !== prima.v.unitario || !!e.v.annullato !== !!prima.v.annullato)) prima.conflitto = true;
+        }
+        for (const k of padre.keys()) {
+            const e = gruppi.get(radice(k));
+            if (e) out[k] = e.conflitto ? { unitario: null, il: e.v.il, conflitto: true } : e.v;
+        }
+        return out;
+    }
+    let cacheIndiceCosti = null;
+    function costiProdotto() {
+        const ordini = typeof processedOrdersCache !== 'undefined' ? processedOrdersCache : null;
+        if (cacheIndiceCosti?.ordini === ordini && cacheIndiceCosti?.dati === stato.dati && cacheIndiceCosti?.remoti === stato.correzioniProdotto) return cacheIndiceCosti.indice;
+        const registri = Object.keys(ordini || {}).map(id => proprietaOrdine(id)[K_COSTI_ORDINE]);
+        const indice = indiceCostiProdotto([...registri, ...(stato.correzioniProdotto || []), stato.dati?.costi_condivisi]);
+        cacheIndiceCosti = { ordini, dati: stato.dati, remoti: stato.correzioniProdotto, indice };
+        return indice;
+    }
+    function aliasCostoProdotto(voce) {
+        const k = chiaveCostoOrdine(voce.tipo, voce.ean, voce.fornitore);
+        const off = offertaDelPezzo(stato.dati, voce.ean, voce.fornitore);
+        const sch = costoScheda(stato.dati, voce.ean, voce.fornitore);
+        const esatta = off || (sch?.fonte === 'listino' ? sch : null);
+        return [...new Set([k, ...[esatta?.codice, esatta?.ean, esatta?.mpn].filter(Boolean).map(c => chiaveCostoOrdine(voce.tipo, c, voce.fornitore))])];
+    }
     function costoInseritoOrdine(orderId, tipo, ean, fornitore, quantita = 1, auto = null) {
         const cp = proprietaOrdine(orderId);
         const mappa = cp?.[K_COSTI_ORDINE] || auto?.costi_inseriti || {};
-        const v = mappa[chiaveCostoOrdine(tipo, ean, fornitore)];
+        const k = chiaveCostoOrdine(tipo, ean, fornitore);
+        const locale = mappa[k];
+        const v = tipo === 'PERSONALIZZATO' || locale?.ambito === 'ordine' ? locale : (costiProdotto()[k] || locale);
         return v && Number.isFinite(v.unitario) && v.unitario >= 0 ? tonda(v.unitario * quantita) : null;
     }
 
@@ -437,14 +481,17 @@
         if (!window.SupabaseDB?.saveOrderCost) throw new Error('Salvataggio costi non disponibile');
         const cp = await window.SupabaseDB.saveOrderCost(orderId, {
             tipo: voce.tipo, ean: voce.ean, fornitore: voce.fornitore || '', unitario,
-            chiave: chiaveCostoOrdine(voce.tipo, voce.ean, voce.fornitore), extra: !!voce.extra
+            chiave: chiaveCostoOrdine(voce.tipo, voce.ean, voce.fornitore), extra: !!voce.extra,
+            ambito: voce.tipo === 'PERSONALIZZATO' ? 'ordine' : 'prodotto', alias: aliasCostoProdotto(voce)
         });
         if (typeof processedOrdersCache !== 'undefined' && processedOrdersCache[orderId]) {
             processedOrdersCache[orderId].customProperties = cp;
             processedOrdersCache[orderId].custom_properties = cp;
         }
+        cacheIndiceCosti = null;
+        stato.correzioniProdotto = [...(stato.correzioniProdotto || []), cp[K_COSTI_ORDINE] || {}];
         if (stato.dati) annota(stato.dati);
-        await aggiornaOrdine(orderId);
+        await ridisegnaContiAperti();
         return cp;
     }
 
@@ -467,7 +514,7 @@
         ov.innerHTML = `<form class="acc-finestra-box"><h3>Costo di ${esc(voce.tipo)}</h3><div class="acc-finestra-corpo">` +
             `<p><b>${esc(voce.descrizione || voce.nome || voce.ean)}</b><br>${esc(voce.fornitore || '')} · ${esc(voce.ean)} · quantità ${q}</p>` +
             `<label>Costo netto unitario (IVA esclusa)<input name="costo" inputmode="decimal" required value="${voce.costo == null ? '' : tonda(voce.costo / q)}"></label>` +
-            `<p>Vale per questo componente di questo ordine, anche sugli altri dispositivi. Non conferma l’acquisto e non modifica le quantità di magazzino.</p><p role="status" data-errore></p></div>` +
+            `<p>${voce.tipo === 'PERSONALIZZATO' ? 'Vale per questa voce di questo ordine.' : 'Vale per lo stesso prodotto e fornitore in tutti gli ordini non ancora acquistati, anche futuri e sugli altri dispositivi. I prezzi già confermati restano invariati.'} Non conferma l’acquisto e non modifica il magazzino.</p><p role="status" data-errore></p></div>` +
             `<div class="acc-finestra-bottoni"><button type="button" data-annulla>Annulla</button><button type="button" data-auto>Usa costo automatico</button><button type="submit">Salva costo</button></div></form>`;
         document.body.appendChild(ov);
         const salva = async unitario => {
@@ -1625,19 +1672,32 @@
 
     // Chiamata da loadComponentsForOrder quando le righe dell'ordine sono pronte
     let timerEconomico = null;
+    async function ridisegnaContiAperti() {
+        if (typeof document === 'undefined') return;
+        await Promise.all(Object.keys(contesti).filter(id => !acquistoConfermato(id) && document.getElementById(`components-${id}`)).map(id => aggiornaOrdine(id)));
+        if (document.getElementById('automatico-container')?.classList.contains('active')) await renderPagina();
+    }
+    async function aggiornaCorrezioniProdotto() {
+        if (!window.SupabaseDB?.getProductCostCorrections) return false;
+        const prima = JSON.stringify(costiProdotto());
+        stato.correzioniProdotto = await window.SupabaseDB.getProductCostCorrections();
+        if (JSON.stringify(costiProdotto()) === prima) return false;
+        if (stato.dati) annota(stato.dati);
+        await ridisegnaContiAperti();
+        return true;
+    }
     async function aggiornaEconomiaAperta() {
         if (typeof document === 'undefined' || document.hidden || !password() || stato.inCorso) return false;
+        let correzioni = false;
+        try { correzioni = await aggiornaCorrezioniProdotto(); } catch { /* il listino si verifica comunque */ }
         const precedente = { dati: stato.dati, caricatoIl: stato.caricatoIl };
         const prima = precedente.dati?.generato;
         let verificato = false;
         try {
             const dati = verificaListini(await carica(true));
             verificato = true;
-            if (dati.generato === prima) return false;
-            for (const id of Object.keys(contesti)) {
-                if (!acquistoConfermato(id) && document.getElementById(`components-${id}`)) await aggiornaOrdine(id);
-            }
-            if (document.getElementById('automatico-container')?.classList.contains('active')) await renderPagina();
+            if (dati.generato === prima) return correzioni;
+            await ridisegnaContiAperti();
             return true;
         } catch {
             if (!verificato) {
@@ -1645,7 +1705,7 @@
                 stato.caricatoIl = precedente.caricatoIl;
                 stato.promessa = null;
             }
-            return false;
+            return correzioni;
         }
     }
     function avviaAggiornamentoEconomico() {
@@ -3805,6 +3865,7 @@
         confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
+        indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,

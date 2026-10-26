@@ -177,5 +177,7 @@ test('an exact EAN or manufacturer code resolves the real quote without substitu
  const dati={offerte_ordinabili};
  for(const codice of ['CHLDECCPU0059','6933412729495','R-AK400-BKADMN-GJD'])assert.equal(A.offertaDelPezzo(dati,codice,'ACTION').costo_unitario,35);
  assert.equal(A.offertaDelPezzo(dati,'OTHER','ACTION'),null);
- assert.equal(A.sceltaUguale({auto:offerte_ordinabili[0]},null,'COOLER','CHLDECCPU0059','OMEGA'),null);
+ const voce={auto:{...offerte_ordinabili[0],costo:35}};
+ assert.equal(A.sceltaUguale(voce,null,'COOLER','CHLDECCPU0059','ACTION'),35);
+ assert.equal(A.sceltaUguale(voce,null,'COOLER','CHLDECCPU0059','OMEGA'),null);
 });

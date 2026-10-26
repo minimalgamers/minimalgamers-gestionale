@@ -151,3 +151,33 @@ test('custom expense rows retain distinct identifiers, quantities and explicit z
  const rows=await s.dbGetCustomItemsByOrder('77');
  assert.deepEqual(Array.from(rows,x=>[x.id,x.quantity,x.price]),[[10,2,12],[11,1,0]]);
 });
+
+test('a different cooler or monitor cannot supply the missing cost of the saved part',()=>{
+ const {A}=env();
+ const other={manuale:{codice:'AG300',costo:12},auto:{codice:'AG300',costo:12},fisso:null};
+ assert.equal(A.costoRigaVerificato({ean:'AK400-DIGITAL',vStesso:other,pRiga:other}).costo,null);
+ const monitor={manuale:{codice:'MON-OTHER',costo:80},auto:null,fisso:{costo:80}};
+ assert.equal(A.costoRigaVerificato({ean:'MON-CUSTOMER',pRiga:monitor}).costo,null);
+ assert.equal(A.costoRigaVerificato({ean:'AK400-DIGITAL',sch:{costo:19.21,fonte:'altro'}}).costo,null);
+ assert.equal(A.costoRigaVerificato({ean:'SAME-SKU',fornitore:'OMEGA',vStesso:{manuale:{codice:'SAME-SKU',fornitore:'ACTION',costo:20}}}).costo,null);
+});
+
+test('exact quotes, approved fixed budgets and paid costs keep their precedence and quantities',()=>{
+ const {A}=env();
+ assert.equal(A.costoRigaVerificato({ean:'AK400',quantita:2,offerta:{costo_unitario:35}}).costo,70);
+ assert.equal(A.costoRigaVerificato({ean:'AK400',pagato:100,inserito:2,offerta:{costo_unitario:1}}).costo,100);
+ assert.equal(A.costoRigaVerificato({ean:'CASE ATX',pRiga:{manuale:{codice:'CASE ATX'},auto:null,fisso:{costo:49.18}}}).costo,49.18);
+ assert.equal(A.costoRigaVerificato({ean:'INTEGRATA',pRiga:{manuale:{codice:'INTEGRATA',costo:0}}}).costo,0);
+ assert.equal(A.costoRigaVerificato({ean:'AK400',inserito:0}).costo,0);
+});
+
+test('an exact EAN or manufacturer code resolves the real quote without substituting a cooler model',()=>{
+ const {A}=env();const offerte_ordinabili=[{fornitore:'ACTION',codice:'CHLDECCPU0059',ean:'6933412729495',mpn:'R-AK400-BKADMN-GJD',costo_unitario:35},
+ {fornitore:'OMEGA',codice:'CHLDECCPU0059',costo_unitario:2}, {fornitore:'ACTION',codice:'AG300',costo_unitario:12}];
+ const dati={offerte_ordinabili};
+ for(const codice of ['CHLDECCPU0059','6933412729495','R-AK400-BKADMN-GJD'])assert.equal(A.offertaDelPezzo(dati,codice,'ACTION').costo_unitario,35);
+ assert.equal(A.offertaDelPezzo(dati,'OTHER','ACTION'),null);
+ const voce={auto:{...offerte_ordinabili[0],costo:35}};
+ assert.equal(A.sceltaUguale(voce,null,'COOLER','CHLDECCPU0059','ACTION'),35);
+ assert.equal(A.sceltaUguale(voce,null,'COOLER','CHLDECCPU0059','OMEGA'),null);
+});

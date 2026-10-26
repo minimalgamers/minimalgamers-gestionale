@@ -1330,14 +1330,44 @@
     }
 
     // Costo di oggi quando il pezzo della scheda e' proprio quello scelto dall'automatico (voce o ordine)
-    function sceltaUguale(v, auto, tipo, ean) {
+    function sceltaUguale(v, auto, tipo, ean, fornitore) {
         const c = chiave(ean);
         if (!c) return null;
-        if (v && v.auto && v.auto.costo != null && chiave(v.auto.codice) === c) return v.auto.costo;
+        const stessoFornitore = a => !fornitore || String(a.fornitore || '').toUpperCase() === String(fornitore).toUpperCase();
+        if (v && v.auto && v.auto.costo != null && chiave(v.auto.codice) === c && stessoFornitore(v.auto)) return v.auto.costo;
         const t = TIPI[tipo] || tipo;
         const p = auto && Array.isArray(auto.pezzi)
-            ? auto.pezzi.find(x => x.tipo === t && x.auto && x.auto.costo != null && chiave(x.auto.codice) === c) : null;
+            ? auto.pezzi.find(x => x.tipo === t && x.auto && x.auto.costo != null && chiave(x.auto.codice) === c && stessoFornitore(x.auto)) : null;
         return p ? p.auto.costo : null;
+    }
+
+    function offertaDelPezzo(dati, codice, fornitore) {
+        const k = chiave(codice);
+        if (!k || !fornitore) return null;
+        return (dati?.offerte_ordinabili || []).filter(a => String(a.fornitore || '').toUpperCase() === String(fornitore).toUpperCase() &&
+            [a.codice, a.ean, a.mpn].some(c => chiave(c) === k)).sort((a,b) => a.costo_unitario - b.costo_unitario)[0] || null;
+    }
+
+    function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, offerta, sch, vStesso, scelto,
+        pRiga, salvato, delCodice, salvati = {} }) {
+        const risultato = (costo, fonte) => ({ costo, fonte });
+        const stessaRiga = p => p?.manuale && chiave(p.manuale.codice) === chiave(ean) &&
+            (!fornitore || String(p.manuale.fornitore || '').toUpperCase() === String(fornitore).toUpperCase());
+        if (pagato != null) return risultato(pagato, 'acquistato');
+        if (inserito != null) return risultato(inserito, 'inserito');
+        if (mag != null) return risultato(mag, 'magazzino');
+        if (offerta?.costo_unitario != null) return risultato(tonda(offerta.costo_unitario * quantita), 'listino');
+        if (sch?.costo != null && sch.fonte === 'listino') return risultato(tonda(sch.costo * quantita), 'listino');
+        for (const p of [vStesso, pRiga]) {
+            if (stessaRiga(p) && p.manuale.costo != null) return risultato(p.manuale.costo, 'listino');
+        }
+        if (scelto != null) return risultato(scelto, 'listino');
+        if (salvato != null) return risultato(salvato, 'inserito');
+        for (const p of [pRiga, vStesso]) {
+            if (stessaRiga(p) && !p.auto && p.fisso?.costo != null) return risultato(costoPezzo(p, salvati).costo, 'fisso');
+        }
+        if (delCodice?.costo != null && delCodice.fonte === 'listino') return risultato(tonda(delCodice.costo * quantita), 'listino');
+        return risultato(null, null);
     }
 
     async function aggiornaOrdine(orderId) {
@@ -1356,39 +1386,20 @@
             const sch = costoScheda(dati, man.ean, man.fornitore);
             // scheda senza fornitore ma con il codice di un fornitore (es. monitor MONLG-GAM0046 di ACTION): e' quel pezzo
             const delCodice = fornitoreVago(man.fornitore) ? pezzoDelCodice(dati, man.ean) : null;
-            let costo = null, stima = false, fonte = null;
             const pagato = prezzoAcquisto(orderId, tipo, man.ean);
             // 30/09 (Antonio: «il gestionale mi ha detto di non sapere il costo del kit»): conta sempre il pezzo scritto
             // nella scheda. La voce dell'opzione del cliente vale solo se la scheda ha proprio quel pezzo; altrimenti
             // vale la voce del pezzo della scheda (per codice) o il pezzo dell'automatico per quella riga (case ATX
             // della regola del gestionale, kit e monitor dei bundle, dissipatore del colore del case).
-            const scelto = sceltaUguale(v, auto, tipo, man.ean);
+            const scelto = sceltaUguale(v, auto, tipo, man.ean, man.fornitore);
             const vStesso = v && v.manuale && chiave(v.manuale.codice) === chiave(man.ean) ? v : vocePerCodice(dati, ctx, tipo, man.ean, man.fornitore);
             const pRiga = pezzoDellaRiga(auto, tipo, man.ean);
             const mag = costoMagazzino(auto, tipo, man.ean);
             const quantita = Math.max(1, Number(row.dataset.quantity) || Number(componentiSalvati(orderId).find(c => c.type === tipo && chiave(c.ean) === chiave(man.ean))?.quantity) || 1);
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
-            const offertaAttuale = (dati?.offerte_ordinabili || []).find(a => chiave(a.codice) === chiave(man.ean) &&
-                String(a.fornitore).toUpperCase() === String(man.fornitore).toUpperCase());
-            if (pagato != null) { costo = pagato; fonte = 'acquistato'; }
-            else if (inserito != null) { costo = inserito; fonte = 'inserito'; }
-            else if (mag != null) { costo = mag; fonte = 'magazzino'; }     // a terra: prezzo pagato, come nell'Excel
-            else if (offertaAttuale) { costo = tonda(offertaAttuale.costo_unitario * quantita); fonte = 'listino'; }
-            else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = tonda(sch.costo * quantita); fonte = 'listino'; }
-            else if (vStesso && vStesso.manuale && vStesso.manuale.costo != null && chiave(vStesso.manuale.codice) === chiave(man.ean)) { costo = vStesso.manuale.costo; fonte = 'listino'; }
-            else if (scelto != null) { costo = scelto; fonte = 'listino'; }
-            else if (pRiga && pRiga.manuale && pRiga.manuale.costo != null) { costo = pRiga.manuale.costo; fonte = 'listino'; }
-            else if (costoManualeSalvato(tipo, man.ean) != null) { costo = costoManualeSalvato(tipo, man.ean); fonte = 'inserito'; }
-            else if (pRiga && !pRiga.auto && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; fonte = 'fisso'; }
-            else if (vStesso && vStesso.fisso && vStesso.fisso.costo != null) { costo = vStesso.fisso.costo; fonte = 'fisso'; }
-            else if (sch && sch.costo != null && sch.fonte === 'listino') { costo = sch.costo; fonte = 'listino'; }
-            else if (delCodice && delCodice.costo != null) { costo = delCodice.costo; fonte = 'listino'; }   // 02/10: monitor #4821
-            else if (pRiga && costoPezzo(pRiga, salvati).costo != null) { costo = costoPezzo(pRiga, salvati).costo; stima = true; fonte = 'stima'; }
-            else if (sch && sch.costo != null) { costo = sch.costo; stima = true; fonte = 'altro'; }
-            else if (v && v.manuale && v.manuale.costo != null) { costo = v.manuale.costo; stima = true; fonte = 'stima'; }
-            else if (v && v.fisso && v.fisso.costo != null) { costo = v.fisso.costo; stima = true; fonte = 'stima'; }
-            else if (v && v.auto && v.auto.costo != null) { costo = v.auto.costo; stima = true; fonte = 'stima'; }
-            else if (costoEquivalente(auto, tipo, salvati) != null) { costo = costoEquivalente(auto, tipo, salvati); stima = true; fonte = 'stima'; }
+            const offertaAttuale = offertaDelPezzo(dati, man.ean, man.fornitore);
+            const {costo, fonte} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag,
+                offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati });
             // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
             // scheda); la scheda dell'assemblatore resta generica (chipset), qui serve a chi compra
             const stessoCodice = (m) => m && m.descrizione && chiave(m.codice) === chiave(man.ean) ? m.descrizione : '';
@@ -1399,7 +1410,7 @@
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
                 nome: man.nome, descrizione, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
-            else { conti.man += costo; if (stima) conti.stime++; }
+            else conti.man += costo;
         }
         conti.confermato = acquistoConfermato(orderId);
         const precedenteUpgrade = (ultimiConti[orderId] && ultimiConti[orderId].montaggioUpgrade) || [];
@@ -3793,7 +3804,7 @@
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
-        chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti,
+        chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,

@@ -1304,6 +1304,12 @@
 .acc-rf-azione{display:inline-block;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);color:#fff;border-radius:6px;padding:2px 8px;font-size:.78em;font-weight:600;cursor:pointer;text-decoration:none}
 .acc-rf-azione:hover{background:rgba(255,255,255,.25)}
 #riepilogo-auto .supplier-item-name{margin-top:2px}
+.component-row.acc-riga-indisponibile{flex-wrap:wrap;gap:6px;padding:8px;background:#fff0f1!important;border-left:3px solid #c74453;border-radius:6px}
+.component-row.acc-riga-indisponibile .component-name-display,.component-row.acc-riga-indisponibile strong{color:#8b2332!important}
+.acc-disponibilita-riga{flex:0 0 100%;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;color:#8b2332;font-size:.82em;line-height:1.4}
+.acc-disponibilita-testo{min-width:0;overflow-wrap:anywhere}
+.acc-sostituisci-riga{flex:none;min-height:36px;padding:6px 10px;border:1px solid #c74453;border-radius:6px;background:#fff;color:#8b2332;font-weight:700;cursor:pointer}
+.supplier-item.acc-rf-indisponibile{background:#fff0f1!important;border-left:3px solid #c74453!important}
 .acc-upgrade-montaggio{display:flex;flex-direction:column;gap:8px;padding:14px 0;margin:6px 0;border-bottom:1px solid rgba(127,127,127,.25);font-size:.95em;line-height:1.5;text-align:left;min-width:0}
 .acc-upgrade-montaggio>*{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}`;
         document.head.appendChild(st);
@@ -1395,6 +1401,62 @@
             [a.codice, a.ean, a.mpn].some(c => chiave(c) === k)).sort((a,b) => a.costo_unitario - b.costo_unitario)[0] || null;
     }
 
+    // Disponibilità del prodotto scritto nella scheda: il costo noto e un'alternativa
+    // proposta non rendono acquistabile quel prodotto da quel fornitore.
+    function disponibilitaRiga(dati, auto, r, confermato = false) {
+        if (!dati || confermato || !r || r.fonte === 'acquistato' || r.fonte === 'magazzino' ||
+            !r.ean || SENZA_PEZZO.test(String(r.ean).trim())) return null;
+        const q = Math.max(1, Number(r.quantita) || 1);
+        const forn = String(r.fornitore || '').toUpperCase().trim();
+        const p = pezzoDellaRiga(auto, r.tipo, r.ean);
+        const a = offertaDelPezzo(dati, r.ean, forn);
+        const uguale = x => x && String(x.fornitore || '').toUpperCase().trim() === forn &&
+            [x.codice, x.ean, x.mpn].filter(Boolean).map(chiave).includes(chiave(r.ean));
+        if (p && uguale(p.manuale) && p.quantita_non_coperta > 0) {
+            return { stato: 'quantita', testo: 'Quantità insufficiente dopo gli altri ordini: sostituisci o verifica il fornitore.' };
+        }
+        if (p && uguale(p.manuale) && !uguale(p.auto) && p.disponibilita_ordini)
+            return { stato: 'da_verificare', testo: 'Disponibilità da verificare dopo le assegnazioni agli altri ordini.' };
+        if (a && offertaOrdinabile({ ...a, quantita: q, costo: (a.costo_unitario ?? a.costo) * q })) return null;
+        if (p && uguale(p.auto) && offertaOrdinabile({ ...p.auto, quantita: q })) return null;
+        const off = costoScheda(dati, r.ean, forn);
+        const n = pezziDisponibili(off?.disponibilita);
+        const stock = a?.stock ?? pezziDisponibili(a?.disponibilita);
+        if (!Array.isArray(dati.offerte_ordinabili) && n != null && n >= q) return null;
+        if ((stock != null && Number(stock) < q) || (n != null && n < q))
+            return { stato: 'quantita', testo: 'Quantità disponibile insufficiente per questa riga.' };
+        if (a || (off && /riservat|in arrivo|da confermare|non (?:ordinabile|disponibile)/i.test(off.disponibilita || '')))
+            return { stato: 'non_ordinabile', testo: 'Non ordinabile da questo fornitore: sostituisci o verifica la disponibilità.' };
+        if ((dati.fornitori_esclusi || []).some(f => String(f).toUpperCase().startsWith(forn + ':')))
+            return { stato: 'da_verificare', testo: 'Disponibilità da verificare: listino del fornitore non aggiornato.' };
+        if (p?.fisso || r.fonte === 'fisso')
+            return { stato: 'fuori_listino', testo: 'Acquisto fuori listino: disponibilità da verificare.' };
+        if (Array.isArray(dati.offerte_ordinabili))
+            return { stato: 'assente', testo: 'Non disponibile nei listini: sostituisci o verifica il prodotto.' };
+        return null; // dati incompleti/offline: nessuna disponibilità inventata
+    }
+
+    function segnaDisponibilitaRiga(row, orderId, r, avviso, cambia = apriCambioPezzo) {
+        row.classList.toggle('acc-riga-indisponibile', !!avviso);
+        let box = row.querySelector('.acc-disponibilita-riga');
+        if (!avviso) { if (box) box.remove(); delete row.dataset.accDisponibilita; return; }
+        row.dataset.accDisponibilita = avviso.stato;
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'acc-disponibilita-riga';
+            const label = document.createElement('span');
+            label.className = 'acc-disponibilita-testo';
+            label.setAttribute('role', 'status');
+            const button = document.createElement('button');
+            button.type = 'button'; button.className = 'acc-sostituisci-riga'; button.textContent = 'Sostituisci';
+            box.appendChild(label); box.appendChild(button); row.appendChild(box);
+        }
+        box.querySelector('.acc-disponibilita-testo').textContent = avviso.testo;
+        const button = box.querySelector('button');
+        button.setAttribute('aria-label', `Sostituisci ${r.tipo}: ${r.descrizione || r.nome || r.ean}`);
+        button.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); cambia(orderId, r); };
+    }
+
     function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, offerta, sch, vStesso, scelto,
         pRiga, salvato, delCodice, salvati = {} }) {
         const risultato = (costo, fonte) => ({ costo, fonte });
@@ -1466,6 +1528,14 @@
         conti.upgradeRitirati = dati && precedenteUpgrade.some(x => !scelteUpgradeMontaggio(auto).has(x.tipo)) ||
             !!(ultimiConti[orderId] && ultimiConti[orderId].upgradeRitirati);
         mostraMontaggioUpgrade(orderId, conti.montaggioUpgrade);
+        for (const row of righe(orderId)) {
+            const m = manualeDellaRiga(row);
+            const r = conti.righe.find(x => x.tipo === row.dataset.componentType && chiave(x.ean) === chiave(m.ean) &&
+                String(x.fornitore || '').toUpperCase() === String(m.fornitore || '').toUpperCase());
+            const avviso = row.dataset.accPaid === '1' || !r ? null : disponibilitaRiga(dati, auto, r, conti.confermato);
+            if (r) r.verificaDisponibilita = avviso;
+            segnaDisponibilitaRiga(row, orderId, r, avviso);
+        }
         ultimiConti[orderId] = conti;
         await mostraUtile(orderId, conti, dati);
     }
@@ -2851,10 +2921,9 @@
     // manuale che già ci sta e divide i pezzi per categorie con i nomi generici (quelli del PDF per i ragazzi che
     // assemblano) e quella automatica, che serve a me per fare l'ordine: diviso per ogni categoria, quali sono i pezzi
     // che realisticamente devo acquistare, categoria per categoria e fornitore per fornitore.»
-    // L'automatica non scrive nulla. Per ogni PC della scrivania prende i pezzi della scheda; dove l'automatico oggi
-    // sceglie un altro pezzo con le regole di sempre (le stesse di «AGGIORNA PREZZI PRODOTTO»: colore, marca della
-    // linea, quantita', alimentatore, disponibilita' a scalare tra i fornitori) mette quello e segna che la scheda e'
-    // da allineare. I PC con l'acquisto gia' confermato non contano. In piu' le opzioni del cliente fuori scheda e le
+    // Il riepilogo conta i pezzi presenti nelle schede, anche se non disponibili. Le alternative
+    // proposte entrano nel totale solo dopo che Antonio conferma la sostituzione nella scheda.
+    // I PC con l'acquisto gia' confermato non contano. In piu' le opzioni del cliente fuori scheda e le
     // voci personalizzate. Il magazzino resta a parte: pezzi gia' a terra, da non ordinare.
     const K_MODO_RIEPILOGO = 'riepilogo_fornitori_modo';
     const ORDINE_CATEGORIE = ['CPU', 'GPU', 'MOBO', 'RAM', 'SSD', 'SSD ADDON', 'HDD', 'PSU', 'COOLER', 'CASE', 'MONITOR',
@@ -2937,6 +3006,7 @@
             if (x.costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + x.costo);
             if (x.stimato) r.stimato = true;
             if (x.daConfermare) r.daConfermare = true;
+            if (x.verificaDisponibilita && !r.verificaDisponibilita) r.verificaDisponibilita = x.verificaDisponibilita;
             if (!r.disponibilita && x.disponibilita) r.disponibilita = x.disponibilita;
             if (ordine && !r.ordini.includes(ordine)) r.ordini.push(ordine);
             if (x.scheda && !r.scheda.includes(x.scheda)) r.scheda.push(x.scheda);
@@ -2963,18 +3033,8 @@
                 if (SENZA_PEZZO.test(String(r.ean || '').trim())) continue;
                 const categoria = categoriaScheda(r.tipo);
                 const salvato = salvati.find(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean));
-                const quantita = Math.max(1, parseInt(salvato && salvato.quantity, 10) || 1);
-                const p = auto ? sostitutoDaOrdine(auto, { tipo: r.tipo, ean: r.ean, fornitore: r.fornitore,
-                    nome: salvato ? salvato.name : '', quantita }) : null;
+                const quantita = Math.max(1, parseInt(salvato?.quantity ?? r.quantita, 10) || 1);
                 const pezzo = { id: s.id, tipo: r.tipo, ean: r.ean, fornitore: r.fornitore || '', nome: r.nome || '', ordine: s.nome };
-                if (p && p.auto && p.auto.codice) {                   // l'automatico oggi prende un altro pezzo
-                    out.cambi++;
-                    aggiungi(categoria, { fornitore: p.auto.fornitore, codice: p.auto.codice, ean: p.auto.ean, mpn: p.auto.mpn, descrizione: p.auto.descrizione,
-                        quantita: parseInt(p.auto.quantita, 10) || quantita, costo: p.auto.costo != null ? p.auto.costo : null,
-                        disponibilita: p.auto.disponibilita, daConfermare: !!p.auto.da_confermare,
-                        scheda: `${r.fornitore || ''} ${r.ean}`.trim(), pezzo }, s.nome);
-                    continue;
-                }
                 // il pezzo della scheda resta: nome e disponibilita' dai listini (pezzo dell'automatico con lo stesso
                 // codice e fornitore, altrimenti il costo di oggi del pezzo della scheda)
                 const forn = String(r.fornitore || '').toUpperCase().trim();
@@ -2995,9 +3055,10 @@
                     ean: (uguale && uguale.auto.ean) || (sch && sch.ean) || (/^\d{8,14}$/.test(String(r.ean || '').trim()) ? String(r.ean).trim() : ''),
                     mpn: (uguale && uguale.auto.mpn) || (sch && sch.mpn) || '',
                     descrizione: (uguale && uguale.auto.descrizione) || (listino && listino.descrizione) ||
-                        (vago && fisso && fisso.descrizione) || (salvato && salvato.name) || r.nome || r.ean,
+                        (vago && fisso && fisso.descrizione) || (salvato && salvato.name) || r.descrizione || r.nome || r.ean,
                     quantita, costo: r.costo != null ? r.costo : null, stimato: r.fonte === 'stima' || r.fonte === 'altro',
                     disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
+                    verificaDisponibilita: disponibilitaRiga(dati, auto, { ...r, quantita }),
                     daConfermare: !!(uguale && uguale.auto.da_confermare), pezzo }, s.nome);
             }
             for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
@@ -3024,6 +3085,10 @@
                     const n = pezziDisponibili(r.disponibilita);
                     if (f !== 'MAGAZZINO' && n != null && r.quantita > n) r.poco = n;
                     if (f !== 'MAGAZZINO' && /^non disponibile/i.test(r.disponibilita)) r.nonDisponibile = true;
+                    if (f !== 'MAGAZZINO' && r.verificaDisponibilita) {
+                        if (['assente','non_ordinabile','quantita'].includes(r.verificaDisponibilita.stato)) r.nonDisponibile = true;
+                        else r.daVerificare = true;
+                    }
                 }
                 const pezzi = lista.reduce((t, r) => t + r.quantita, 0);
                 const costo = tonda(lista.reduce((t, r) => t + r.costo, 0));
@@ -3218,7 +3283,7 @@
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
             r.pezzi && r.pezzi.length && !magazzino ? `<button type="button" class="acc-rf-azione" data-rf-cambia="${r.n}" title="Cerca un altro pezzo nel Buyer Desk: con un clic va al posto di questo nelle schede">🔁 Cambia dal Buyer Desk</button>` : ''
         ].filter(Boolean).join('');
-        return `<div class="supplier-item">` +
+        return `<div class="supplier-item${!magazzino && (r.nonDisponibile || r.daVerificare || r.poco != null) ? ' acc-rf-indisponibile' : ''}">` +
             `<div class="supplier-item-header"><span class="supplier-item-quantity" style="background:${colore};box-shadow:0 2px 8px ${colore}40">x${r.quantita}</span>` +
             (categoria ? `<span class="acc-rf-cat">${esc(categoria)}</span>` : '') +
             `<span class="acc-cod" data-copia="${esc(r.codice)}" title="Copia il codice">${esc(r.codice || '—')}</span>` +
@@ -3227,7 +3292,8 @@
             `<div class="acc-nota">${esc(r.ordini.join(' '))}${disp ? ' · ' + esc(disp) : ''}</div>` +
             (r.scheda.length ? `<div class="acc-rf-cambio">🔄 nella scheda: ${esc(r.scheda.join(', '))} · si allinea con «AGGIORNA PREZZI PRODOTTO»</div>` : '') +
             (r.poco != null ? `<div class="acc-rf-avviso">⚠ il fornitore ne ha solo ${r.poco}: gli altri vanno presi altrove</div>` : '') +
-            (r.nonDisponibile ? `<div class="acc-rf-avviso">⚠ oggi non disponibile da questo fornitore</div>` : '') +
+            (r.verificaDisponibilita ? `<div class="acc-rf-avviso">⚠ ${esc(r.verificaDisponibilita.testo)}</div>` :
+                r.nonDisponibile ? `<div class="acc-rf-avviso">⚠ oggi non disponibile da questo fornitore</div>` : '') +
             (azioni ? `<div class="acc-rf-azioni">${azioni}</div>` : '') +
             `</div>`;
     }
@@ -3266,11 +3332,13 @@
 
     function htmlLatoDaOrdinare(r, n, quando, vista, solo, contatti) {
         const v = vista === 'fornitori' ? 'fornitori' : 'categorie';
-        return `<div class="acc-rf-tot"><small>Da ordinare · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
+        return `<div class="acc-rf-tot"><small>Scrivania E${n} · Da ordinare · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
             `<b>${eur(r.totale)}</b><small>${r.pezzi} pezzi per ${r.pc === 1 ? '1 PC' : `${r.pc} PC`}` +
             `${r.senzaCosto ? ` · ${r.senzaCosto === 1 ? '1 pezzo' : `${r.senzaCosto} pezzi`} senza costo` : ''}</small></div>` +
             `<div class="acc-rf-viste"><button type="button" data-rf-vista="categorie" class="${v === 'categorie' ? 'attivo' : ''}">📂 Per categoria</button>` +
             `<button type="button" data-rf-vista="fornitori" class="${v === 'fornitori' ? 'attivo' : ''}">🏷 Per fornitore</button></div>` +
+            (r.righe.some(x => x.verificaDisponibilita || x.nonDisponibile || x.poco != null) ?
+                `<div class="acc-nota">I pezzi non disponibili restano nel totale finché non li sostituisci nelle schede.</div>` : '') +
             (r.esclusi.length ? `<div class="acc-nota">Non contati, acquisto già confermato: ${esc(r.esclusi.join(', '))}</div>` : '') +
             (r.cambi ? `<div class="acc-rf-cambio">🔄 ${r.cambi === 1 ? '1 pezzo diverso' : `${r.cambi} pezzi diversi`} dalla scheda: ` +
                 `per allinearla premi «AGGIORNA PREZZI PRODOTTO» nella scrivania E${n}</div>` : '') +
@@ -3866,6 +3934,7 @@
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
+        disponibilitaRiga, segnaDisponibilitaRiga,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,

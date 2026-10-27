@@ -18,6 +18,8 @@ Queste regole prevalgono sulle note storiche del progetto.
 - I prezzi pagati già registrati con il percorso precedente restano conservati. Non si ricostruiscono automaticamente spese storiche che non erano state salvate.
 - Giacenza PF-600X ancora da comunicare da Antonio: non attribuire quantità presunte.
 
+Regola confermata il 27 ottobre: un componente non disponibile viene evidenziato in rosso nella scheda con il comando «Sostituisci». Finché non viene confermata la sostituzione, codice, fornitore e quantità originali restano nella merce da acquistare e nei totali fornitori, con l’avviso di disponibilità. Un’alternativa suggerita non entra nel riepilogo al posto del prodotto dell’ordine. Un costo sconosciuto resta mancante; una disponibilità sconosciuta resta da verificare. I pezzi a magazzino e gli acquisti già confermati mantengono le protezioni esistenti.
+
 I costi inseriti e le nuove conferme sono nei campi riservati `_costi_netti_gestionale` e `_acquisto_confermato_gestionale` delle proprietà dell’ordine. Questi dati non sono scelte del cliente e non devono apparire nelle descrizioni Shopify o nei fogli di montaggio.
 
 Il confronto per componente legge la distinta Excel con le GPU approvate aggiornate. L’impronta del catalogo GPU Watch viene pubblicata nel file cifrato. Se somma della distinta e riferimento aggregato non coincidono, la differenza è segnalata: non diventa un costo inventato dell’ordine.

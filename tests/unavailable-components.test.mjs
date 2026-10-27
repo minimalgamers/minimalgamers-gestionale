@@ -79,6 +79,42 @@ test('un listino escluso produce un avviso di verifica, senza dichiarare stock z
   assert.match(A.disponibilitaRiga(d,null,old).testo,/non aggiornato/);
 });
 
+test('costo pagato senza prelievo: giacenza da verificare e prodotto ancora da acquistare',()=>{
+  const d={offerte_ordinabili:[],magazzino:[{id:'psu',codice:'MAG-PSU',costo:28.69}],
+    ordini:{'100':{nome:'#5000',pc:[{pezzi:[{tipo:'PSU',manuale:{codice:'PF600',fornitore:'ABACO'},giacenza:'psu'}]}]}}};
+  A.annota(d);A.inv.righe={};
+  const pc=A.pcAutomatico(d,'100'),p=pc.pezzi[0];
+  const costo=A.costoRigaVerificato({ean:'PF600',fornitore:'ABACO',mag:28.69,magPreso:A.pezzoPreso(p)});
+  assert.equal(costo.costo,28.69);assert.equal(costo.fonte,'riferimento_magazzino');
+  const r={tipo:'PSU',ean:'PF600',fornitore:'ABACO',quantita:1,...costo};
+  assert.match(A.disponibilitaRiga(d,pc,r).testo,/quantità in magazzino non registrata/);
+  const prima=J(A.daOrdinare(d,[scheda(r)],{}));
+  assert.equal(prima.pezzi,1);assert.equal(prima.totale,28.69);assert.equal(prima.fornitori[0].nome,'ABACO');
+  A.inv.righe['MAG-PSU']={quantity:5};
+  assert.match(A.disponibilitaRiga(d,pc,r).testo,/non ancora prelevato/);
+  A.inv.righe[p.mag.uso]={quantity:1};
+  const preso=A.costoRigaVerificato({ean:'PF600',fornitore:'ABACO',mag:28.69,magPreso:A.pezzoPreso(p)});
+  assert.equal(preso.fonte,'magazzino');
+  const dopo=J(A.daOrdinare(d,[scheda({...r,...preso})],{}));
+  assert.equal(dopo.pezzi,0);assert.equal(dopo.totale,0);assert.equal(dopo.fornitori[0].nome,'MAGAZZINO');
+  A.inv.righe=null;
+});
+
+test('senza prelievo il costo attuale prevale sul riferimento storico; un prelievo resta al pagato',()=>{
+  const args={ean:'PF600',fornitore:'ABACO',mag:28.69,offerta:{costo_unitario:31},quantita:2};
+  assert.equal(A.costoRigaVerificato({...args,magPreso:false}).costo,62);
+  assert.equal(A.costoRigaVerificato({...args,magPreso:false}).fonte,'listino');
+  assert.equal(A.costoRigaVerificato({...args,magPreso:true}).costo,28.69);
+});
+
+test('letture contemporanee della giacenza condividono una richiesta senza scritture',async()=>{
+  let richieste=0;const metodi=[];
+  sandbox.fetch=async(_url,opts)=>{richieste++;metodi.push(opts?.method||'GET');return {ok:true,json:async()=>({success:true,inventory:[{ean:'MAG-PSU',quantity:3}]})};};
+  await Promise.all([A.leggiInventario(),A.leggiInventario()]);
+  assert.equal(richieste,1);assert.deepEqual(metodi,['GET']);assert.equal(A.inv.righe['MAG-PSU'].quantity,3);
+  assert.equal(A.inv.promessa,null);A.inv.righe=null;
+});
+
 class El{
   constructor(){this.children=[];this.dataset={};this.attrs={};this.className='';this.textContent='';
     this.classList={toggle:(name,on)=>{const s=new Set(this.className.split(/\s+/).filter(Boolean));on?s.add(name):s.delete(name);this.className=[...s].join(' ');}};}

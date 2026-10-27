@@ -122,7 +122,7 @@
     // il pezzo preso costa quanto e' stato pagato (o il prezzo di oggi, se non e' stato inserito).
     const URL_INV = 'api_gateway/db_bridge/inventory_service/endpoint/api-inventory.php';
     const PREFISSO_USO = 'MAG-USO-';
-    const inv = { righe: null, errore: null };
+    const inv = { righe: null, errore: null, promessa: null, caricatoIl: 0 };
 
     const chiaveUso = (idOrdine, nPc, idGiacenza) => `${PREFISSO_USO}${idOrdine}-${nPc}-${idGiacenza}`;
 
@@ -154,17 +154,22 @@
     }
 
     async function leggiInventario() {
-        try {
-            const d = await rispostaInv(await fetch(URL_INV, { cache: 'no-store' }));
-            const righe = {};
-            for (const x of d.inventory || []) righe[x.ean] = x;
-            inv.righe = righe;
-            inv.errore = null;
-        } catch (e) {
-            inv.errore = e && e.message ? e.message : String(e);
-            throw e;
-        }
-        return inv.righe;
+        if (inv.promessa) return inv.promessa;
+        inv.promessa = (async () => {
+            try {
+                const d = await rispostaInv(await fetch(URL_INV, { cache: 'no-store' }));
+                const righe = {};
+                for (const x of d.inventory || []) righe[x.ean] = x;
+                inv.righe = righe;
+                inv.errore = null;
+                inv.caricatoIl = Date.now();
+                return inv.righe;
+            } catch (e) {
+                inv.errore = e && e.message ? e.message : String(e);
+                throw e;
+            }
+        })();
+        try { return await inv.promessa; } finally { inv.promessa = null; }
     }
 
     const scriviRiga = async (ean, name, quantity) => rispostaInv(await fetch(URL_INV, {
@@ -953,7 +958,7 @@
         return h;
     }
 
-    const NOME_FONTE = { acquistato: 'prezzo pagato (acquisto confermato)', listino: '', inserito: 'inserito da te', fisso: 'budget fisso', magazzino: 'a magazzino: prezzo pagato',
+    const NOME_FONTE = { acquistato: 'prezzo pagato (acquisto confermato)', listino: '', inserito: 'inserito da te', fisso: 'budget fisso', magazzino: 'a magazzino: prezzo pagato', riferimento_magazzino: 'costo pagato di riferimento; prelievo da confermare',
         altro: 'stimato: stesso pezzo, prezzo di un altro fornitore',
         stima: 'stimato col pezzo consigliato: questo non ha un prezzo di listino' };
 
@@ -1429,6 +1434,10 @@
             return { stato: 'non_ordinabile', testo: 'Non ordinabile da questo fornitore: sostituisci o verifica la disponibilità.' };
         if ((dati.fornitori_esclusi || []).some(f => String(f).toUpperCase().startsWith(forn + ':')))
             return { stato: 'da_verificare', testo: 'Disponibilità da verificare: listino del fornitore non aggiornato.' };
+        if (p?.mag && !pezzoPreso(p))
+            return { stato: 'da_verificare', testo: quantitaMagazzino(p.mag.def) == null ?
+                'Giacenza da verificare: quantità in magazzino non registrata.' :
+                'Pezzo non ancora prelevato dal magazzino: conferma il prelievo oppure sostituiscilo.' };
         if (p?.fisso || r.fonte === 'fisso')
             return { stato: 'fuori_listino', testo: 'Acquisto fuori listino: disponibilità da verificare.' };
         if (Array.isArray(dati.offerte_ordinabili))
@@ -1457,14 +1466,14 @@
         button.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); cambia(orderId, r); };
     }
 
-    function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, offerta, sch, vStesso, scelto,
+    function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, magPreso = true, offerta, sch, vStesso, scelto,
         pRiga, salvato, delCodice, salvati = {} }) {
         const risultato = (costo, fonte) => ({ costo, fonte });
         const stessaRiga = p => p?.manuale && chiave(p.manuale.codice) === chiave(ean) &&
             (!fornitore || String(p.manuale.fornitore || '').toUpperCase() === String(fornitore).toUpperCase());
         if (pagato != null) return risultato(pagato, 'acquistato');
         if (inserito != null) return risultato(inserito, 'inserito');
-        if (mag != null) return risultato(mag, 'magazzino');
+        if (mag != null && magPreso) return risultato(mag, 'magazzino');
         if (offerta?.costo_unitario != null) return risultato(tonda(offerta.costo_unitario * quantita), 'listino');
         if (sch?.costo != null && sch.fonte === 'listino') return risultato(tonda(sch.costo * quantita), 'listino');
         for (const p of [vStesso, pRiga]) {
@@ -1476,6 +1485,8 @@
             if (stessaRiga(p) && !p.auto && p.fisso?.costo != null) return risultato(costoPezzo(p, salvati).costo, 'fisso');
         }
         if (delCodice?.costo != null && delCodice.fonte === 'listino') return risultato(tonda(delCodice.costo * quantita), 'listino');
+        // Un prezzo già pagato è un riferimento, non la prova del prelievo per questo PC.
+        if (mag != null) return risultato(mag, 'riferimento_magazzino');
         return risultato(null, null);
     }
 
@@ -1485,6 +1496,8 @@
         stile();
         let dati = null;
         try { dati = await carica(); } catch (e) { /* mostrato nel riquadro */ }
+        if (dati?.magazzino?.length && Date.now() - inv.caricatoIl > 60000)
+            try { await leggiInventario(); } catch (e) { /* senza verifica non si considera il pezzo già prelevato */ }
         const conti = { man: 0, mancanti: [], stime: 0, righe: [] };
         const auto = pcAutomatico(dati, orderId);
         const salvati = leggiLS(K_FISSI, {});
@@ -1507,7 +1520,7 @@
             const quantita = Math.max(1, Number(row.dataset.quantity) || Number(componentiSalvati(orderId).find(c => c.type === tipo && chiave(c.ean) === chiave(man.ean))?.quantity) || 1);
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
             const offertaAttuale = offertaDelPezzo(dati, man.ean, man.fornitore);
-            const {costo, fonte} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag,
+            const {costo, fonte} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pRiga),
                 offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati });
             // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
             // scheda); la scheda dell'assemblatore resta generica (chipset), qui serve a chi compra

@@ -1306,8 +1306,8 @@
 #riepilogo-auto .supplier-item-name{margin-top:2px}
 .component-row.acc-riga-indisponibile{flex-wrap:wrap;gap:6px;padding:8px;background:#fff0f1!important;border-left:3px solid #c74453;border-radius:6px}
 .component-row.acc-riga-indisponibile .component-name-display,.component-row.acc-riga-indisponibile strong{color:#8b2332!important}
-.acc-disponibilita-riga{flex:0 0 100%;display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;color:#8b2332;font-size:.82em;line-height:1.4}
-.acc-disponibilita-testo{min-width:0;overflow-wrap:anywhere}
+.acc-disponibilita-riga,body.mg-ios #processed-container .component-row>.acc-disponibilita-riga{flex:0 0 100%;display:flex!important;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;min-width:0;color:#8b2332;font-size:.82em;line-height:1.4}
+.acc-disponibilita-testo{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
 .acc-sostituisci-riga{flex:none;min-height:36px;padding:6px 10px;border:1px solid #c74453;border-radius:6px;background:#fff;color:#8b2332;font-weight:700;cursor:pointer}
 .supplier-item.acc-rf-indisponibile{background:#fff0f1!important;border-left:3px solid #c74453!important}
 .acc-upgrade-montaggio{display:flex;flex-direction:column;gap:8px;padding:14px 0;margin:6px 0;border-bottom:1px solid rgba(127,127,127,.25);font-size:.95em;line-height:1.5;text-align:left;min-width:0}

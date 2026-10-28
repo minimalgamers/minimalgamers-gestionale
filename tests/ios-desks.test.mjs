@@ -9,7 +9,7 @@ const css = fs.readFileSync(path.join(root,'assets/css/ios-desks.css'),'utf8');
 const js = fs.readFileSync(path.join(root,'assets/js/ios-desks.js'),'utf8');
 const html = fs.readFileSync(path.join(root,'index.html'),'utf8');
 test('desks use local versioned presentation assets after the existing assets',()=>{
-    assert(html.indexOf('ios-desks.css?v=1')>html.indexOf('ios-orders.css?v=1'));
+    assert(html.indexOf('ios-desks.css?v=2')>html.indexOf('ios-orders.css?v=1'));
     assert(html.indexOf('ios-desks.js?v=1')>html.indexOf('category-summary.js?v=7'));
     for(const icon of ['credit-card','cube','plus','warning-circle','receipt','arrows-clockwise','check-circle','envelope-simple','chat-circle','check','warning','x'])
         assert(fs.existsSync(path.join(root,`assets/icons/${icon}.svg`)));

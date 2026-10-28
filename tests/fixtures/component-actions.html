@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test locale pulsanti componenti</title><link rel="stylesheet" href="../../assets/css/ios-desks.css">
+<style>body{margin:16px;font-family:system-ui;background:#eee}#processed-container{display:flex;align-items:start;gap:16px}.order-card{flex:none;container-type:inline-size}.acc-utile{padding:16px}#esito{padding:10px;background:#fff;position:sticky;top:0;z-index:10}</style>
+</head><body class="mg-ios"><h1>Test locale: azioni dei componenti</h1><p>Nessun ordine reale e nessuna connessione al database.</p><output id="esito">Scegli un’azione</output><main id="processed-container"></main>
+<script src="../../assets/js/accoppiamento-auto.js"></script>
+<script>
+const A=window.AccoppiamentoAuto;A.stile();
+const rows=['CASE','CPU','MOBO','SSD','RAM','GPU','PSU','COOLER'].map(tipo=>({tipo,ean:'TEST-'+tipo,fornitore:'ABACO',descrizione:'Componente '+tipo+' di prova, nome preciso del modello',costo:28.69,fonte:'listino'}));
+document.querySelector('main').innerHTML=[320,420,650].map(w=>'<article class="order-card" style="width:'+w+'px"><h2>'+w+' px</h2><div class="acc-utile">'+A.righePezziConto(rows,true)+'</div></article>').join('');
+document.querySelectorAll('[data-cambia],[data-costo-riga]').forEach(b=>b.addEventListener('click',()=>{
+const cambio=b.hasAttribute('data-cambia'),i=Number(b.getAttribute(cambio?'data-cambia':'data-costo-riga'));
+document.querySelector('#esito').textContent=(cambio?'Cambio ':'Costo ')+rows[i].tipo;
+}));
+</script></body></html>

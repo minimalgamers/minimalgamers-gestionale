@@ -1140,7 +1140,8 @@
             const costoEditabile = r.fonte !== 'acquistato' && r.ean
                 ? `<button type="button" class="acc-cambia" data-costo-riga="${i}">${r.costo == null ? 'Inserisci costo' : 'Modifica costo'}</button>` : '';
             return `<div class="acc-pezzo"><div class="riga"><span><b>${esc(r.tipo)}</b> · ${esc(r.fornitore || '')} ${esc(nome)}</span><span>${val}</span></div>` +
-                `${sotto || cambia || costoEditabile ? `<div class="acc-pezzo-sotto"><div>${sotto}</div>${cambia}${costoEditabile}</div>` : ''}</div>`;
+                `${sotto || cambia || costoEditabile ? `<div class="acc-pezzo-sotto"><div>${sotto}</div>` +
+                    `<div class="acc-azioni-pezzo" role="group" aria-label="Azioni ${esc(r.tipo)}">${cambia}${costoEditabile}</div></div>` : ''}</div>`;
         }).join('');
     }
 
@@ -1299,6 +1300,7 @@
 .acc-pezzo{padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.12)}
 .acc-pezzo-sotto{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
 .acc-cambia{flex:none;font-size:.85em;padding:1px 6px;border-radius:5px;border:1px solid rgba(52,152,219,.6);background:rgba(52,152,219,.18);color:#fff;cursor:pointer}
+.acc-azioni-pezzo{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;flex:none;min-width:0}
 .acc-consiglio{margin:6px 0;padding:5px 8px;border-radius:6px;background:rgba(46,204,113,.12);border:1px solid rgba(46,204,113,.35)}
 .acc-barra{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.15)}
 .acc-barra button{padding:9px 14px;border-radius:8px;font-weight:800;cursor:pointer;border:1px solid rgba(255,255,255,.35);color:#fff;background:rgba(52,152,219,.35)}
@@ -1440,10 +1442,18 @@
 #riepilogo-auto .supplier-item-name{margin-top:2px}
 .component-row.acc-riga-indisponibile{flex-wrap:wrap;gap:6px;padding:8px;background:#fff0f1!important;border-left:3px solid #c74453;border-radius:6px}
 .component-row.acc-riga-indisponibile .component-name-display,.component-row.acc-riga-indisponibile strong{color:#8b2332!important}
+.component-row.acc-riga-informativa{flex-wrap:wrap;gap:6px;padding:8px;background:#f2f5f8!important;border-left:3px solid #8a9bad;border-radius:6px}
+.component-row.acc-riga-avviso{flex-wrap:wrap;gap:6px;padding:8px;background:#fff5e6!important;border-left:3px solid #b37a28;border-radius:6px}
+.component-row.acc-riga-informativa .acc-disponibilita-riga{color:#536578}
+.component-row.acc-riga-informativa .acc-sostituisci-riga{color:#536578;border-color:#abb9c6}
+.component-row.acc-riga-avviso .acc-disponibilita-riga{color:#855815}
+.component-row.acc-riga-avviso .acc-sostituisci-riga{color:#855815;border-color:#c9aa7e}
 .acc-disponibilita-riga,body.mg-ios #processed-container .component-row>.acc-disponibilita-riga{flex:0 0 100%;display:flex!important;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;min-width:0;color:#8b2332;font-size:.82em;line-height:1.4}
 .acc-disponibilita-testo{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
 .acc-sostituisci-riga{flex:none;min-height:36px;padding:6px 10px;border:1px solid #c74453;border-radius:6px;background:#fff;color:#8b2332;font-weight:700;cursor:pointer}
 .supplier-item.acc-rf-indisponibile{background:#fff0f1!important;border-left:3px solid #c74453!important}
+.supplier-item.acc-rf-informativo{background:#f2f5f8!important;border-left:3px solid #8a9bad!important}
+.supplier-item.acc-rf-informativo .acc-rf-avviso{color:#536578}
 .acc-esito.acc-provvisorio{background:#fff1dc!important;color:#8b510d!important}
 .acc-upgrade-montaggio{display:flex;flex-direction:column;gap:8px;padding:14px 0;margin:6px 0;border-bottom:1px solid rgba(127,127,127,.25);font-size:.95em;line-height:1.5;text-align:left;min-width:0}
 .acc-upgrade-montaggio>*{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}`;
@@ -1567,7 +1577,7 @@
             return { stato: 'da_verificare', testo: 'Disponibilità da verificare: listino del fornitore non aggiornato.' };
         if (mag?.mag && !pezzoPreso(mag)) {
             const n = quantitaMagazzino(mag.mag.def);
-            return { stato: n != null && n >= q ? 'magazzino' : 'da_verificare', testo: inv.errore ?
+            return { stato: n == null || inv.errore ? 'da_verificare' : n >= q ? 'magazzino' : 'magazzino_insufficiente', testo: inv.errore ?
                 'Inventario non raggiungibile: giacenza da verificare.' : n == null ?
                 'Giacenza da verificare: quantità in magazzino non registrata.' : n >= q ?
                 `In magazzino: ${n} pezzi. Non ancora prelevato per questo ordine.` :
@@ -1580,8 +1590,21 @@
         return null; // dati incompleti/offline: nessuna disponibilità inventata
     }
 
+    function statoAvvisoComponente(r, avviso) {
+        if (!avviso) return {livello:null,testo:''};
+        const confermato = Number.isFinite(r?.costo) && ['inserito','magazzino','acquistato'].includes(r.fonte);
+        const incerto = ['da_verificare','fuori_listino'].includes(avviso.stato);
+        const livello = avviso.stato === 'magazzino' || confermato && incerto ? 'info' : incerto ? 'avviso' : 'errore';
+        const costo = confermato ? `Costo confermato: ${eur(r.costo)} netti. ` : '';
+        const testo = confermato && r.magazzino && avviso.stato === 'da_verificare' && !inv.errore && quantitaMagazzino(r.magazzino.def) == null ?
+            costo + 'Quantità in magazzino da contare; il conto usa già questo costo.' : costo + avviso.testo;
+        return {livello,testo};
+    }
     function segnaDisponibilitaRiga(row, orderId, r, avviso, cambia = apriCambioPezzo) {
-        row.classList.toggle('acc-riga-indisponibile', !!avviso);
+        const statoRiga = statoAvvisoComponente(r,avviso);
+        row.classList.toggle('acc-riga-indisponibile', statoRiga.livello === 'errore');
+        row.classList.toggle('acc-riga-informativa', statoRiga.livello === 'info');
+        row.classList.toggle('acc-riga-avviso', statoRiga.livello === 'avviso');
         let box = row.querySelector('.acc-disponibilita-riga');
         if (!avviso) { if (box) box.remove(); delete row.dataset.accDisponibilita; return; }
         row.dataset.accDisponibilita = avviso.stato;
@@ -1597,11 +1620,12 @@
             costo.type = 'button'; costo.className = 'acc-costo-magazzino acc-sostituisci-riga'; costo.textContent = 'Costo e magazzino';
             box.appendChild(label); box.appendChild(button); box.appendChild(costo); row.appendChild(box);
         }
-        box.querySelector('.acc-disponibilita-testo').textContent = avviso.testo;
+        box.querySelector('.acc-disponibilita-testo').textContent = statoRiga.testo;
         const button = box.querySelector('button');
         button.setAttribute('aria-label', `Sostituisci ${r.tipo}: ${r.descrizione || r.nome || r.ean}`);
         button.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); cambia(orderId, r); };
         const costo = box.querySelector('.acc-costo-magazzino');
+        costo.textContent = r.fonte === 'inserito' ? (r.magazzino ? 'Gestisci magazzino' : 'Modifica costo') : 'Costo e magazzino';
         costo.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); apriCosto(orderId,r); };
         const pm = magazzinoDellaRiga(orderId,r);
         let preleva = box.querySelector('.acc-preleva-riga');
@@ -3182,6 +3206,8 @@
             if (x.stimato) r.stimato = true;
             if (x.daConfermare) r.daConfermare = true;
             if (x.verificaDisponibilita && !r.verificaDisponibilita) r.verificaDisponibilita = x.verificaDisponibilita;
+            const peso = v => ({info:1,avviso:2,errore:3}[v?.livello] || 0);
+            if (peso(x.statoVisivo) > peso(r.statoVisivo)) r.statoVisivo = x.statoVisivo;
             if (!r.disponibilita && x.disponibilita) r.disponibilita = x.disponibilita;
             if (ordine && !r.ordini.includes(ordine)) r.ordini.push(ordine);
             if (x.scheda && !r.scheda.includes(x.scheda)) r.scheda.push(x.scheda);
@@ -3234,6 +3260,7 @@
                     quantita, costo: r.costo != null ? r.costo : null, stimato: r.fonte === 'stima' || r.fonte === 'altro',
                     disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
                     verificaDisponibilita: disponibilitaRiga(dati, auto, { ...r, quantita }),
+                    statoVisivo: statoAvvisoComponente(r,disponibilitaRiga(dati, auto, { ...r, quantita })),
                     daConfermare: !!(uguale && uguale.auto.da_confermare), pezzo }, s.nome);
             }
             for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
@@ -3261,7 +3288,7 @@
                     if (f !== 'MAGAZZINO' && n != null && r.quantita > n) r.poco = n;
                     if (f !== 'MAGAZZINO' && /^non disponibile/i.test(r.disponibilita)) r.nonDisponibile = true;
                     if (f !== 'MAGAZZINO' && r.verificaDisponibilita) {
-                        if (['assente','non_ordinabile','quantita'].includes(r.verificaDisponibilita.stato)) r.nonDisponibile = true;
+                        if (['assente','non_ordinabile','quantita','magazzino_insufficiente'].includes(r.verificaDisponibilita.stato)) r.nonDisponibile = true;
                         else r.daVerificare = true;
                     }
                 }
@@ -3458,7 +3485,8 @@
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
             r.pezzi && r.pezzi.length && !magazzino ? `<button type="button" class="acc-rf-azione" data-rf-cambia="${r.n}" title="Cerca un altro pezzo nel Buyer Desk: con un clic va al posto di questo nelle schede">🔁 Cambia dal Buyer Desk</button>` : ''
         ].filter(Boolean).join('');
-        return `<div class="supplier-item${!magazzino && (r.nonDisponibile || r.daVerificare || r.poco != null) ? ' acc-rf-indisponibile' : ''}">` +
+        const info = r.statoVisivo?.livello === 'info' && !r.nonDisponibile && r.poco == null;
+        return `<div class="supplier-item${!magazzino && info ? ' acc-rf-informativo' : !magazzino && (r.nonDisponibile || r.daVerificare || r.poco != null) ? ' acc-rf-indisponibile' : ''}">` +
             `<div class="supplier-item-header"><span class="supplier-item-quantity" style="background:${colore};box-shadow:0 2px 8px ${colore}40">x${r.quantita}</span>` +
             (categoria ? `<span class="acc-rf-cat">${esc(categoria)}</span>` : '') +
             `<span class="acc-cod" data-copia="${esc(r.codice)}" title="Copia il codice">${esc(r.codice || '—')}</span>` +
@@ -3467,7 +3495,7 @@
             `<div class="acc-nota">${esc(r.ordini.join(' '))}${disp ? ' · ' + esc(disp) : ''}</div>` +
             (r.scheda.length ? `<div class="acc-rf-cambio">🔄 nella scheda: ${esc(r.scheda.join(', '))} · si allinea con «AGGIORNA PREZZI PRODOTTO»</div>` : '') +
             (r.poco != null ? `<div class="acc-rf-avviso">⚠ il fornitore ne ha solo ${r.poco}: gli altri vanno presi altrove</div>` : '') +
-            (r.verificaDisponibilita ? `<div class="acc-rf-avviso">⚠ ${esc(r.verificaDisponibilita.testo)}</div>` :
+            (r.verificaDisponibilita ? `<div class="acc-rf-avviso">${info ? 'ℹ' : '⚠'} ${esc(r.statoVisivo?.testo || r.verificaDisponibilita.testo)}</div>` :
                 r.nonDisponibile ? `<div class="acc-rf-avviso">⚠ oggi non disponibile da questo fornitore</div>` : '') +
             (azioni ? `<div class="acc-rf-azioni">${azioni}</div>` : '') +
             `</div>`;
@@ -3743,15 +3771,16 @@
         cambio.aperto = Date.now();
         const url = `${URL_BUYER_DESK}?scegli=1&q=${encodeURIComponent(ricercaPerCambio(riga))}` +
             `&da=${encodeURIComponent(`${riga.codice || ''} ${riga.descrizione || ''}`.trim().slice(0, 120))}`;
-        const w = window.open(url, 'mg-buyer-desk');
+        const w = window.open(url, '_blank');
+        cambio.finestra = w;
         if (!w) avvisa('Il browser ha bloccato la finestra del Buyer Desk: consenti i pop-up per il gestionale.', 'warning');
         else avvisa('Buyer Desk aperto: cerca il pezzo e premi «Scegli»', 'info');
     }
 
     // Messaggio dal Buyer Desk: valido solo dalla sua origine, con un cambio chiesto da qui nell'ultima ora
-    function sceltaValida(origine, d) {
+    function sceltaValida(origine, d, finestra) {
         return ORIGINI_BUYER_DESK.includes(origine) && d && d.tipo === 'mg-buyer-scelta' && d.codice && d.fornitore &&
-            !!cambio.riga && Date.now() - cambio.aperto < 60 * 60 * 1000;
+            !!cambio.riga && !!cambio.finestra && finestra === cambio.finestra && Date.now() - cambio.aperto < 60 * 60 * 1000;
     }
 
     // ================================================================ CAMBIO DAL RIQUADRO DI UN ORDINE (Antonio 02/10)
@@ -3937,7 +3966,7 @@
 
     if (typeof window !== 'undefined' && window.addEventListener) {
         window.addEventListener('message', (ev) => {
-            if (!sceltaValida(ev.origin, ev.data)) return;
+            if (!sceltaValida(ev.origin, ev.data, ev.source)) return;
             applicaScelta(ev.data).catch(e => avvisa('Cambio non riuscito: ' + (e && e.message ? e.message : e), 'error'));
         });
     }
@@ -4117,7 +4146,7 @@
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,
         indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva,
-        disponibilitaRiga, segnaDisponibilitaRiga,
+        disponibilitaRiga, segnaDisponibilitaRiga, statoAvvisoComponente, stile,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,

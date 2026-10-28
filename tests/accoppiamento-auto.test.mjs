@@ -691,11 +691,14 @@ assert.equal(A.ricercaPerCambio({ pezzi: [{ nome: 'RX 9060 XT 16GB WHITE' }], de
 const scelta = { tipo: 'mg-buyer-scelta', fornitore: 'TIER ONE', codice: '5781', descrizione: 'SSD', prezzo: 80 };
 assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), false);   // nessun cambio aperto
 A.cambio.riga = { pezzi: [{ id: '940', tipo: 'SSD' }] }; A.cambio.aperto = Date.now();
-assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), true);
-assert.equal(A.sceltaValida('https://evil.example', scelta), false);
-assert.equal(A.sceltaValida('https://listini.minimalgamers.it', { ...scelta, tipo: 'altro' }), false);
+const finestraBuyer = {}; A.cambio.finestra = finestraBuyer;
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta, finestraBuyer), true);
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta, {}), false); // altra scheda/vecchio cambio
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), false);
+assert.equal(A.sceltaValida('https://evil.example', scelta, finestraBuyer), false);
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', { ...scelta, tipo: 'altro' }, finestraBuyer), false);
 A.cambio.aperto = Date.now() - 2 * 3600 * 1000;
-assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta), false);   // cambio di piu' di un'ora fa
+assert.equal(A.sceltaValida('https://listini.minimalgamers.it', scelta, finestraBuyer), false);   // cambio di piu' di un'ora fa
 A.cambio.riga = null;
 // opzioni del cliente per la riga nella scheda: scelta del cliente e pezzo trovato
 const exScelta = A.extraOrdine({ pezzi: [{ tipo: 'VENTOLE', nome_tipo: 'Ventole', cliente: 'Build full ventole (prova)', manuale: {},

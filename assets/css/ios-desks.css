@@ -364,6 +364,22 @@ body.mg-ios #processed-container .acc-pezzo-sotto > div { line-height: 1.35; }
 @media (pointer: fine) {
     body.mg-ios #processed-container .acc-cambia { min-height: 26px; padding: 2px 8px; }
 }
+/* Ogni azione ha la sua area cliccabile: i due pulsanti non occupano più la stessa cella. */
+body.mg-ios #processed-container .acc-pezzo { grid-template-columns: minmax(0,1fr) auto; }
+body.mg-ios #processed-container .acc-pezzo > .riga > span:last-child { grid-column: 2; grid-row: 1; }
+body.mg-ios #processed-container .acc-pezzo-sotto > div:not(.acc-azioni-pezzo) { grid-column: 1/-1; grid-row: 2; }
+body.mg-ios #processed-container .acc-pezzo-sotto > .acc-azioni-pezzo {
+    grid-column: 1/-1; grid-row: 3; display: flex; flex-wrap: wrap;
+    justify-content: flex-end; gap: 8px; margin-top: 5px; min-width: 0;
+}
+body.mg-ios #processed-container .acc-azioni-pezzo .acc-cambia {
+    flex: 0 1 auto; min-width: 0; min-height: 36px; padding: 6px 10px;
+    border: 1px solid #d6dee8 !important; background: #f4f7fb !important;
+    white-space: normal; margin: 0; position: static;
+}
+@media (pointer: coarse) {
+    body.mg-ios #processed-container .acc-azioni-pezzo .acc-cambia { min-height: 44px; }
+}
 /* 05/10 (Antonio): i pulsanti della scheda (Conto, Pezzi, Opzioni, Avvisi, Ordine cliente) sempre su una sola riga,
    tutti della stessa larghezza, anche quando sono 4 o 5. */
 body.mg-ios #processed-container .acc-menu { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); }

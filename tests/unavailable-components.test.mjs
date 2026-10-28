@@ -141,3 +141,17 @@ test('riga rossa e pulsante agiscono sulla riga giusta senza modificare codice o
   A.segnaDisponibilitaRiga(row,'100',r,null,cambia);
   assert.doesNotMatch(row.className,/acc-riga-indisponibile/);assert.equal(row.children.length,1);
 });
+
+test('costo già confermato: indicazione neutra e gestione scorta, senza nuova richiesta del costo',()=>{
+  A.inv.righe={};A.inv.errore=null;
+  const row=new El(),r={...old,costo:28.69,fonte:'inserito',magazzino:{def:{codice:'MAG-PF'},uso:'MAG-USO-PF'}};
+  const avviso={stato:'da_verificare',testo:'Giacenza da verificare'};
+  A.segnaDisponibilitaRiga(row,'100',r,avviso,()=>{});
+  A.segnaDisponibilitaRiga(row,'100',r,avviso,()=>{});
+  assert.match(row.className,/acc-riga-informativa/);assert.doesNotMatch(row.className,/acc-riga-indisponibile/);
+  assert.equal(row.children.length,1);
+  assert.equal(row.querySelector('.acc-costo-magazzino').textContent,'Gestisci magazzino');
+  assert.match(row.querySelector('.acc-disponibilita-testo').textContent,/Costo confermato/);
+  A.segnaDisponibilitaRiga(row,'100',r,{stato:'quantita',testo:'Scorta insufficiente'},()=>{});
+  assert.match(row.className,/acc-riga-indisponibile/);assert.doesNotMatch(row.className,/acc-riga-informativa/);
+});

@@ -227,6 +227,12 @@ async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
         const cp = typeof old?.custom_properties === 'string' ? JSON.parse(old.custom_properties) : old?.custom_properties;
         if (old && !componentsArray) return dbUpdateProcessedOrder(shopifyOrderId, clean);
         if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+        if (old && clean.custom_properties !== undefined) {
+            const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
+            clean.custom_properties = {...nuove};
+            for (const k of ['_costi_netti_gestionale','_sostituzioni_componenti'])
+                if (cp?.[k] !== undefined) clean.custom_properties[k] = cp[k];
+        }
         if (old) {
             const pagati = await supabase.from('processed_order_components').select('id').eq('order_id',old.id).not('price','is',null).limit(1);
             if (pagati.error) throw pagati.error;
@@ -370,12 +376,57 @@ async function dbSaveOrderCost(shopifyOrderId, voce) {
     if (voce.unitario === null && ambito === 'ordine') delete cp._costi_netti_gestionale[voce.chiave];
     else cp._costi_netti_gestionale[voce.chiave] = { unitario: voce.unitario === null ? null : Math.round(voce.unitario * 100) / 100,
         il: new Date().toISOString(), ambito, alias, ...(voce.unitario === null ? {annullato:true} : {}) };
+    if (voce.unitario !== null && voce.magazzino && ambito === 'prodotto') {
+        const g = voce.magazzino;
+        if (!/^[A-Z0-9_-]{1,180}$/i.test(g.codice || '') || !g.id || g.tipo !== voce.tipo || !g.descrizione)
+            throw new Error('Definizione di magazzino non valida');
+        cp._costi_netti_gestionale[voce.chiave].magazzino = {
+            id: String(g.id).slice(0,180), codice: g.codice, tipo:g.tipo, descrizione:String(g.descrizione).slice(0,400)
+        };
+    }
     let q = supabase.from('processed_orders').update({ custom_properties: cp, updated_at: new Date().toISOString() }).eq('id', order.id);
     q = order.updated_at == null ? q.is('updated_at', null) : q.eq('updated_at', order.updated_at);
     const result = await q.select('id');
     if (result.error) throw result.error;
     if (result.data?.length !== 1) throw new Error('La scheda è stata modificata: ricarica prima di salvare il costo');
     return cp;
+}
+
+async function dbGetProductReplacements() {
+    const rows = await dbFetchAllRows('processed_orders', 'custom_properties');
+    return rows.map(r => {
+        let cp = r.custom_properties;
+        if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { return {}; } }
+        return cp?._sostituzioni_componenti || {};
+    }).filter(m => Object.keys(m).length);
+}
+
+// Regola esplicita sul prodotto, separata dalla distinta e dagli acquisti storici.
+async function dbSaveProductReplacement(shopifyOrderId, rule) {
+    const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g,'').replace(/^0+/,'');
+    if (!rule?.tipo || !rule.da?.ean || !rule.a?.codice || !rule.a?.fornitore || !rule.a?.descrizione ||
+        norm(rule.da.ean) === norm(rule.a.codice) && String(rule.da.fornitore || '').toUpperCase() === String(rule.a.fornitore).toUpperCase())
+        throw new Error('Sostituzione non valida');
+    const {data:order,error} = await supabase.from('processed_orders').select('id,stato,custom_properties,updated_at')
+        .eq('shopify_order_id',String(shopifyOrderId)).single();
+    if (error) throw error;
+    const cp = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
+    if (order.stato === 'finalizzati' || cp._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: storico protetto');
+    const {data:parts,error:err} = await supabase.from('processed_order_components').select('component_type,ean,supplier,price').eq('order_id',order.id);
+    if (err) throw err;
+    const original = parts.find(p => p.component_type === rule.tipo && norm(p.ean) === norm(rule.da.ean) &&
+        String(p.supplier || '').toUpperCase() === String(rule.da.fornitore || '').toUpperCase());
+    if (!original || original.price != null) throw new Error('Componente cambiato o già acquistato: ricarica la scheda');
+    const key = `${rule.tipo}|${norm(rule.da.ean)}|${String(rule.da.fornitore || '').toUpperCase().trim()}`;
+    const value = {tipo:rule.tipo,da:{ean:rule.da.ean,fornitore:rule.da.fornitore || ''},
+        a:{codice:rule.a.codice,fornitore:rule.a.fornitore,descrizione:rule.a.descrizione},il:new Date().toISOString()};
+    const nuovo = {...cp,_sostituzioni_componenti:{...(cp._sostituzioni_componenti || {}),[key]:value}};
+    let q = supabase.from('processed_orders').update({custom_properties:nuovo,updated_at:new Date().toISOString()}).eq('id',order.id);
+    q = order.updated_at == null ? q.is('updated_at',null) : q.eq('updated_at',order.updated_at);
+    const result = await q.select('id');
+    if (result.error) throw result.error;
+    if (result.data?.length !== 1) throw new Error('Scheda cambiata durante il salvataggio: ricarica');
+    return nuovo;
 }
 
 // Conferma completa e atomica: conserva tutte le righe e le spese, senza cancellare prezzi.
@@ -431,7 +482,7 @@ async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
         const cp = typeof precedente.custom_properties === 'string' ? JSON.parse(precedente.custom_properties) : precedente.custom_properties || {};
         const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
         clean.custom_properties = { ...nuove };
-        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale']) {
+        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_sostituzioni_componenti']) {
             if (cp[k] !== undefined) clean.custom_properties[k] = cp[k];
             else delete clean.custom_properties[k];
         }
@@ -1065,6 +1116,8 @@ window.SupabaseDB = {
     reconcileOrderAccessories: dbReconcileOrderAccessories,
     saveOrderCost: dbSaveOrderCost,
     getProductCostCorrections: dbGetProductCostCorrections,
+    getProductReplacements: dbGetProductReplacements,
+    saveProductReplacement: dbSaveProductReplacement,
     confirmOrderPurchase: dbConfirmOrderPurchase,
     setComponentPrices: dbSetComponentPrices,
     // Custom items per ordine

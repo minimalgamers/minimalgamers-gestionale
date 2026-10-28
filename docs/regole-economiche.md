@@ -22,6 +22,10 @@ Regola confermata il 27 ottobre: un componente non disponibile viene evidenziato
 
 Nel riepilogo delle schede, «magazzino» esclude dall’acquisto solo un pezzo con il prelievo registrato per quel PC. Un vecchio costo pagato o una giacenza non registrata non provano il prelievo. Prima si cerca il costo attuale del prodotto; l’eventuale costo storico resta un riferimento distinto, senza inventare quantità.
 
+Il 28 ottobre Antonio conferma PF-600X a 35 € IVA inclusa (28,69 € netti). Le quantità restano da comunicare. «Costo e magazzino» permette di registrare il costo pagato con IVA inclusa o esclusa, anche per componenti generici fuori listino. Il costo condiviso e la giacenza sono distinti: salvare il costo non preleva pezzi. Le quantità vuote restano sconosciute, zero esplicito indica esaurito. Un prelievo registra quantità e costo del momento; le correzioni successive non cambiano quel prezzo storico.
+
+Un conto con budget fissi o vecchi costi di riferimento è provvisorio e indica i componenti da confermare. L’importo definitivo resta quello basato sui costi reali e sul ricavo storico Shopify. La sostituzione «definitiva» è una scelta esplicita: vale per lo stesso codice e fornitore negli ordini aperti selezionati e nei futuri; conserva quantità, scelte del cliente, colore di case/liquido e acquisti già confermati. Le regole condivise sono registrate in `_sostituzioni_componenti`, separate dalle scelte del cliente.
+
 I costi inseriti e le nuove conferme sono nei campi riservati `_costi_netti_gestionale` e `_acquisto_confermato_gestionale` delle proprietà dell’ordine. Questi dati non sono scelte del cliente e non devono apparire nelle descrizioni Shopify o nei fogli di montaggio.
 
 Il confronto per componente legge la distinta Excel con le GPU approvate aggiornate. L’impronta del catalogo GPU Watch viene pubblicata nel file cifrato. Se somma della distinta e riferimento aggregato non coincidono, la differenza è segnalata: non diventa un costo inventato dell’ordine.

@@ -138,6 +138,85 @@ function dbMock({paid=false,race=false,locked=false}={}){
  vm.runInContext(source.slice(source.indexOf('async function dbGetCustomItemsByOrder('),source.indexOf('async function dbSaveCustomItemsForOrder(')),s);
  return {s,order,parts,writes};
 }
+test('costo pagato IVA inclusa viene scorporato una volta; zero è valido, vuoto resta mancante',()=>{
+ const {A}=env();assert.equal(A.nettoPagato('35,00',true),28.69);assert.equal(A.nettoPagato('28,69',false),28.69);
+ assert.equal(A.nettoPagato('0',true),0);assert.equal(A.nettoPagato('',false),null);assert.equal(A.nettoPagato('-1',true),null);
+});
+test('costo e definizione scorta sono condivisi senza inventare quantità né toccare acquisti',async()=>{
+ const {s,order,parts,writes}=dbMock();
+ const cp=await s.dbSaveOrderCost('77',{tipo:'CPU',ean:'C',fornitore:'ACTION',chiave:'CPU|C|ACTION',unitario:28.69,
+  magazzino:{id:'PROD-C',codice:'MAG-PROD-C',tipo:'CPU',descrizione:'Prodotto'}});
+ assert.equal(cp._costi_netti_gestionale['CPU|C|ACTION'].magazzino.codice,'MAG-PROD-C');
+ assert.equal(cp.CASE,'BLACK');assert.equal(parts[0].price,null);assert.ok(writes.every(w=>w.table==='processed_orders'));
+ assert.equal(cp._costi_netti_gestionale['CPU|C|ACTION'].magazzino.quantity,undefined);
+});
+test('sostituzione definitiva conserva proprietà e storico, con controllo di identità e concorrenza',async()=>{
+ const rule={tipo:'CPU',da:{ean:'C',fornitore:'ACTION'},a:{codice:'NEW',fornitore:'ABACO',descrizione:'CPU nuova'}};
+ const {s,parts}=dbMock();const cp=await s.dbSaveProductReplacement('77',rule);
+ assert.equal(cp._sostituzioni_componenti['CPU|C|ACTION'].a.codice,'NEW');assert.equal(cp.CASE,'BLACK');assert.equal(parts[0].ean,'C');
+ for(const opts of [{paid:true},{locked:true},{race:true}]){
+  const e=dbMock(opts);await assert.rejects(e.s.dbSaveProductReplacement('77',rule));assert.equal(e.writes.length,0);
+ }
+ await assert.rejects(s.dbSaveProductReplacement('77',{...rule,da:{ean:'ALTRO',fornitore:'ACTION'}}));
+});
+test('regole definitive valgono per gli ordini futuri senza pubblicazione dei listini, senza cambiare quantità o varianti',async()=>{
+ const {A,s}=env();const rule={tipo:'CASE',da:{ean:'NOUA BLACK',fornitore:'NOUA'},a:{codice:'CASE-NEW',fornitore:'ABACO',descrizione:'Case nuovo nero'},il:'2026-10-28T10:00:00Z'};
+ s.window.SupabaseDB={getProductReplacements:async()=>[{'CASE|NOUABLACK|NOUA':rule}]};
+ const rows=[{type:'CASE',ean:'NOUA BLACK',supplier:'NOUA',quantity:2,price:null}];
+ await A.pezziMigliori(rows,{configKey:'TEST',variants:{CASE:'MINIMAL BLACK'}},'99');
+ assert.equal(rows[0].ean,'CASE-NEW');assert.equal(rows[0].quantity,2);assert.equal(rows[0].price,null);
+ const reg=A.sostituzioniProdotto();assert.equal(A.sostituzioneDefinitiva({type:'CASE',ean:'NOUA WHITE',supplier:'NOUA'},reg),null);
+ assert.equal(A.sostituzioneDefinitiva({type:'CASE',ean:'NOUA BLACK',supplier:'ALTRO'},reg),null);
+});
+test('catene di sostituzione risolte una volta, conflitti e cicli non applicati',()=>{
+ const {A}=env();const r=(cod,newCod,il='2026-10-28T10:00:00Z')=>({tipo:'CASE',da:{ean:cod,fornitore:'NOUA'},a:{codice:newCod,fornitore:'NOUA',descrizione:newCod},il});
+ const regs=A.indiceSostituzioni([{'CASE|A|NOUA':r('A','B'),'CASE|B|NOUA':r('B','C')}]);
+ assert.equal(A.sostituzioneDefinitiva({type:'CASE',ean:'A',supplier:'NOUA'},regs).ean,'C');
+ regs['CASE|C|NOUA']=r('C','A');assert.equal(A.sostituzioneDefinitiva({type:'CASE',ean:'A',supplier:'NOUA'},regs),null);
+ const conflict=A.indiceSostituzioni([{'CASE|A|NOUA':r('A','B')},{'CASE|A|NOUA':r('A','D')}]);
+ assert.equal(conflict['CASE|A|NOUA'].conflitto,true);
+});
+test('scorta di un dissipatore generico: identità per prodotto e prelievo pagato conservato dopo reset costo',()=>{
+ const {s,A}=env(),r={tipo:'COOLER',ean:'DISSIPATORE 240MM NERO',fornitore:'',quantita:1};
+ const g=A.definizioneScorta('77',r);assert.match(g.codice,/^MAG-/);
+ s.processedOrdersCache={77:{customProperties:{_costi_netti_gestionale:{[A.chiaveCostoOrdine(r.tipo,r.ean,r.fornitore)]:{unitario:40,magazzino:g,il:'2026-10-28T11:00:00Z'}}}}};
+ let p=A.magazzinoDellaRiga('77',r);assert.equal(p.mag.def.costo,40);assert.equal(A.quantitaMagazzino(g),null);
+ A.inv.righe={[p.mag.uso]:{name:JSON.stringify({unitario:40}),quantity:1}};
+ s.processedOrdersCache={77:{customProperties:{}}};
+ p=A.magazzinoDellaRiga('77',r);assert.ok(A.pezzoPreso(p));assert.equal(A.costoDelPrelievo(p),40);
+ assert.equal(A.magazzinoDellaRiga('78',r),null);
+ assert.notEqual(g.codice,A.definizioneScorta('78',{...r,ean:'DISSIPATORE 240MM BIANCO'}).codice);
+});
+test('conto con budget da confermare è previsto e mantiene la formula sul venduto storico',()=>{
+ const {A}=env();const html=A.contoOrdine({totale:1619.9,provvisorio:true},[{valore:952.61,sempre:true}],0,110);
+ assert.match(html,/UTILE SRL PREVISTO/);assert.match(html,/costi da confermare/);assert.ok(!html.includes('in tasca'));
+});
+test('prelievi multipli scalano la quantità richiesta una sola volta e conservano il costo pagato',async()=>{
+ const {s,A}=env();const r={tipo:'COOLER',ean:'AIO240',fornitore:'ABACO',quantita:2};
+ const g=A.definizioneScorta('77',r);
+ s.processedOrdersCache={77:{customProperties:{_costi_netti_gestionale:{[A.chiaveCostoOrdine(r.tipo,r.ean,r.fornitore)]:{unitario:40,magazzino:g}}}}};
+ const p=A.magazzinoDellaRiga('77',r),db={[g.codice]:{ean:g.codice,name:'AIO nero',quantity:3}},ops=[];
+ s.fetch=async(url,opts={})=>{
+  const method=opts.method||'GET';ops.push(method);
+  if(method==='POST'){const b=JSON.parse(opts.body);db[b.ean]={...db[b.ean],...b};}
+  if(method==='DELETE')delete db[new URL(url,'https://test/').searchParams.get('ean')];
+  return {ok:true,json:async()=>({success:true,inventory:Object.values(db).map(x=>({...x}))})};
+ };
+ const d={ordini:{'77':{pc:[{pezzi:[p]}]}}};
+ assert.equal(await A.prendiDalMagazzino(d,p.mag.uso,()=>true),true);
+ assert.equal(db[g.codice].quantity,1);assert.equal(db[p.mag.uso].quantity,2);assert.equal(A.costoDelPrelievo(p),80);
+ p.mag.def.costo=99;assert.equal(A.costoDelPrelievo(p),80);
+ const n=ops.filter(x=>x==='POST').length;assert.equal(await A.prendiDalMagazzino(d,p.mag.uso,()=>true),false);
+ assert.equal(ops.filter(x=>x==='POST').length,n);
+ assert.equal(await A.annullaDalMagazzino(d,p.mag.uso,()=>true),true);assert.equal(db[g.codice].quantity,3);
+ assert.equal(db[p.mag.uso],undefined);
+});
+test('scorta insufficiente per due pezzi non registra prelievi né quantità negative',async()=>{
+ const {s,A}=env(),p={mag:{def:{codice:'MAG-C',descrizione:'Cooler',costo:40},uso:'MAG-USO-C',ordine:'#77',quantita:2}};
+ let writes=0;s.fetch=async(_url,o={})=>{if(o.method)writes++;return {ok:true,json:async()=>({success:true,inventory:[{ean:'MAG-C',quantity:1}]})};};
+ assert.equal(await A.prendiDalMagazzino({ordini:{'77':{pc:[{pezzi:[p]}]}}},p.mag.uso,()=>{throw new Error('non deve chiedere di scalare');}),false);
+ assert.equal(writes,0);
+});
 const purchase=()=>({righe:[{tipo:'CPU',ean:'C',fornitore:'ACTION',quantita:1,costo:100}],
  spese:{servizi:[{nome:'Montaggio e spedizione',costo:43.79}],opzioni:[{nome:'WiFi',costo:8.61}],personalizzati:0,montaggio:[]}});
 

@@ -91,7 +91,7 @@ test('costo pagato senza prelievo: giacenza da verificare e prodotto ancora da a
   const prima=J(A.daOrdinare(d,[scheda(r)],{}));
   assert.equal(prima.pezzi,1);assert.equal(prima.totale,28.69);assert.equal(prima.fornitori[0].nome,'ABACO');
   A.inv.righe['MAG-PSU']={quantity:5};
-  assert.match(A.disponibilitaRiga(d,pc,r).testo,/non ancora prelevato/);
+  assert.match(A.disponibilitaRiga(d,pc,r).testo,/non ancora prelevato/i);
   A.inv.righe[p.mag.uso]={quantity:1};
   const preso=A.costoRigaVerificato({ean:'PF600',fornitore:'ABACO',mag:28.69,magPreso:A.pezzoPreso(p)});
   assert.equal(preso.fonte,'magazzino');

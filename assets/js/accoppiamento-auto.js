@@ -33,7 +33,7 @@
         // 30/09: righe accessori della scheda (kit dei bundle, sedia, scrivania) = pezzi ACCESSORIO dell'automatico
         'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO'
     };
-    const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
+    const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_sostituzioni_componenti', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
         'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'];
 
     const stato = { dati: null, errore: null, promessa: null, caricatoIl: 0, inCorso: false, upgradeAttesi: [] };
@@ -203,26 +203,27 @@
         const p = pezzoDaUso(dati, uso);
         if (!p) return false;
         const { def, ordine } = p.mag;
+        const q = Math.max(1, Number(p.mag.quantita) || 1);
         await leggiInventario();
         if (inv.righe[uso]) { avvisa(`${def.descrizione}: già preso dal magazzino per ${ordine}.`); return false; }
         const n = quantitaMagazzino(def);
-        if (!n) {
+        if (!n || n < q) {
             avvisa(`Nel magazzino non risultano pezzi di ${def.descrizione}: inserisci la quantità in alto nella pagina.`, 'warning');
             return false;
         }
-        const ok = (conferma || confirm)(`Prendere 1 × ${def.descrizione} dal magazzino per l'ordine ${ordine}?\n\n` +
-            `Nel magazzino restano ${n - 1} pezzi. Nell'utile resta il prezzo pagato.`);
+        const ok = (conferma || confirm)(`Prendere ${q} × ${def.descrizione} dal magazzino per l'ordine ${ordine}?\n\n` +
+            `Nel magazzino restano ${n - q} pezzi. Nell'utile resta il prezzo pagato.`);
         if (!ok) return false;
-        await scriviRiga(uso, `Magazzino → ordine ${ordine}: ${def.descrizione}`, 1);
+        await scriviRiga(uso, JSON.stringify({nome:`Magazzino → ordine ${ordine}: ${def.descrizione}`, unitario:def.costo, quantita:q}), q);
         try {
-            await scriviRiga(def.codice, inv.righe[def.codice].name || def.descrizione, n - 1);
+            await scriviRiga(def.codice, inv.righe[def.codice].name || def.descrizione, n - q);
         } catch (e) {
             await cancellaRiga(uso).catch(() => {});
             throw e;
         }
         await leggiInventario();
-        if (!inv.righe[uso] || quantitaMagazzino(def) !== n - 1) throw new Error('il magazzino non si è aggiornato: ricarica la pagina e controlla l\'Inventario');
-        avvisa(`${def.descrizione} preso dal magazzino per ${ordine}: ne restano ${n - 1}.`, 'success');
+        if (!inv.righe[uso] || quantitaMagazzino(def) !== n - q) throw new Error('il magazzino non si è aggiornato: ricarica la pagina e controlla l\'Inventario');
+        avvisa(`${def.descrizione} preso dal magazzino per ${ordine}: ne restano ${n - q}.`, 'success');
         return true;
     }
 
@@ -234,10 +235,11 @@
         await leggiInventario();
         if (!inv.righe[uso]) return false;
         const n = quantitaMagazzino(def) || 0;
-        const ok = (conferma || confirm)(`Annullare? ${def.descrizione} torna nel magazzino (${n + 1} pezzi) ` +
+        const q = Math.max(1, Number(inv.righe[uso].quantity) || 1);
+        const ok = (conferma || confirm)(`Annullare? ${def.descrizione} torna nel magazzino (${n + q} pezzi) ` +
             `e per l'ordine ${ordine} si torna al fornitore.`);
         if (!ok) return false;
-        await scriviRiga(def.codice, (inv.righe[def.codice] && inv.righe[def.codice].name) || def.descrizione, n + 1);
+        await scriviRiga(def.codice, (inv.righe[def.codice] && inv.righe[def.codice].name) || def.descrizione, n + q);
         await cancellaRiga(uso);
         await leggiInventario();
         avvisa(`${def.descrizione} rimesso nel magazzino: ora sono ${quantitaMagazzino(def)}.`, 'success');
@@ -448,6 +450,54 @@
         }
         return out;
     }
+    function indiceSostituzioni(registri) {
+        const out = {};
+        for (const m of registri || []) for (const [k,v] of Object.entries(m || {})) {
+            if (!v?.tipo || !v.da?.ean || !v.a?.codice || !v.a?.fornitore || !v.a?.descrizione ||
+                k !== chiaveCostoOrdine(v.tipo,v.da.ean,v.da.fornitore)) continue;
+            const old = out[k], quando = Date.parse(v.il) || 0;
+            if (!old || quando > (Date.parse(old.il)||0)) out[k] = v;
+            else if (quando === (Date.parse(old.il)||0) && ['codice','fornitore','descrizione'].some(f=>v.a[f] !== old.a[f])) out[k] = {...old,conflitto:true};
+        }
+        return out;
+    }
+    function sostituzioniProdotto() {
+        const locali = typeof processedOrdersCache === 'undefined' ? [] : Object.keys(processedOrdersCache).map(id=>proprietaOrdine(id)._sostituzioni_componenti);
+        return indiceSostituzioni([...locali,...(stato.sostituzioniRemote || []),stato.dati?.sostituzioni_condivise]);
+    }
+    function sostituzioneDefinitiva(c, regole = sostituzioniProdotto()) {
+        const visti = new Set(), originale = c;
+        let corrente = c;
+        for (let i=0;i<20;i++) {
+            const k = chiaveCostoOrdine(corrente.type,corrente.ean,corrente.supplier);
+            if (visti.has(k)) return null;
+            visti.add(k);
+            const r = regole[k];
+            if (!r) return corrente === originale ? null : corrente;
+            if (r.conflitto) return null;
+            corrente = {...corrente,ean:r.a.codice,supplier:r.a.fornitore,name:r.a.descrizione};
+        }
+        return null;
+    }
+    async function aggiornaSostituzioni() {
+        if (window.SupabaseDB?.getProductReplacements) stato.sostituzioniRemote = await window.SupabaseDB.getProductReplacements();
+    }
+    async function salvaSostituzioneDefinitiva(orderId,r,d) {
+        if (!window.SupabaseDB?.saveProductReplacement) throw new Error('Salvataggio sostituzioni non disponibile');
+        if (((TIPI[r.tipo]||r.tipo) === 'CASE' || (TIPI[r.tipo]||r.tipo) === 'COOLER' && /LIQUID|\b(?:240|360|420)\s*MM/i.test(r.ean)) &&
+            !coloreRispettato(`${r.ean} ${r.nome || ''}`,`${d.codice} ${d.descrizione || ''}`))
+            throw new Error('Mantieni il colore del case o del dissipatore a liquido scelto dal cliente');
+        const regole = sostituzioniProdotto();
+        const key = chiaveCostoOrdine(r.tipo,r.ean,r.fornitore);
+        const regola = {tipo:r.tipo,da:{ean:r.ean,fornitore:r.fornitore || ''},a:{codice:d.codice,fornitore:d.fornitore,descrizione:d.descrizione},il:new Date().toISOString()};
+        if (!sostituzioneDefinitiva({type:r.tipo,ean:r.ean,supplier:r.fornitore},{...regole,[key]:regola}))
+            throw new Error('La sostituzione crea un ciclo o un conflitto: scegli un altro prodotto');
+        const cp = await window.SupabaseDB.saveProductReplacement(orderId,regola);
+        if (typeof processedOrdersCache !== 'undefined' && processedOrdersCache[orderId]) {
+            processedOrdersCache[orderId].customProperties=cp;processedOrdersCache[orderId].custom_properties=cp;
+        }
+        stato.sostituzioniRemote=[...(stato.sostituzioniRemote || []),cp._sostituzioni_componenti];
+    }
     let cacheIndiceCosti = null;
     function costiProdotto() {
         const ordini = typeof processedOrdersCache !== 'undefined' ? processedOrdersCache : null;
@@ -487,7 +537,7 @@
         const cp = await window.SupabaseDB.saveOrderCost(orderId, {
             tipo: voce.tipo, ean: voce.ean, fornitore: voce.fornitore || '', unitario,
             chiave: chiaveCostoOrdine(voce.tipo, voce.ean, voce.fornitore), extra: !!voce.extra,
-            ambito: voce.tipo === 'PERSONALIZZATO' ? 'ordine' : 'prodotto', alias: aliasCostoProdotto(voce)
+            ambito: voce.tipo === 'PERSONALIZZATO' ? 'ordine' : 'prodotto', alias: aliasCostoProdotto(voce), magazzino:voce.magazzino
         });
         if (typeof processedOrdersCache !== 'undefined' && processedOrdersCache[orderId]) {
             processedOrdersCache[orderId].customProperties = cp;
@@ -511,29 +561,107 @@
         return cp;
     }
 
+    function nettoPagato(valore, ivaInclusa) {
+        const n = numeroCosto(valore);
+        return n == null ? null : tonda(ivaInclusa ? n / IVA : n);
+    }
+    function magazzinoDellaRiga(orderId, r, dati = stato.dati, auto = pcAutomatico(dati, orderId)) {
+        const reg = costiProdotto()[chiaveCostoOrdine(r.tipo,r.ean,r.fornitore)];
+        const p = pezzoDellaRiga(auto,r.tipo,r.ean);
+        let def = reg?.magazzino || p?.mag?.def;
+        const [base,n] = String(orderId).split('.');
+        if (!def) {
+            const fallback = identitaScorta(r);
+            if (!inv.righe?.[chiaveUso(base,Number(n)||1,fallback.id)]) return null;
+            def = fallback;
+        }
+        def = {...def, costo:Number.isFinite(reg?.unitario) ? reg.unitario : def.costo};
+        const uso = chiaveUso(base,Number(n)||1,def.id), preso = inv.righe?.[uso];
+        if (preso && p?.mag?.def?.id === def.id) {
+            let storico = null;
+            try { storico = JSON.parse(preso.name || 'null'); } catch { /* registro precedente */ }
+            if (!Number.isFinite(storico?.unitario)) def.costo = p.mag.def.costo;
+        }
+        return {tipo:r.tipo,manuale:{codice:r.ean,fornitore:r.fornitore},mag:{def,uso:chiaveUso(base,Number(n)||1,def.id),
+            ordine:(dati?.ordini?.[base]?.nome || `#${orderId}`),quantita:Math.max(1,Number(r.quantita)||1)}};
+    }
+    function definizioneScorta(orderId, r) {
+        const esistente = magazzinoDellaRiga(orderId,r)?.mag?.def;
+        if (esistente) return esistente;
+        return identitaScorta(r);
+    }
+    function identitaScorta(r) {
+        const k = chiaveCostoOrdine(r.tipo,r.ean,r.fornitore);
+        let hash = 2166136261;
+        for (const c of k) hash = Math.imul(hash ^ c.charCodeAt(0),16777619);
+        const id = `PROD-${TIPI[r.tipo] || r.tipo}-${chiave(r.ean).slice(0,70)}-${(hash>>>0).toString(16)}`;
+        return {id,codice:`MAG-${id}`,tipo:r.tipo,descrizione:r.descrizione || r.nome || r.ean};
+    }
+    function costoDelPrelievo(p) {
+        if (!p?.mag) return null;
+        const uso = inv.righe?.[p.mag.uso];
+        try {
+            const v = JSON.parse(uso?.name || 'null');
+            if (Number.isFinite(v?.unitario) && v.unitario >= 0) return tonda(v.unitario * (Number(uso.quantity)||1));
+        } catch { /* prelievi precedenti: costo registrato nella definizione */ }
+        return p.mag.def.costo == null ? null : tonda(p.mag.def.costo * (Number(p.mag.quantita)||1));
+    }
+    async function prelevaRiga(orderId, r) {
+        if (acquistoConfermato(orderId)) throw new Error('Acquisto confermato: storico protetto');
+        const p = magazzinoDellaRiga(orderId,r);
+        if (!p || !Number.isFinite(p.mag.def.costo)) throw new Error('Registra prima il costo pagato del prodotto');
+        await prendiDalMagazzino({ordini:{riga:{pc:[{pezzi:[p]}]}}},p.mag.uso);
+        await ridisegnaContiAperti();
+    }
     function apriCosto(orderId, voce) {
+        stile();
         const ov = document.createElement('div');
         ov.className = 'acc-finestra';
         ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-label', 'Inserisci costo componente');
         const q = Math.max(1, Number(voce.quantita) || 1);
+        const g = definizioneScorta(orderId,voce), mag = magazzinoDellaRiga(orderId,voce);
+        const correzione = costiProdotto()[chiaveCostoOrdine(voce.tipo,voce.ean,voce.fornitore)];
+        const attuale = Number.isFinite(correzione?.unitario) ? correzione.unitario :
+            (voce.fonte === 'fisso' || voce.costo == null ? '' : tonda(voce.costo/q));
         ov.innerHTML = `<form class="acc-finestra-box"><h3>Costo di ${esc(voce.tipo)}</h3><div class="acc-finestra-corpo">` +
             `<p><b>${esc(voce.descrizione || voce.nome || voce.ean)}</b><br>${esc(voce.fornitore || '')} · ${esc(voce.ean)} · quantità ${q}</p>` +
-            `<label>Costo netto unitario (IVA esclusa)<input name="costo" inputmode="decimal" required value="${voce.costo == null ? '' : tonda(voce.costo / q)}"></label>` +
-            `<p>${voce.tipo === 'PERSONALIZZATO' ? 'Vale per questa voce di questo ordine.' : 'Vale per lo stesso prodotto e fornitore in tutti gli ordini non ancora acquistati, anche futuri e sugli altri dispositivi. I prezzi già confermati restano invariati.'} Non conferma l’acquisto e non modifica il magazzino.</p><p role="status" data-errore></p></div>` +
+            `<label>Quanto hai pagato per un pezzo?<input name="costo" inputmode="decimal" required value="${attuale}"></label>` +
+            `<label>Importo inserito<select name="iva"><option value="netto">IVA esclusa</option><option value="inclusa">IVA inclusa</option></select></label>` +
+            `<p data-netto>Il conto usa il costo netto, IVA esclusa.</p>` +
+            (voce.tipo === 'PERSONALIZZATO' ? '' : `<label><input type="checkbox" name="magazzino"${mag ? ' checked' : ''}> Abbiamo questo prodotto in magazzino</label>` +
+                `<label data-giacenza${mag ? '' : ' hidden'}>Pezzi ancora a magazzino<input name="quantita" type="number" min="0" step="1" value="${quantitaMagazzino(g) ?? ''}" placeholder="Da contare"></label>`) +
+            `<p>${voce.tipo === 'PERSONALIZZATO' ? 'Vale per questa voce di questo ordine.' : 'Il costo fisso vale per lo stesso prodotto e fornitore in tutti gli ordini non ancora acquistati, anche futuri e sugli altri dispositivi. I prezzi già confermati restano invariati.'} La quantità, se inserita, aggiorna la giacenza. Non conferma acquisti o prelievi.</p><p role="status" data-errore></p></div>` +
             `<div class="acc-finestra-bottoni"><button type="button" data-annulla>Annulla</button><button type="button" data-auto>Usa costo automatico</button><button type="submit">Salva costo</button></div></form>`;
         document.body.appendChild(ov);
-        const salva = async unitario => {
+        const salva = async (unitario,scorta=false) => {
             const bottoni = ov.querySelectorAll('button'); bottoni.forEach(b => b.disabled = true);
-            try { await salvaCostoInserito(orderId, voce, unitario); ov.remove(); }
+            try {
+                const qt = ov.querySelector('[name=quantita]')?.value.trim() || '';
+                if (scorta && qt && (!/^\d+$/.test(qt) || !Number.isSafeInteger(Number(qt)))) throw new Error('Inserisci una quantità intera valida');
+                await salvaCostoInserito(orderId, {...voce,magazzino:scorta ? g : null}, unitario);
+                if (scorta && qt) {
+                    try { await impostaQuantita(g,Number(qt)); }
+                    catch { throw new Error('Costo salvato. Quantità non salvata: controlla la giacenza e riprova.'); }
+                    await ridisegnaContiAperti();
+                }
+                ov.remove();
+            }
             catch (e) { ov.querySelector('[data-errore]').textContent = e.message; bottoni.forEach(b => b.disabled = false); }
         };
         ov.querySelector('form').addEventListener('submit', e => {
-            e.preventDefault(); const n = numeroCosto(ov.querySelector('[name=costo]').value);
+            e.preventDefault(); const n = nettoPagato(ov.querySelector('[name=costo]').value,ov.querySelector('[name=iva]').value === 'inclusa');
             if (n === null) { ov.querySelector('[data-errore]').textContent = 'Inserisci un importo valido, per esempio 28,69'; return; }
-            salva(n);
+            salva(n,!!ov.querySelector('[name=magazzino]')?.checked);
         });
         ov.querySelector('[data-auto]').addEventListener('click', () => salva(null));
         ov.querySelector('[data-annulla]').addEventListener('click', () => ov.remove());
+        ov.querySelector('[name=magazzino]')?.addEventListener('change',e => { ov.querySelector('[data-giacenza]').hidden = !e.target.checked; });
+        const anteprima = () => {
+            const n = nettoPagato(ov.querySelector('[name=costo]').value,ov.querySelector('[name=iva]').value === 'inclusa');
+            ov.querySelector('[data-netto]').textContent = n == null ? 'Inserisci il costo reale pagato.' : `Costo netto usato nel conto: ${eur(n)} per pezzo.`;
+        };
+        ov.querySelector('[name=costo]').addEventListener('input',anteprima);
+        ov.querySelector('[name=iva]').addEventListener('change',anteprima);
         ov.querySelector('input').focus();
     }
 
@@ -918,7 +1046,7 @@
         const t = TIPI[tipo] || tipo;
         const p = auto.pezzi.find(x => x.tipo === t);
         if (!p || !p.mag || !p.mag.def || p.mag.def.costo == null) return null;
-        return chiave(p.manuale && p.manuale.codice) === chiave(ean) ? p.mag.def.costo : null;
+        return chiave(p.manuale && p.manuale.codice) === chiave(ean) ? costoDelPrelievo(p) : null;
     }
 
     // Pezzo che l'automatico consiglia oggi per quel tipo (piu' economico o disponibile): {costo, fornitore, descrizione}
@@ -951,7 +1079,7 @@
         const u = utile(p, costi.reduce((t, c) => t + (c.valore || 0), 0));
         h += riga('= Utile prima delle tasse', eur(u.lordo), 'sub');
         if (u.lordo > 0) h += riga(`− Tasse ${Math.round((1 - QUOTA_SRL) * 100)}%`, eur(tonda(u.srl - u.lordo)), 'meno');
-        h += riga(`= UTILE SRL <small>in tasca, al netto di tutto</small>`, `<span class="${u.srl >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.srl)}</span>`, 'finale');
+        h += riga(vendita.provvisorio ? '= UTILE SRL PREVISTO <small>costi da confermare</small>' : '= UTILE SRL <small>in tasca, al netto di tutto</small>', `<span class="${u.srl >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.srl)}</span>`, 'finale');
         const v = valutaObiettivo(u.srl, obiettivo);
         if (v) h += riga(`🎯 Obiettivo ${eur(v.obiettivo)}`, v.inTarget ? `✅ in target${v.scarto >= 1 ? ` (+${eur(v.scarto)})` : ''}`
             : `<span class="acc-neg">🔻 sotto di ${eur(-v.scarto)}</span>`, 'obiettivo');
@@ -1153,7 +1281,8 @@
 .acc-costi-mancanti{margin:10px 0;padding:10px;border:1px solid #d8ad79;border-radius:9px;background:#fff4e7;color:#713f18;line-height:1.5}
 .acc-costi-mancanti>div{display:flex;align-items:center;gap:8px;margin-top:7px}.acc-costi-mancanti>div>span{flex:1;min-width:0;overflow-wrap:anywhere}
 .acc-costi-mancanti button{flex:none;background:#fff;border:1px solid #a9783e;border-radius:6px;padding:5px 7px;color:#713f18;cursor:pointer;font-weight:600}
-.acc-finestra input[name=costo]{display:block;width:100%;margin-top:8px;padding:10px;border:1px solid #999;border-radius:6px;font:inherit}
+.acc-finestra input[name=costo],.acc-finestra input[name=quantita],.acc-finestra select[name=iva]{box-sizing:border-box;display:block;width:100%;margin-top:8px;padding:10px;border:1px solid #999;border-radius:6px;font:inherit}
+.acc-finestra-corpo>label{display:block;margin-top:12px}.acc-finestra label[hidden]{display:none!important}
 .acc-utile.pos{border-color:rgba(46,204,113,.6);background:rgba(46,204,113,.10)}
 .acc-utile.neg{border-color:rgba(231,76,60,.7);background:rgba(231,76,60,.12)}
 .acc-utile.incompleto{border-color:rgba(241,196,15,.7);background:rgba(241,196,15,.08)}
@@ -1315,6 +1444,7 @@
 .acc-disponibilita-testo{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
 .acc-sostituisci-riga{flex:none;min-height:36px;padding:6px 10px;border:1px solid #c74453;border-radius:6px;background:#fff;color:#8b2332;font-weight:700;cursor:pointer}
 .supplier-item.acc-rf-indisponibile{background:#fff0f1!important;border-left:3px solid #c74453!important}
+.acc-esito.acc-provvisorio{background:#fff1dc!important;color:#8b510d!important}
 .acc-upgrade-montaggio{display:flex;flex-direction:column;gap:8px;padding:14px 0;margin:6px 0;border-bottom:1px solid rgba(127,127,127,.25);font-size:.95em;line-height:1.5;text-align:left;min-width:0}
 .acc-upgrade-montaggio>*{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}`;
         document.head.appendChild(st);
@@ -1414,6 +1544,7 @@
         const q = Math.max(1, Number(r.quantita) || 1);
         const forn = String(r.fornitore || '').toUpperCase().trim();
         const p = pezzoDellaRiga(auto, r.tipo, r.ean);
+        const mag = r.magazzino ? {mag:r.magazzino} : p;
         const a = offertaDelPezzo(dati, r.ean, forn);
         const uguale = x => x && String(x.fornitore || '').toUpperCase().trim() === forn &&
             [x.codice, x.ean, x.mpn].filter(Boolean).map(chiave).includes(chiave(r.ean));
@@ -1434,10 +1565,14 @@
             return { stato: 'non_ordinabile', testo: 'Non ordinabile da questo fornitore: sostituisci o verifica la disponibilità.' };
         if ((dati.fornitori_esclusi || []).some(f => String(f).toUpperCase().startsWith(forn + ':')))
             return { stato: 'da_verificare', testo: 'Disponibilità da verificare: listino del fornitore non aggiornato.' };
-        if (p?.mag && !pezzoPreso(p))
-            return { stato: 'da_verificare', testo: quantitaMagazzino(p.mag.def) == null ?
-                'Giacenza da verificare: quantità in magazzino non registrata.' :
-                'Pezzo non ancora prelevato dal magazzino: conferma il prelievo oppure sostituiscilo.' };
+        if (mag?.mag && !pezzoPreso(mag)) {
+            const n = quantitaMagazzino(mag.mag.def);
+            return { stato: n != null && n >= q ? 'magazzino' : 'da_verificare', testo: inv.errore ?
+                'Inventario non raggiungibile: giacenza da verificare.' : n == null ?
+                'Giacenza da verificare: quantità in magazzino non registrata.' : n >= q ?
+                `In magazzino: ${n} pezzi. Non ancora prelevato per questo ordine.` :
+                `Giacenza insufficiente: ${n} pezzi per ${q} richiesti.` };
+        }
         if (p?.fisso || r.fonte === 'fisso')
             return { stato: 'fuori_listino', testo: 'Acquisto fuori listino: disponibilità da verificare.' };
         if (Array.isArray(dati.offerte_ordinabili))
@@ -1458,12 +1593,23 @@
             label.setAttribute('role', 'status');
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'acc-sostituisci-riga'; button.textContent = 'Sostituisci';
-            box.appendChild(label); box.appendChild(button); row.appendChild(box);
+            const costo = document.createElement('button');
+            costo.type = 'button'; costo.className = 'acc-costo-magazzino acc-sostituisci-riga'; costo.textContent = 'Costo e magazzino';
+            box.appendChild(label); box.appendChild(button); box.appendChild(costo); row.appendChild(box);
         }
         box.querySelector('.acc-disponibilita-testo').textContent = avviso.testo;
         const button = box.querySelector('button');
         button.setAttribute('aria-label', `Sostituisci ${r.tipo}: ${r.descrizione || r.nome || r.ean}`);
         button.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); cambia(orderId, r); };
+        const costo = box.querySelector('.acc-costo-magazzino');
+        costo.onclick = ev => { ev.preventDefault(); ev.stopPropagation(); apriCosto(orderId,r); };
+        const pm = magazzinoDellaRiga(orderId,r);
+        let preleva = box.querySelector('.acc-preleva-riga');
+        if (pm && quantitaMagazzino(pm.mag.def) >= (r.quantita || 1) && !pezzoPreso(pm)) {
+            if (!preleva) { preleva = document.createElement('button'); preleva.type='button'; preleva.className='acc-preleva-riga acc-sostituisci-riga'; preleva.textContent='Prendi dal magazzino'; box.appendChild(preleva); }
+            preleva.onclick = async ev => { ev.preventDefault();ev.stopPropagation();preleva.disabled=true;
+                try { await prelevaRiga(orderId,r); } catch(e) { avvisa(e.message,'error'); } finally { preleva.disabled=false; } };
+        } else if (preleva) preleva.remove();
     }
 
     function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, magPreso = true, offerta, sch, vStesso, scelto,
@@ -1472,8 +1618,8 @@
         const stessaRiga = p => p?.manuale && chiave(p.manuale.codice) === chiave(ean) &&
             (!fornitore || String(p.manuale.fornitore || '').toUpperCase() === String(fornitore).toUpperCase());
         if (pagato != null) return risultato(pagato, 'acquistato');
-        if (inserito != null) return risultato(inserito, 'inserito');
         if (mag != null && magPreso) return risultato(mag, 'magazzino');
+        if (inserito != null) return risultato(inserito, 'inserito');
         if (offerta?.costo_unitario != null) return risultato(tonda(offerta.costo_unitario * quantita), 'listino');
         if (sch?.costo != null && sch.fonte === 'listino') return risultato(tonda(sch.costo * quantita), 'listino');
         for (const p of [vStesso, pRiga]) {
@@ -1496,7 +1642,7 @@
         stile();
         let dati = null;
         try { dati = await carica(); } catch (e) { /* mostrato nel riquadro */ }
-        if (dati?.magazzino?.length && Date.now() - inv.caricatoIl > 60000)
+        if ((dati?.magazzino?.length || Object.values(costiProdotto()).some(x=>x.magazzino)) && Date.now() - inv.caricatoIl > 60000)
             try { await leggiInventario(); } catch (e) { /* senza verifica non si considera il pezzo già prelevato */ }
         const conti = { man: 0, mancanti: [], stime: 0, righe: [] };
         const auto = pcAutomatico(dati, orderId);
@@ -1516,11 +1662,12 @@
             const scelto = sceltaUguale(v, auto, tipo, man.ean, man.fornitore);
             const vStesso = v && v.manuale && chiave(v.manuale.codice) === chiave(man.ean) ? v : vocePerCodice(dati, ctx, tipo, man.ean, man.fornitore);
             const pRiga = pezzoDellaRiga(auto, tipo, man.ean);
-            const mag = costoMagazzino(auto, tipo, man.ean);
             const quantita = Math.max(1, Number(row.dataset.quantity) || Number(componentiSalvati(orderId).find(c => c.type === tipo && chiave(c.ean) === chiave(man.ean))?.quantity) || 1);
+            const pMag = magazzinoDellaRiga(orderId,{tipo,...man,quantita},dati,auto);
+            const mag = costoDelPrelievo(pMag);
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
             const offertaAttuale = offertaDelPezzo(dati, man.ean, man.fornitore);
-            const {costo, fonte} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pRiga),
+            const {costo, fonte} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
                 offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati });
             // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
             // scheda); la scheda dell'assemblatore resta generica (chipset), qui serve a chi compra
@@ -1530,7 +1677,7 @@
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
             // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
-                nome: man.nome, descrizione, costo, fonte, consigliato: consigliato(auto, tipo, salvati) });
+                nome: man.nome, descrizione, costo, fonte, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
             else conti.man += costo;
         }
@@ -1665,9 +1812,10 @@
         const opzioniSenzaCosto = extraLista.filter(x => x.costo == null).map(x => x.nome);
         const mancantiOpzioni = opzioniSenzaCosto.length
             ? `<div class="mancanti">Manca il costo di: ${esc(opzioniSenzaCosto.join(', '))} <small>(inseriscilo in «➕ Opzioni»)</small></div>` : '';
+        const costiDaConfermare = conti.confermato ? [] : conti.righe.map((r,i)=>({...r,i})).filter(r=>['fisso','riferimento_magazzino','stima','altro'].includes(r.fonte));
         const nAvvisi = lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length + (consiglio ? 1 : 0);
         const sezioni = [
-            { id: 'conto', nome: '💶 Conto', html: `<div class="acc-conto">${contoOrdine({ ...vendita, data: vendita.data || (auto && auto.data) }, costi, nMancanti, obiettivoConto)}${oggi}${riferimentoGW}${avvisoRif}</div>` + acquistato },
+            { id: 'conto', nome: '💶 Conto', html: `<div class="acc-conto">${contoOrdine({ ...vendita, provvisorio:!!costiDaConfermare.length, data: vendita.data || (auto && auto.data) }, costi, nMancanti, obiettivoConto)}${oggi}${riferimentoGW}${avvisoRif}</div>` + acquistato },
             { id: 'pezzi', nome: '🔍 Pezzi', html: corpoPezzi(conti.righe, conti.confermato, true) + nonDisponibile },
             montaggio.length ? { id: 'upgrade', nome: `⬆ Upgrade (${montaggio.length})`, html: dettagliMontaggioUpgrade(montaggio) } : null,
             extraLista.length ? { id: 'opzioni', nome: `➕ Opzioni (${extraLista.length})`, html: righeExtra(extraLista) } : null,
@@ -1679,8 +1827,12 @@
             rigaUpgradeAttesa(orderId) + rigaNonPagate(auto) +
             (conti.upgradeRitirati ? '<div class="acc-esito" role="status">⚠ Pagamento upgrade modificato o ritirato: verificare cosa è stato acquistato e montato. Nessun movimento di magazzino automatico.</div>' : '') +
             (montaggio.length ? '<div class="acc-esito" role="status">⬆ Distinta di montaggio aggiornata · conto provvisorio, nuovi pezzi da verificare</div>' : '') +
-            (montaggio.length && !nMancanti ? `<div class="acc-esito">UTILE SRL STIMATO · ${eur(u.srl)} · include il pezzo sostituito</div>` : rigaEsito(u, nMancanti, obiettivoConto)) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ acquisti precedenti conservati</div>' : '') +
+            (montaggio.length && !nMancanti ? `<div class="acc-esito">UTILE SRL STIMATO · ${eur(u.srl)} · include il pezzo sostituito</div>` :
+                costiDaConfermare.length && !nMancanti ? `<div class="acc-esito acc-provvisorio" role="status">UTILE PROVVISORIO ${eur(u.srl)} · ${costiDaConfermare.length} costi da confermare</div>` :
+                rigaEsito(u, nMancanti, obiettivoConto)) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ acquisti precedenti conservati</div>' : '') +
             pannelloCostiMancanti(vociMancanti) +
+            (costiDaConfermare.length ? `<div class="acc-costi-mancanti"><strong>Conferma il costo reale di questi pezzi</strong>` +
+                costiDaConfermare.map(r=>`<div><span>${esc(r.tipo)}: ${esc(r.descrizione || r.nome || r.ean)} · ${eur(r.costo)} previsti</span><button type="button" data-costo-riga="${r.i}">Costo e magazzino</button></div>`).join('') + '</div>' : '') +
             (erroreVoci ? '<div class="acc-costi-mancanti" role="alert">Voci personalizzate non leggibili: impossibile verificare i loro costi. Ricarica la scheda prima di confermare l’acquisto.</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
@@ -2008,6 +2160,15 @@
     async function pezziMigliori(componenti, ctx, orderId) {
         const cambi = [];
         if (!Array.isArray(componenti) || !componenti.length || !ctx || !ctx.configKey) return cambi;
+        try { await aggiornaSostituzioni(); } catch { /* regole già lette, se disponibili */ }
+        const definitivi = new Set();
+        for (const c of componenti) {
+            if (c.price != null || c.isCustom || c.is_custom) continue;
+            const nuovo = sostituzioneDefinitiva(c);
+            if (!nuovo) continue;
+            cambi.push({tipo:c.type,da:{ean:c.ean,fornitore:c.supplier || ''},a:{codice:nuovo.ean,fornitore:nuovo.supplier,descrizione:nuovo.name}});
+            Object.assign(c,nuovo);definitivi.add(c);
+        }
         let dati = null, timer = null;
         try {
             dati = await Promise.race([carica(), new Promise((_, no) => { timer = setTimeout(() => no(new Error('tempo scaduto')), 8000); })]);
@@ -2026,6 +2187,7 @@
             ordine = (JSON.parse(sessionStorage.getItem('shopify_orders') || '[]') || []).find(o => String(o.id) === idBase) || null;
         } catch (e) { ordine = null; }
         for (const c of componenti) {
+            if (definitivi.has(c)) continue;
             const tipo = TIPI[c.type] || c.type;
             // 02/10 (#4821): monitor venduto a parte col codice del fornitore come SKU e senza fornitore: nella scheda
             // vanno il fornitore del listino e il nome del prodotto, cosi' l'assemblatore sa quale monitor spedire
@@ -2555,13 +2717,13 @@
 
     function costoPezzo(p, salvati) {
         if (p.acquistato) return { costo: p.costo, fonte: 'acquistato' };
-        if (p.costo_inserito != null) return { costo: p.costo_inserito, fonte: 'inserito' };
         if (pezzoPreso(p)) {                         // preso dal magazzino: il prezzo pagato resta nei conti
-            const pagato = p.mag.def.costo;
+            const pagato = costoDelPrelievo(p);
             const oggi = p.auto && p.auto.costo != null ? p.auto.costo : (p.fisso ? p.fisso.costo : null);
             const costo = pagato != null ? pagato : oggi;
             return { costo: costo != null ? costo : null, fonte: 'magazzino' };
         }
+        if (p.costo_inserito != null) return { costo: p.costo_inserito, fonte: 'inserito' };
         // 30/09: pezzo diviso tra piu' fornitori per i PC della riga: costo medio per PC calcolato dall'automatico
         if (p.auto && Array.isArray(p.auto_parti) && p.auto_parti.length && p.costo != null) return { costo: p.costo, fonte: 'auto' };
         if (p.auto && p.auto.costo != null) return { costo: p.auto.costo, fonte: 'auto' };
@@ -3633,10 +3795,10 @@
             const comp = (s.components || []).find(c => c && c.type === origine.tipo && !c.isCustom && c.ean);
             if (!comp) continue;
             const auto = pcAutomatico(dati, s.id);
-            const uguale = chiave(comp.ean) === k;
+            const uguale = chiave(comp.ean) === k && (origine.fornitore === undefined || String(comp.supplier || '').toUpperCase() === String(origine.fornitore || '').toUpperCase());
             if (!uguale && !(eq && chiaveEquivalenza(pezzoAutoDelTipo(auto, origine.tipo)) === eq)) continue;
             const acquistato = comp.price !== null && comp.price !== undefined && comp.price !== '';
-            const magazzino = !acquistato && costoMagazzino(auto, origine.tipo, comp.ean) != null;
+            const magazzino = !acquistato && pezzoPreso(magazzinoDellaRiga(s.id,{tipo:origine.tipo,ean:comp.ean,fornitore:comp.supplier},dati,auto));
             (uguale ? out.uguali : out.equivalenti).push({ id: s.id, ordine: s.nome, foglio: s.foglio, tipo: comp.type, ean: comp.ean,
                 fornitore: comp.supplier || '', nome: comp.name || '', bloccato: acquistato || magazzino,
                 nota: acquistato ? 'già acquistato' : (magazzino ? 'a magazzino' : '') });
@@ -3649,6 +3811,9 @@
 
     function apriCambioPezzo(orderId, r) {
         if (!r || !r.ean) return;
+        if (acquistoConfermato(orderId) || pezzoPreso(magazzinoDellaRiga(orderId,r))) {
+            avvisa('Pezzo già acquistato o prelevato: lo storico resta protetto.','warning');return;
+        }
         let nomeOrdine = '';
         try { nomeOrdine = (processedOrdersCache[orderId] || {}).orderIdFlip || ''; } catch (e) { nomeOrdine = ''; }
         if (!nomeOrdine) nomeOrdine = ((stato.dati && stato.dati.ordini && stato.dati.ordini[String(orderId).split('.')[0]]) || {}).nome || `#${orderId}`;
@@ -3669,6 +3834,7 @@
         return `<p>Al posto di <b>${esc(o.ean)}</b> ${esc(riga.descrizione || '')} <small>(${esc(o.ordine)})</small> metto:</p><p>${nuovo}</p>` +
             `<p><b>Dove lo cambio?</b></p>` +
             `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="solo" checked> Solo in <b>${esc(o.ordine)}</b></label></div>` +
+            `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="definitivo"> Sostituzione definitiva: questi ordini con lo stesso prodotto e tutti i futuri</label></div>` +
             (simili.uguali.length ? `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="uguali"> Anche negli altri ordini con lo stesso pezzo ` +
                 `<b>${esc(o.ean)}</b> (${liberi(simili.uguali)} PC)</label></div>` : '') +
             (simili.equivalenti.length ? `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="equivalenti"> Anche negli ordini con un pezzo equivalente ` +
@@ -3684,7 +3850,7 @@
         const dove = (corpo.querySelector('input[name="acc-dove"]:checked') || {}).value || 'solo';
         const o = riga.origine;
         const scelti = [{ id: o.id, tipo: o.tipo, ean: o.ean, fornitore: o.fornitore, ordine: o.ordine }];
-        const gruppi = dove === 'uguali' ? ['uguali'] : (dove === 'equivalenti' ? ['uguali', 'equivalenti'] : []);
+        const gruppi = dove === 'uguali' || dove === 'definitivo' ? ['uguali'] : (dove === 'equivalenti' ? ['uguali', 'equivalenti'] : []);
         for (const g of gruppi) {
             for (const x of Array.from(corpo.querySelectorAll(`input[data-gruppo="${g}"]`))) {
                 const p = simili[g][parseInt(x.dataset.i, 10)];
@@ -3711,6 +3877,8 @@
         }
         const c = await promessa;
         if (!c) { cambio.riga = null; return; }
+        if (c.querySelector('input[name="acc-dove"]:checked')?.value === 'definitivo')
+            await salvaSostituzioneDefinitiva(riga.origine.id,riga.origine,d);
         return salvaCambio(d, pcDaCambiare(c, riga, simili));
     }
 
@@ -3947,6 +4115,8 @@
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
+        nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,
+        indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva,
         disponibilitaRiga, segnaDisponibilitaRiga,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,

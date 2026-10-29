@@ -9,6 +9,12 @@ const input=()=>({conti:{righe:[{tipo:'GPU',ean:'GPU',fornitore:'ACTION',nome:'D
  auto:{pezzi:[{tipo:'GPU',manuale:{codice:'GPU'},excel:{costo:100}}]},extraLista:[{tipo:'VENTOLE',nome:'5 ventole RGB',chiave:'FAN',costo:20}],
  custom:[{id:4,value:'Personalizzazione XYZ',costo:0}],montaggio:[],servizi:[{nome:'Montaggio',costo:10}]});
 
+test('an explicit unpurchased component marker remains clear even in a shipped accounting view; paid history wins',()=>{
+ const i=input();i.auto.solo_contabile=true;i.conti.righe[0].nome='RTX 5080 — DA ACQUISTARE';
+ assert.equal(G.render(i).list[0].state,'Da acquistare');
+ i.conti.righe[0].fonte='acquistato';assert.equal(G.render(i).list[0].state,'Pagato');
+});
+
 test('one list includes hardware, extras, named custom requests and services without inventing missing prices',()=>{
  const model=G.render(input());assert.equal(model.list.length,5);
  for(const name of ['Demo GPU','Demo CPU','5 ventole RGB','Personalizzazione XYZ','Montaggio'])assert.ok(model.html.includes(name));

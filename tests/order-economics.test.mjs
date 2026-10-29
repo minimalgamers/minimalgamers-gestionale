@@ -88,6 +88,11 @@ test('single order confirmation can narrow the current desk, never add another o
  assert.deepEqual(Array.from(A.ambitoConferma(ids)),ids);
 });
 
+test('shipped and cancelled sheets do not enter shared replacements or new purchases',()=>{
+ const {s,A}=env();for(const id of ['77','78','79'])s.processedOrdersCache[id]={components:[],stato:'elaborati'};
+ assert.deepEqual(Array.from(A.schedeElaborate([{id:77},{id:78,fulfillment_status:'fulfilled'},{id:79,cancelled_at:'today'}]),x=>x.id),['77']);
+});
+
 test('one product correction applies to all orders, preserves paid prices and quantities, resets for all',async()=>{
  const {s,A}=env();const old={CASE:'WHITE',_costi_netti_gestionale:{}};
  s.processedOrdersCache[77]={customProperties:old,components:[{type:'RAM',ean:'R',quantity:2,price:null}]};

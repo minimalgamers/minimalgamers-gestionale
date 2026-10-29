@@ -130,7 +130,7 @@
     function annota(dati) {
         const defs = {};
         for (const g of (dati && dati.magazzino) || []) defs[g.id] = g;
-        for (const [id, o] of Object.entries((dati && dati.ordini) || {})) {
+        for (const [id, o] of Object.entries({...((dati && dati.conti_spediti) || {}),...((dati && dati.ordini) || {})})) {
             (o.pc || []).forEach((pc, i) => {
                 const cache = typeof processedOrdersCache !== 'undefined' ? processedOrdersCache : {};
                 const idPc = cache[`${id}.${i + 1}`] ? `${id}.${i + 1}` : (i === 0 && cache[id] ? id : `${id}.${i + 1}`);
@@ -1577,6 +1577,11 @@
         return null;
     }
 
+    // Riepiloghi separati dalle proposte di acquisto e dallo stock assegnato agli ordini aperti.
+    function pcContabile(dati, orderId) {
+        return pcAutomatico(dati,orderId) || pcAutomatico({ordini:dati?.conti_spediti},orderId);
+    }
+
     // Costo di oggi quando il pezzo della scheda e' proprio quello scelto dall'automatico (voce o ordine)
     function sceltaUguale(v, auto, tipo, ean, fornitore) {
         const c = chiave(ean);
@@ -1743,7 +1748,7 @@
         if ((dati?.magazzino?.length || Object.values(costiProdotto()).some(x=>x.magazzino)) && Date.now() - inv.caricatoIl > 60000)
             try { await leggiInventario(); } catch (e) { /* senza verifica non si considera il pezzo già prelevato */ }
         const conti = { man: 0, mancanti: [], stime: 0, righe: [] };
-        const auto = pcAutomatico(dati, orderId);
+        const auto = pcContabile(dati, orderId);
         const salvati = leggiLS(K_FISSI, {});
         for (const row of righe(orderId)) {
             const tipo = row.dataset.componentType;
@@ -1793,7 +1798,7 @@
             const m = manualeDellaRiga(row);
             const r = conti.righe.find(x => x.tipo === row.dataset.componentType && chiave(x.ean) === chiave(m.ean) &&
                 String(x.fornitore || '').toUpperCase() === String(m.fornitore || '').toUpperCase());
-            const avviso = row.dataset.accPaid === '1' || !r ? null : disponibilitaRiga(dati, auto, r, conti.confermato);
+            const avviso = row.dataset.accPaid === '1' || !r ? null : disponibilitaRiga(dati, auto, r, conti.confermato || auto?.solo_contabile);
             if (r) r.verificaDisponibilita = avviso;
             segnaDisponibilitaRiga(row, orderId, r, avviso);
         }
@@ -1806,8 +1811,9 @@
         if (!el) return;
         let ordini = [];
         try { ordini = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]'); } catch (e) { ordini = []; }
-        const auto = pcAutomatico(dati, orderId);
+        const auto = pcContabile(dati, orderId);
         const vendita = prezzoVendita(orderId, ordini, auto);
+        const riepilogoSpeditoMancante = !auto && ordini.some(o => String(o.id)===String(orderId).split('.')[0] && o.fulfillment_status==='fulfilled');
         const congelato = acquistoSnapshot(orderId);
         let extra = 0, vociPers = [], personalizzatiMancanti = [], erroreVoci = false;
         try {
@@ -1856,7 +1862,7 @@
             ...x, ean: x.codice || x.chiave, quantita: 1, extra: true
         })), ...montaggio.filter(x => x.costo == null).map(x => ({ tipo: x.tipo, ean: x.codice || x.scelta,
             descrizione: x.scelta, fornitore: x.fornitore || '', quantita: 1, extra: true }))];
-        const nMancanti = vociMancanti.length + (erroreVoci ? 1 : 0);
+        const nMancanti = vociMancanti.length + (erroreVoci ? 1 : 0) + (riepilogoSpeditoMancante ? 1 : 0);
         conti.nMancantiExtra = nMancanti - lista.length;
         const obiettivoConto = congelato ? congelato.spese.obiettivo : auto?.obiettivo;
         conti.spese = { servizi: serviziLista, opzioni: extraLista.filter(x => !x.personalizzata), personalizzati: extra, montaggio,
@@ -1890,7 +1896,7 @@
         }
         const nonDisponibile = !auto && stato.errore && !conti.mancanti.length
             ? `<div class="riga"><small>Automatico non disponibile: ${esc(stato.errore)}</small></div>` : '';
-        const diversi = pezziDiversi(righe(orderId).map(row => ({ tipo: row.dataset.componentType, ean: manualeDellaRiga(row).ean })), auto);
+        const diversi = auto?.solo_contabile ? [] : pezziDiversi(righe(orderId).map(row => ({ tipo: row.dataset.componentType, ean: manualeDellaRiga(row).ean })), auto);
         const firmaGW = dati?.riferimento_gpu_watch;
         const riferimentoGW = firmaGW && !congelato ? `<div class="riga nota"><span>${firmaGW.allineato_excel
             ? `Excel GPU Watch allineato · versione ${esc(String(firmaGW.impronta || '').slice(0, 12))}`
@@ -1926,6 +1932,7 @@
         const aperta = sezioni.some(x => x.id === sezioniAperte[orderId]) ? sezioniAperte[orderId] : null;
         el.innerHTML =
             rigaUpgradeAttesa(orderId) + rigaNonPagate(auto) +
+            (riepilogoSpeditoMancante ? '<div class="acc-esito" role="alert">Riepilogo costi della scheda spedita non disponibile: utile da verificare.</div>' : '') +
             (conti.upgradeRitirati ? '<div class="acc-esito" role="status">⚠ Pagamento upgrade modificato o ritirato: verificare cosa è stato acquistato e montato. Nessun movimento di magazzino automatico.</div>' : '') +
             (montaggio.length ? '<div class="acc-esito" role="status">⬆ Distinta di montaggio aggiornata · conto provvisorio, nuovi pezzi da verificare</div>' : '') +
             (montaggio.length && !nMancanti ? `<div class="acc-esito">UTILE SRL STIMATO · ${eur(u.srl)} · include il pezzo sostituito</div>` :
@@ -2005,6 +2012,7 @@
                 noticeHtml:rigaUpgradeAttesa(orderId)+rigaNonPagate(auto)+avvisoRif+
                     (conti.upgradeRitirati ? '<div class="mg-glass-warnings" role="alert">Pagamento upgrade modificato o ritirato: verifica i pezzi acquistati e da montare.</div>' : ''),
                 avvisi:[...avvisiAuto,...diversi.map(x=>`${x.tipo}: ${x.motivo || `nella scheda ${x.scheda}; da verificare ${x.giusto}`}`),
+                    ...(riepilogoSpeditoMancante ? ['Riepilogo costi della scheda spedita non disponibile: utile da verificare.'] : []),
                     ...(erroreVoci ? ['Voci personalizzate non leggibili: ricarica prima di confermare acquisti.'] : [])]}, {
                 change:r=>apriCambioPezzo(orderId,r), cost:r=>apriCosto(orderId,r),
                 refresh:async()=>{await carica(true);await aggiornaOrdine(orderId);},
@@ -3913,7 +3921,7 @@
         let cache = {}, aperti = [];
         try { cache = (typeof processedOrdersCache !== 'undefined' && processedOrdersCache) || {}; } catch (e) { cache = {}; }
         try { aperti = ordiniShopify || JSON.parse(sessionStorage.getItem('shopify_orders') || '[]') || []; } catch (e) { aperti = []; }
-        const daSpedire = new Set(aperti.map(o => String(o && o.id)));
+        const daSpedire = new Set(aperti.filter(o => !o.cancelled_at && o.fulfillment_status!=='fulfilled').map(o => String(o && o.id)));
         return Object.keys(cache).filter(id => daSpedire.has(String(id).split('.')[0])).map(id => {
             const o = cache[id] || {};
             return { id, nome: o.orderIdFlip || o.order_id_flip || `#${id}`, foglio: o.foglioDiLavoro || o.foglio_di_lavoro || 1,
@@ -4242,7 +4250,7 @@
         return `🔗 Pagina personale: ${parti.join(' · ')}`;
     }
 
-    const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave,
+    const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave, pcContabile,
         idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico, parteDellUnita, dettaglioVendita,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,

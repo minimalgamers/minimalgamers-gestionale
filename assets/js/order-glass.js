@@ -35,15 +35,15 @@
                 replaced:replaced.has(r.tipo), locked:['acquistato','magazzino'].includes(r.fonte),
                 customerPaid:!replaced.has(r.tipo) && (input.paidTypes || []).includes(r.tipo),
                 state:r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
-                    r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
+                    input.auto?.solo_contabile ? 'Spedito · costo di riferimento' : r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
         });
         const extras = (input.extraLista || []).filter(x => !x.personalizzata).map(x => ({...x,kind:'extra',title:x.scelta || x.descrizione || x.nome,
-            ean:x.codice || x.chiave,quantita:1,extra:true,customerPaid:(input.paidTypes || []).includes(x.tipo),state:x.locked?'Costo conservato':'Da preparare',delta:null,ref:null}));
+            ean:x.codice || x.chiave,quantita:1,extra:true,customerPaid:(input.paidTypes || []).includes(x.tipo),state:x.locked?'Costo conservato':input.auto?.solo_contabile?'Extra della build spedita':'Da preparare',delta:null,ref:null}));
         const custom = (input.custom || []).map(x => ({...x,kind:'custom',tipo:'PERSONALIZZATO',labelTipo:'EXTRA',title:x.value || x.name || 'Voce personalizzata',
             ean:`CUSTOM-${x.id}`,extra:true,quantita:Math.max(1,Number(x.quantity ?? x.quantita)||1),
             costo:x.costo, state:'Costo registrato',delta:null,ref:null}));
         const upgrades = (input.montaggio || []).map(x => ({...x,kind:'upgrade',title:x.descrizione || x.scelta,ean:x.codice,
-            quantita:1,extra:true,state:'Da montare · upgrade pagato',delta:null,ref:null}));
+            quantita:1,extra:true,state:input.auto?.solo_contabile?'Upgrade della build spedita':'Da montare · upgrade pagato',delta:null,ref:null}));
         const services = (input.servizi || []).map(x => ({...x,kind:'service',tipo:'SERVIZIO',title:x.nome || x.testo || x.descrizione || 'Montaggio / spedizione',
             state:'Previsto',delta:null,ref:null,locked:true}));
         return [...hardware,...extras,...custom,...upgrades,...services];
@@ -58,7 +58,7 @@
             !Number.isFinite(target) ? 'Positivo · obiettivo non disponibile' : profit >= target-5 ? 'In obiettivo' : `Positivo · ${money(target-profit)} sotto obiettivo`;
         const state=!complete ? 'unknown' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
         const rowHtml = r => {
-            const q=Number(r.quantita)||1, lim=budget(r.costo,input.utile,target,complete);
+            const q=Number(r.quantita)||1, lim=input.auto?.solo_contabile ? null : budget(r.costo,input.utile,target,complete);
             const actionable=r.kind !== 'service' && r.ean && !r.locked;
             const costLabel=['acquistato','magazzino'].includes(r.fonte) ? 'Prezzo pagato / prelevato' : 'Costo netto della riga';
             return `<tr class="mg-ledger-row${r.delta > .01 ? ' mg-price-up' : ''}"><td data-label="Tipo"><b>${esc(r.labelTipo || r.tipo)}</b></td>` +
@@ -72,7 +72,7 @@
                 `<td class="mg-num" data-label="Oggi / pagato" title="${costLabel}"><b>${Number.isFinite(r.costo) ? money(r.costo) : 'Manca costo'}</b></td>` +
                 `<td class="mg-num mg-delta" data-label="Scostamento">${Number.isFinite(r.delta) ? (r.delta>0?'+':'')+money(r.delta) : '—'}</td>` +
                 `<td data-label="Acquisto"><span class="mg-purchase-state${r.locked?' paid':''}">${esc(r.state)}</span></td>` +
-                `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' ? `<button type="button" data-glass-change="${list.indexOf(r)}" aria-label="Cambia ${esc(r.tipo)}">Cambia</button>` : ''}` +
+                `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' && !input.auto?.solo_contabile ? `<button type="button" data-glass-change="${list.indexOf(r)}" aria-label="Cambia ${esc(r.tipo)}">Cambia</button>` : ''}` +
                 `${actionable ? `<button type="button" data-glass-cost="${list.indexOf(r)}" aria-label="${r.costo==null?'Inserisci':'Modifica'} costo ${esc(r.tipo)}">${icon('pencil-simple')}</button>` : r.locked && r.kind!=='service' ? '<small>Conservato</small>' : ''}` +
                 (lim && !r.locked ? `<details class="mg-budget"><summary role="button" aria-label="Limiti di spesa ${esc(r.tipo)}">Limiti</summary><div><b>Massimo netto per questa riga</b><br>${lim.zero<0 ? 'Perdita non recuperabile cambiando solo questa riga' : `Per restare in positivo: ${money(lim.zero)}`}<br>` +
                     `${lim.target == null ? 'Obiettivo non disponibile' : lim.target<0 ? 'Obiettivo non raggiungibile cambiando solo questa riga' : `Per l’obiettivo: ${money(lim.target)}`}<br><small>A parità degli altri costi. ${q>1?'Totale per '+q+' pezzi.':''}</small></div></details>` : '') +
@@ -97,7 +97,7 @@
             `</tbody><tfoot><tr><th colspan="4">${complete?'Totale':'Costi noti · totale parziale'}</th><td class="mg-num">${money(input.costo)}</td><td colspan="3">${complete?'Montaggio e spedizione inclusi':'Utile non calcolabile finché mancano costi'}</td></tr></tfoot></table></div>` +
             `<div class="mg-glass-actions"><span class="acc-barra-stato" role="status">${input.generato ? 'Dati del '+date(input.generato) : 'Aggiornamento listini da verificare'} · importi netti</span>` +
             '<button type="button" data-glass-original aria-expanded="false">Componenti e gestione scorte</button><button type="button" data-glass-refresh>Aggiorna costi</button>' +
-            `<button type="button" class="mg-primary" data-glass-confirm${input.conti.confermato?' disabled':''}>${input.conti.confermato ? 'Acquisto già confermato' : 'Conferma acquisto di questo PC'}</button></div></section>`};
+            `<button type="button" class="mg-primary" data-glass-confirm${input.conti.confermato || input.auto?.solo_contabile?' disabled':''}>${input.auto?.solo_contabile ? 'Ordine già spedito' : input.conti.confermato ? 'Acquisto già confermato' : 'Conferma acquisto di questo PC'}</button></div></section>`};
     }
 
     function mount(el,input,actions) {

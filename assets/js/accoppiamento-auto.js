@@ -1279,8 +1279,19 @@
         const altri = ord.line_items.filter(li => !usate.has(li) && quante(li) > 0).map(li => ({ nome: nomeLi(li), prezzo: tonda(netto(li)) }));
         const base = parseFloat(pc.price) || 0;
         // Gli upgrade sono pagati con un altro ordine Shopify, ma appartengono soltanto a questo PC.
-        // L'originale non viene riscritto: l'incasso verificato arriva dal Buyer Desk, unità per unità.
-        for (const u of auto?.upgrade_pagati || []) {
+        // L'originale non viene riscritto: si leggono i pagamenti Shopify, unità per unità;
+        // il Buyer Desk resta il riferimento per gli upgrade non presenti nella lettura Shopify.
+        const incassiDiretti = typeof window.UpgradePaidSync?.incassi === 'function'
+            ? window.UpgradePaidSync.incassi(ordini, {ePc}).filter(e => e.scheda === String(orderId) ||
+                (e.scheda === idBase && indice === 0)) : null;
+        const ordiniLetti = new Set((ordini || []).flatMap(o => [String(o.id),String(o.name)]));
+        // Se Shopify contiene l'ordine di upgrade, prevale il suo pagamento attuale sul file dei listini.
+        // La stessa riga resta nell'incasso anche dopo la spedizione, senza avviare montaggi o acquisti.
+        const upgradeIncassati = incassiDiretti === null ? (auto?.upgrade_pagati || []) : [
+            ...(auto?.upgrade_pagati || []).filter(u => !ordiniLetti.has(String(u.id_upgrade)) && !ordiniLetti.has(String(u.ordine_upgrade))),
+            ...incassiDiretti
+        ];
+        for (const u of upgradeIncassati) {
             if (ord.line_items.some(li => proprieta(li)._upgrade_pagato === u.ordine_upgrade)) continue;
             const p = Number(u.prezzo);
             if (!Number.isFinite(p) || p <= 0) continue;

@@ -74,3 +74,12 @@ attivo. La conferma generale della scrivania mantiene il suo ambito precedente.
 Gli acquisti già registrati restano bloccati. I componenti sostituiti da un
 upgrade pagato sono marcati «non montare», conservandone il costo precedente.
 Fonti, verifiche, scorte e controlli originari restano accessibili dalla scheda.
+
+Gli incassi degli upgrade restano nel ricavo storico anche dopo la spedizione.
+Si leggono le righe pagate dell'ordine Shopify separato, con sconti, quantità
+residue e riferimento alla singola unità. Una lettura corrente di Shopify prevale
+su un vecchio stato del catalogo, inclusi rimborsi e annullamenti. La verifica
+operativa degli upgrade continua invece a riguardare soltanto i PC da spedire.
+Le quotazioni note devono arrivare anche alle schede già spedite ancora caricate
+nel gestionale, senza trasformare i prodotti non ordinabili in acquisti possibili
+o sostituire i prezzi pagati.

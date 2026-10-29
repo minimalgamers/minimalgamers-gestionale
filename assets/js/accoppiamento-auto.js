@@ -414,6 +414,10 @@
         return { lordo: tonda(lordo), srl: tonda(lordo > 0 ? QUOTA_SRL * lordo : lordo) };
     }
 
+    function costoCurved(tipo, testo) {
+        return tipo === 'CASE' && /DARK\s*CAVE\s+(?:AKU\s+)?CURVED\b|\bITGCADCC[BW]\b|\b(?:B07L9NM6WZ|B07L9Y9PMC)\b/i.test(testo || '') ? 49.18 : null;
+    }
+
     function ivaVendita(orderId, ordine, auto) {
         const manuale = proprietaOrdine(orderId)._iva_vendita_gestionale;
         const valido = v => typeof v?.aliquota === 'number' && Number.isFinite(v.aliquota) && v.aliquota >= 0 && v.aliquota <= 1;
@@ -1745,7 +1749,7 @@
         } else if (preleva) preleva.remove();
     }
 
-    function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, magPreso = true, offerta, sch, vStesso, scelto,
+    function costoRigaVerificato({ tipo, nome, ean, fornitore, quantita = 1, pagato, inserito, mag, magPreso = true, offerta, sch, vStesso, scelto,
         pRiga, salvato, delCodice, salvati = {}, riferimentoSostituzione }) {
         const risultato = (costo, fonte) => ({ costo, fonte });
         const stessaRiga = p => p?.manuale && chiaveIdentitaCosto(p.manuale.codice) === chiaveIdentitaCosto(ean) &&
@@ -1754,6 +1758,8 @@
         if (pagato != null) return risultato(pagato, 'acquistato');
         if (mag != null && magPreso) return risultato(mag, 'magazzino');
         if (inserito != null) return risultato(inserito, 'inserito');
+        const fissoCurved = costoCurved(tipo, [ean,nome,pRiga?.cliente,offerta?.descrizione].filter(Boolean).join(' '));
+        if (fissoCurved != null) return risultato(tonda(fissoCurved * quantita), 'inserito');
         if (offerta?.costo_unitario != null) return risultato(tonda(offerta.costo_unitario * quantita), 'listino');
         if (sch?.costo != null && sch.fonte === 'listino') return risultato(tonda(sch.costo * quantita), 'listino');
         for (const p of [vStesso, pRiga]) {
@@ -1808,7 +1814,7 @@
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
             const quotazioni = quotazioniDellaRiga(dati, { ...man, quantita });
             const offertaAttuale = quotazioni.proprio;
-            const {costo, fonte, prezzo_il, riferimento} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
+            const {costo, fonte, prezzo_il, riferimento} = costoRigaVerificato({ tipo, nome:man.nome, ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
                 offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati,
                 riferimentoSostituzione: costoSostituzione(tipo, man.ean, man.fornitore, quantita) });
             // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
@@ -2901,6 +2907,8 @@
             return { costo: costo != null ? costo : null, fonte: 'magazzino' };
         }
         if (p.costo_inserito != null) return { costo: p.costo_inserito, fonte: 'inserito' };
+        const fissoCurved = costoCurved(p.tipo, [p.cliente,p.auto?.codice,p.auto?.descrizione,p.manuale?.codice,p.manuale?.descrizione].filter(Boolean).join(' '));
+        if (fissoCurved != null) return {costo:tonda(fissoCurved * (p.auto?.quantita || p.manuale?.quantita || 1)),fonte:'inserito'};
         // 30/09: pezzo diviso tra piu' fornitori per i PC della riga: costo medio per PC calcolato dall'automatico
         if (p.auto && Array.isArray(p.auto_parti) && p.auto_parti.length && p.costo != null) return { costo: p.costo, fonte: 'auto' };
         if (p.auto && p.auto.costo != null) return { costo: p.auto.costo, fonte: 'auto' };
@@ -3332,7 +3340,7 @@
         if (/KIT|4IN1|4 IN 1/.test(T)) return cerca(`kit gaming 4 in 1 mouse tastiera cuffie tappetino${colore}`);
         if (/VENTOL/.test(T)) return cerca('ventole 120mm ARGB kit');
         if (/CASE ATX/.test(T)) return cerca(`case ATX 4 ventole ARGB vetro temperato${colore}`);
-        if (/DARK ?CAVE/.test(T)) return cerca(`Dark Cave AKU Curved${colore}`);
+        if (/DARK ?CAVE/.test(T)) return cerca(`Dark Cave Curved${colore}`);
         if (categoria === 'CASE' || categoria === 'COOLER' || categoria === 'MONITOR') return cerca(String(codice || descrizione || '').slice(0, 80));
         return null;
     }

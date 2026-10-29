@@ -8,6 +8,9 @@
     const round = n => Math.round((n + Number.EPSILON) * 100) / 100;
     const icon = (name, label='') => `<img src="assets/icons/${name}.svg" alt="${esc(label)}" width="18" height="18">`;
     const date = value => { const d = new Date(value); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('it-IT') : ''; };
+    const referenceCost = r => ['budget','riferimento_excel','riferimento_altro'].includes(r.fonte);
+    const referenceLabel = r => r.fonte==='budget' ? 'Budget previsto' : r.fonte==='riferimento_excel' ? 'Riferimento Excel · prezzo attuale da verificare' :
+        `Stima da ${r.riferimento?.fornitore_riferimento || 'altro fornitore'} · cambio da confermare`;
 
     function reference(row, pc) {
         const parts = (pc?.pezzi || []).filter(p => (p.tipo === row.tipo || p.nome_tipo === row.tipo) &&
@@ -30,12 +33,12 @@
     function rows(input) {
         const replaced = new Set((input.montaggio || []).map(x => x.tipo));
         const hardware = (input.conti.righe || []).map((r, i) => {
-            const ref = reference(r,input.auto), delta = ref && Number.isFinite(r.costo) ? round(r.costo-ref.cost) : null;
+            const ref = reference(r,input.auto), delta = !referenceCost(r) && ref && Number.isFinite(r.costo) ? round(r.costo-ref.cost) : null;
             return {...r, index:i, kind:'hardware', title:r.descrizione || r.nome || r.ean, ref, delta,
                 replaced:replaced.has(r.tipo), locked:['acquistato','magazzino'].includes(r.fonte),
                 customerPaid:!replaced.has(r.tipo) && (input.paidTypes || []).includes(r.tipo),
                 state:r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
-                    input.auto?.solo_contabile ? 'Spedito · costo di riferimento' : r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
+                    referenceCost(r) ? referenceLabel(r) : input.auto?.solo_contabile ? 'Spedito · costo di riferimento' : r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
         });
         const extras = (input.extraLista || []).filter(x => !x.personalizzata).map(x => ({...x,kind:'extra',title:x.scelta || x.descrizione || x.nome,
             ean:x.codice || x.chiave,quantita:1,extra:true,customerPaid:(input.paidTypes || []).includes(x.tipo),state:x.locked?'Costo conservato':input.auto?.solo_contabile?'Extra della build spedita':'Da preparare',delta:null,ref:null}));
@@ -54,14 +57,15 @@
         const higher=list.filter(r => r.delta > .01), rest=list.filter(r => !(r.delta > .01));
         const delta=round(higher.reduce((s,r)=>s+r.delta,0)), covered=list.filter(r=>r.ref).length;
         const profit=complete ? input.utile?.srl : null;
-        const referenceOnly=Boolean(input.auto?.solo_contabile && !input.conti.confermato && list.some(r=>r.kind==='hardware' && !r.locked));
-        const status=!complete ? 'Costi incompleti: utile da calcolare' : referenceOnly ? 'Spedito · stima ai costi di riferimento' : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
+        const unquoted = list.filter(referenceCost).length;
+        const referenceOnly=Boolean(!input.conti.confermato && (unquoted || input.auto?.solo_contabile && list.some(r=>r.kind==='hardware' && !r.locked)));
+        const status=!complete ? 'Costi incompleti: utile da calcolare' : referenceOnly ? (input.auto?.solo_contabile ? 'Spedito · stima ai costi di riferimento' : 'Utile stimato · quotazioni da confermare') : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
             !Number.isFinite(target) ? 'Positivo · obiettivo non disponibile' : profit >= target-5 ? 'In obiettivo' : `Positivo · ${money(target-profit)} sotto obiettivo`;
         const state=!complete ? 'unknown' : referenceOnly ? 'reference' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
         const rowHtml = r => {
             const q=Number(r.quantita)||1, lim=input.auto?.solo_contabile ? null : budget(r.costo,input.utile,target,complete);
             const actionable=r.kind !== 'service' && r.ean && !r.locked;
-            const costLabel=['acquistato','magazzino'].includes(r.fonte) ? 'Prezzo pagato / prelevato' : 'Costo netto della riga';
+            const costLabel=referenceCost(r) ? referenceLabel(r)+'; '+(r.riferimento?.nota || '') : ['acquistato','magazzino'].includes(r.fonte) ? 'Prezzo pagato / prelevato' : 'Costo netto della riga';
             return `<tr class="mg-ledger-row${r.delta > .01 ? ' mg-price-up' : ''}"><td data-label="Tipo"><b>${esc(r.labelTipo || r.tipo)}</b></td>` +
                 `<td class="mg-ledger-product" data-label="Componente"><strong>${esc(r.title)}</strong>` +
                 `<small>${q>1 ? `${q} pezzi · ` : ''}${esc(r.ean || '')}${r.kind==='extra' || r.kind==='custom' ? ' · Extra' : ''}${r.customerPaid ? ' · Upgrade pagato dal cliente' : ''}</small>` +
@@ -70,7 +74,7 @@
                 (r.offertaAlternativa ? `<small>Prezzo ${esc(r.fornitore)} non disponibile. Stesso modello da ${esc(r.offertaAlternativa.fornitore)}: ${money(r.offertaAlternativa.costo_unitario)} netti/pezzo.</small>` +
                     `<button type="button" class="mg-quote-action" data-glass-quote="${list.indexOf(r)}">Valuta offerta ${esc(r.offertaAlternativa.fornitore)}</button>` : '') +
                 `</td><td data-label="Fornitore">${esc(r.fornitore || '—')}</td><td class="mg-num" data-label="Riferimento" title="${esc(r.ref ? r.ref.source+' '+date(r.ref.date) : 'Costo alla vendita non registrato')}">${r.ref ? money(r.ref.cost) : '—'}</td>` +
-                `<td class="mg-num" data-label="Oggi / pagato" title="${costLabel}"><b>${Number.isFinite(r.costo) ? money(r.costo) : 'Manca costo'}</b></td>` +
+                `<td class="mg-num" data-label="Oggi / pagato" title="${esc(costLabel)}"><b>${Number.isFinite(r.costo) ? (referenceCost(r)?'≈ ':'')+money(r.costo) : 'Manca costo'}</b></td>` +
                 `<td class="mg-num mg-delta" data-label="Scostamento">${Number.isFinite(r.delta) ? (r.delta>0?'+':'')+money(r.delta) : '—'}</td>` +
                 `<td data-label="Acquisto"><span class="mg-purchase-state${r.locked?' paid':''}">${esc(r.state)}</span></td>` +
                 `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' && !input.auto?.solo_contabile ? `<button type="button" data-glass-change="${list.indexOf(r)}" aria-label="Cambia ${esc(r.tipo)}">Cambia</button>` : ''}` +
@@ -88,7 +92,7 @@
             `<div class="mg-glass-metrics"><div><small>Venduto al cliente</small><strong>${money(input.vendita?.totale)}</strong><span>Ricavo storico · upgrade inclusi</span></div>` +
             `<div><small>Costo totale${complete?'':' noto · parziale'}</small><strong>${money(input.costo)}</strong><span>Netto · extra e servizi inclusi</span></div>` +
             `<div><small>Utile SRL stimato</small><strong>${money(profit)}</strong><span>${input.conti.confermato ? 'Costi acquistati conservati' : 'Sul ricavo di questo ordine'}</span></div>` +
-            `<div class="mg-glass-status ${state}" role="status"><b>${esc(status)}</b><small>${input.nMancanti ? input.nMancanti+' costi da completare' : 'Conto completo nelle fonti in basso'}</small></div></div>` +
+            `<div class="mg-glass-status ${state}" role="status"><b>${esc(status)}</b><small>${input.nMancanti ? input.nMancanti+' costi da completare' : unquoted ? unquoted+' riferimenti di costo · confermare prima dell’acquisto' : 'Conto completo nelle fonti in basso'}</small></div></div>` +
             (input.noticeHtml || '') + (input.avvisi?.length ? `<div class="mg-glass-warnings" role="alert">${input.avvisi.map(a=>`<p>${esc(a)}</p>`).join('')}</div>` : '') +
             `<div class="mg-glass-increases"><b>${higher.length ? `${higher.length} voci sopra riferimento · +${money(delta)} netti` : 'Nessun aumento verificabile sui riferimenti disponibili'}</b>` +
             `<small>Confronto ${input.auto?.configuratore ? 'lista configuratore' : 'Excel build'} su ${covered} di ${list.length} voci. I riferimenti disponibili non sono una fotografia dei costi alla vendita.</small></div>` +

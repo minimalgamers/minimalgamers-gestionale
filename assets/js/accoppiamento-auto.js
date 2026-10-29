@@ -1021,7 +1021,7 @@
                 descrizione: modelloValido ? a.descrizione || a.codice : u.valore,
                 fornitore: modelloValido ? a.fornitore || '' : (p && p.fisso && p.fisso.fornitore) || '',
                 costo: costo == null ? null : costo, stimato: true,
-                ...(p?.riferimento_costo ? {fonte:p.riferimento_costo.fonte,riferimento:p.riferimento_costo} : {}),
+                ...(p?.riferimento_costo && p.costo_inserito == null ? {fonte:p.riferimento_costo.fonte,riferimento:p.riferimento_costo} : {}),
                 modelloDaConfermare: !modelloValido });
         }
         return out;

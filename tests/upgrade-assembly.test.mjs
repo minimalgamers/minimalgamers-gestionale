@@ -21,6 +21,18 @@ const pc = (extra = {}) => ({ unita: 0, linea_id: 'LINE1', pc_totale: 1, quantit
     upgrade_pagati: [event()], pezzi: [{ tipo: 'COOLER', cliente: event().valore,
         auto: { codice: 'AIO360-BLK', descrizione: 'AIO a liquido 360MM BLACK', fornitore: 'ABACO', costo: 75 } }], ...extra });
 
+test('a registered upgrade cost supersedes the old alternate-supplier reference without confirming hardware purchase', () => {
+    const { A } = fresh(), p = pc();
+    p.pezzi[0].costo_inserito = 94.26;
+    p.pezzi[0].riferimento_costo = {fonte:'riferimento_altro',costo:107.35,fornitore_riferimento:'OTHER'};
+    const before = JSON.stringify(p), plan = A.pianoMontaggioUpgrade(p,rows(),{});
+    assert.equal(plan[0].costo,94.26);
+    assert.equal(plan[0].riferimento,undefined);
+    assert.equal(plan[0].fonte,undefined);
+    assert.equal(plan[0].stimato,true);
+    assert.equal(JSON.stringify(p),before);
+});
+
 test('4777: 360 da montare, acquisto AG300 e tutti gli altri pezzi immutati', () => {
     const { A } = fresh(), original = rows(), before = JSON.stringify(original);
     const plan = A.pianoMontaggioUpgrade(pc(), original, {});

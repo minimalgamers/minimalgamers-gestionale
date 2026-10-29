@@ -15,6 +15,18 @@ const pc={id:1,product_id:123,name:'PC GAMING TEST',price:'1513.00',quantity:1};
 const key={id:2,name:'Havit tastiera',sku:'KEY',quantity:1,price:'50.00',discount_allocations:[{amount:'5.00'}]};
 const mouse={id:3,name:'Logitech mouse',sku:'MOUSE',quantity:1,price:'40.00'};
 
+test('CURVED black, white and legacy aliases use the user fixed gross 60, never an AKU-only or PANO model',()=>{
+ const {A}=env();
+ for(const ean of ['DARK CAVE AKU CURVED BLACK','DARK CAVE CURVED WHITE','ITGCADCCB','ITGCADCCW']){
+  const r={tipo:'CASE',ean,quantita:2,offerta:{costo_unitario:100}};
+  assert.equal(A.costoRigaVerificato(r).costo,98.36);
+  assert.equal(A.costoRigaVerificato({...r,pagato:130}).costo,130);
+  assert.equal(A.costoRigaVerificato({...r,mag:120}).costo,120);
+  assert.equal(A.costoRigaVerificato({...r,inserito:110}).costo,110);
+ }
+ for(const ean of ['DARK CAVE AKU WHITE','DARK CAVE PANO BLACK'])assert.equal(A.costoRigaVerificato({tipo:'CASE',ean,offerta:{costo_unitario:100}}).costo,100);
+});
+
 test('actual Shopify order receipts remain historical when current GPU Watch retail price changes',()=>{
  const {A}=env();const o={id:77,line_items:[pc,key,mouse],total_price:'1622.90',created_at:'2026-10-21'};
  const a=A.prezzoVendita('77',[o],{listino_oggi:1591});

@@ -33,7 +33,7 @@
         // 30/09: righe accessori della scheda (kit dei bundle, sedia, scrivania) = pezzi ACCESSORIO dell'automatico
         'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO'
     };
-    const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_sostituzioni_componenti', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
+    const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
         'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'];
 
     const stato = { dati: null, errore: null, promessa: null, caricatoIl: 0, inCorso: false, upgradeAttesi: [] };
@@ -408,9 +408,34 @@
     }
 
     // ---------------------------------------------------------------- vendita e utile
-    function utile(prezzo, costo) {
-        const lordo = prezzo / IVA - COMMISSIONI * prezzo - costo;
+    function utile(prezzo, costo, vendita = null) {
+        const netto = Number.isFinite(vendita?.imponibile) ? vendita.imponibile : prezzo / IVA;
+        const lordo = netto - COMMISSIONI * prezzo - costo;
         return { lordo: tonda(lordo), srl: tonda(lordo > 0 ? QUOTA_SRL * lordo : lordo) };
+    }
+
+    function ivaVendita(orderId, ordine, auto) {
+        const manuale = proprietaOrdine(orderId)._iva_vendita_gestionale;
+        const valido = v => typeof v?.aliquota === 'number' && Number.isFinite(v.aliquota) && v.aliquota >= 0 && v.aliquota <= 1;
+        if (valido(manuale)) return {...manuale,fonte:'confermata utente'};
+        if (valido(auto?.prezzo?.iva_vendita) && auto.prezzo.iva_vendita.fonte==='confermata utente') return auto.prezzo.iva_vendita;
+        // Regola operativa confermata dall'utente: 18% riservato all'IVA 4%.
+        // Deve coprire tutte le righe positive, con una sola applicazione comune.
+        const righe = (ordine?.line_items || []).filter(l=>Number(l.current_quantity ?? l.quantity ?? 1)>0 && Number(l.price)>0);
+        const indici = new Set();
+        const intero = righe.length && righe.every(l=>{
+            const ds=l.discount_allocations || [];
+            if(ds.length!==1 || ds[0].discount_application_index==null)return false;
+            indici.add(ds[0].discount_application_index);
+            const base=Number(l.price)*Math.max(1,Number(l.quantity)||1);
+            return Math.abs(Number(ds[0].amount)-Math.round(base*.18*100)/100)<.011;
+        });
+        if(intero && indici.size===1)return {aliquota:.04,fonte:'regola interna sconto 18%'};
+        const rates = [...new Set((ordine?.line_items || []).filter(l=>Number(l.current_quantity ?? l.quantity ?? 1)>0 && Array.isArray(l.tax_lines) && l.tax_lines.length)
+            .map(l=>l.tax_lines.reduce((s,t)=>s+Number(t.rate||0),0)).filter(r=>Number.isFinite(r)&&r>=0&&r<=1))];
+        if(rates.length===1)return {aliquota:rates[0],fonte:'Shopify'};
+        if(rates.length>1)return {aliquota:.22,fonte:'Shopify',da_verificare:true};
+        return valido(auto?.prezzo?.iva_vendita) ? auto.prezzo.iva_vendita : {aliquota:.22,fonte:'standard'};
     }
 
     const K_COSTI_ORDINE = '_costi_netti_gestionale';
@@ -833,7 +858,7 @@
     }
 
     // Utile se si compra il pezzo giusto al posto di quello della scheda (null se manca un costo)
-    function utileConPezziGiusti(prezzo, costo, diversi, costiRiga) {
+    function utileConPezziGiusti(prezzo, costo, diversi, costiRiga, vendita = null) {
         if (!diversi.length) return null;
         let delta = 0;
         for (const d of diversi) {
@@ -841,7 +866,7 @@
             if (!r || r.costo == null || d.costoGiusto == null) return null;
             delta += d.costoGiusto - r.costo;
         }
-        return utile(prezzo, costo + delta);
+        return utile(prezzo, costo + delta, vendita);
     }
 
     function righePezziDiversi(lista, uGiusto) {
@@ -1103,19 +1128,19 @@
     // tutto»: pagato, meno IVA, commissioni e costi = utile prima delle tasse; meno il 30% = UTILE SRL, l'ultima riga.
     function contoOrdine(vendita, costi, nMancanti, obiettivo) {
         const p = vendita.totale;
-        const iva = tonda(p - p / IVA), comm = tonda(p * COMMISSIONI);
+        const iva = tonda(p - (Number.isFinite(vendita.imponibile) ? vendita.imponibile : p / IVA)), comm = tonda(p * COMMISSIONI);
         const riga = (testo, valore, classe) => `<div class="riga${classe ? ' ' + classe : ''}"><span>${testo}</span><span class="val">${valore}</span></div>`;
         let h = riga(`Pagato dal cliente${dataBreve(vendita.data) ? ` il ${dataBreve(vendita.data)}` : ''}`, eur(p), 'pagato') +
             (vendita.opzioni || vendita.accessori || vendita.spedizione || vendita.sconti ? `<div class="riga nota"><span>${dettaglioVendita(vendita)}</span></div>` : '') +
             ((vendita.altri || []).length ? `<div class="riga nota"><span>⚠ Nell'ordine anche: ${vendita.altri.map(a => `${esc(a.nome)} (${eur(a.prezzo)})`).join(', ')} — non contati qui: il costo non è nella scheda</span></div>` : '') +
             (vendita.rimborsato ? `<div class="riga nota"><span>⚠ Ordine con un rimborso su Shopify: controlla l'importo</span></div>` : '') +
-            riga('− IVA 22%', eur(-iva), 'meno') +
+            riga(`− IVA ${vendita.iva_vendita ? Math.round(vendita.iva_vendita.aliquota*100)+'%' : '22%'}${vendita.iva_vendita?.fonte==='confermata utente' ? ' · confermata da te' : ''}`, eur(-iva), 'meno') +
             riga('− Scalapay e commissioni 4,5%', eur(-comm), 'meno');
         for (const c of costi) if (c.valore || c.sempre) h += riga(`− ${c.testo}`, eur(-c.valore), 'meno');
         if (nMancanti > 0) {
-            return h + riga('= Utile SRL', `<span class="acc-incompleto">da calcolare: ${nMancanti === 1 ? 'manca 1 costo' : `mancano ${nMancanti} costi`}</span>`, 'finale');
+            return h + riga('= Utile SRL', `<span class="acc-incompleto">da calcolare: ${vendita.iva_vendita?.da_verificare ? 'verifica le aliquote IVA dell’ordine' : nMancanti === 1 ? 'manca 1 costo' : `mancano ${nMancanti} costi`}</span>`, 'finale');
         }
-        const u = utile(p, costi.reduce((t, c) => t + (c.valore || 0), 0));
+        const u = utile(p, costi.reduce((t, c) => t + (c.valore || 0), 0), vendita);
         h += riga('= Utile prima delle tasse', eur(u.lordo), 'sub');
         if (u.lordo > 0) h += riga(`− Tasse ${Math.round((1 - QUOTA_SRL) * 100)}%`, eur(tonda(u.srl - u.lordo)), 'meno');
         h += riga(vendita.provvisorio ? '= UTILE SRL PREVISTO <small>costi da confermare</small>' : '= UTILE SRL <small>in tasca, al netto di tutto</small>', `<span class="${u.srl >= 0 ? 'acc-pos' : 'acc-neg'}">${eur(u.srl)}</span>`, 'finale');
@@ -1293,15 +1318,21 @@
             ...(auto?.upgrade_pagati || []).filter(u => !ordiniLetti.has(String(u.id_upgrade)) && !ordiniLetti.has(String(u.ordine_upgrade))),
             ...incassiDiretti
         ];
+        let upgradeLordo = 0, upgradeNetto = 0;
         for (const u of upgradeIncassati) {
             if (ord.line_items.some(li => proprieta(li)._upgrade_pagato === u.ordine_upgrade)) continue;
             const p = Number(u.prezzo);
             if (!Number.isFinite(p) || p <= 0) continue;
             opzioni += p;
+            upgradeLordo += p;
+            const ordineUpgrade = (ordini || []).find(o=>String(o.id)===String(u.id_upgrade)||o.name===u.ordine_upgrade);
+            upgradeNetto += p/(1+ivaVendita('',ordineUpgrade,null).aliquota);
             righeOpzioni.push(`UPGRADE ${u.ordine_upgrade || ''} — ${u.valore || ''}`);
         }
         const rimborsato = ord.current_total_price != null && parseFloat(ord.current_total_price) < parseFloat(ord.total_price) - 0.005;
-        return { totale: tonda(base + opzioni + accessori + spedizione - sconti), pc: tonda(base), opzioni: tonda(opzioni),
+        const totale = tonda(base + opzioni + accessori + spedizione - sconti);
+        const regime = ivaVendita(orderId,ord,auto);
+        return { totale, imponibile:(totale-upgradeLordo)/(1+regime.aliquota)+upgradeNetto, iva_vendita:regime, pc: tonda(base), opzioni: tonda(opzioni),
             accessori: tonda(accessori), spedizione: tonda(spedizione), sconti: tonda(sconti), righeOpzioni, righeAccessori, altri,
             rimborsato, data: ord.created_at || '' };
     }
@@ -1868,12 +1899,12 @@
             ...x, ean: x.codice || x.chiave, quantita: 1, extra: true
         })), ...montaggio.filter(x => x.costo == null).map(x => ({ tipo: x.tipo, ean: x.codice || x.scelta,
             descrizione: x.scelta, fornitore: x.fornitore || '', quantita: 1, extra: true }))];
-        const nMancanti = vociMancanti.length + (erroreVoci ? 1 : 0) + (riepilogoSpeditoMancante ? 1 : 0);
+        const nMancanti = vociMancanti.length + (erroreVoci ? 1 : 0) + (riepilogoSpeditoMancante ? 1 : 0) + (vendita.iva_vendita?.da_verificare ? 1 : 0);
         conti.nMancantiExtra = nMancanti - lista.length;
         const obiettivoConto = congelato ? congelato.spese.obiettivo : auto?.obiettivo;
         conti.spese = { servizi: serviziLista, opzioni: extraLista.filter(x => !x.personalizzata), personalizzati: extra, montaggio,
             obiettivo: obiettivoConto ?? null };
-        const u = utile(vendita.totale, costo);
+        const u = utile(vendita.totale, costo, vendita);
         el.className = 'acc-utile ' + (nMancanti ? 'incompleto' : (u.lordo < 0 ? 'neg' : 'pos'));
         const perche = !auto && stato.errore
             ? ` I costi dei pezzi arrivano dai dati automatici (${esc(stato.errore)}): appena ci sono l'utile si calcola da solo.`
@@ -1894,7 +1925,7 @@
             // kit, monitor e voci della scheda): prima diceva +195 € su un ordine col monitor
             const risparmio = tonda(conti.righe.reduce((t, r) => t + (r.consigliato && r.costo != null && r.fonte !== 'stima'
                 && r.costo - r.consigliato.costo >= 1 ? r.costo - r.consigliato.costo : 0), 0));
-            const uAlt = utile(vendita.totale, costo - risparmio);
+            const uAlt = utile(vendita.totale, costo - risparmio, vendita);
             if (risparmio && uAlt.srl - u.srl >= 5) {
                 consiglio = `<div class="acc-consiglio">💡 Con i pezzi consigliati dall'Automatico l'utile SRL sarebbe <b>${eur(uAlt.srl)}</b> ` +
                     `(+${eur(tonda(uAlt.srl - u.srl))}), se non li hai ancora comprati: «AGGIORNA PREZZI PRODOTTO» li propone</div>`;
@@ -1933,7 +1964,7 @@
             montaggio.length ? { id: 'upgrade', nome: `⬆ Upgrade (${montaggio.length})`, html: dettagliMontaggioUpgrade(montaggio) } : null,
             extraLista.length ? { id: 'opzioni', nome: `➕ Opzioni (${extraLista.length})`, html: righeExtra(extraLista) } : null,
             nAvvisi ? { id: 'avvisi', nome: `⚠ Avvisi (${nAvvisi})`, allerta: lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length > 0,
-                html: mancanti + mancantiOpzioni + righePezziDiversi(diversi, nMancanti ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe)) + avvisi + consiglio } : null
+                html: mancanti + mancantiOpzioni + righePezziDiversi(diversi, nMancanti ? null : utileConPezziGiusti(vendita.totale, costo, diversi, conti.righe, vendita)) + avvisi + consiglio } : null
         ].filter(Boolean);
         const aperta = sezioni.some(x => x.id === sezioniAperte[orderId]) ? sezioniAperte[orderId] : null;
         el.innerHTML =
@@ -2902,8 +2933,8 @@
         const servizi = serviziPc(pc).reduce((t, x) => t + (x.costo || 0), 0);
         costo = tonda(costo + servizi);
         excel = tonda(excel + servizi);
-        return { costo, mancanti, utile: utile(pc.prezzo.totale, costo),
-            excel: { costo: excel, utile: utile(pc.prezzo.totale, excel), senza: senzaExcel, sopra } };
+        return { costo, mancanti, utile: utile(pc.prezzo.totale, costo, pc.prezzo),
+            excel: { costo: excel, utile: utile(pc.prezzo.totale, excel, pc.prezzo), senza: senzaExcel, sopra } };
     }
 
     // cella «nei conti dell'Excel» accanto al costo del pezzo: rossa se oggi costa di piu'
@@ -4269,7 +4300,7 @@
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ambitoConferma, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
-        chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo, prezzoConferma,
+        chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo, prezzoConferma, ivaVendita,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,
         indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva, costoSostituzione, quotazioneScelta,

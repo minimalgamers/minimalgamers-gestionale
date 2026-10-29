@@ -230,7 +230,7 @@ async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
         if (old && clean.custom_properties !== undefined) {
             const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
             clean.custom_properties = {...nuove};
-            for (const k of ['_costi_netti_gestionale','_sostituzioni_componenti'])
+            for (const k of ['_costi_netti_gestionale', '_iva_vendita_gestionale','_sostituzioni_componenti'])
                 if (cp?.[k] !== undefined) clean.custom_properties[k] = cp[k];
         }
         if (old) {
@@ -489,7 +489,7 @@ async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
         const cp = typeof precedente.custom_properties === 'string' ? JSON.parse(precedente.custom_properties) : precedente.custom_properties || {};
         const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
         clean.custom_properties = { ...nuove };
-        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_sostituzioni_componenti']) {
+        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti']) {
             if (cp[k] !== undefined) clean.custom_properties[k] = cp[k];
             else delete clean.custom_properties[k];
         }

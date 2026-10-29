@@ -59,7 +59,7 @@
         const profit=complete ? input.utile?.srl : null;
         const unquoted = list.filter(referenceCost).length;
         const referenceOnly=Boolean(!input.conti.confermato && (unquoted || input.auto?.solo_contabile && list.some(r=>r.kind==='hardware' && !r.locked)));
-        const status=!complete ? 'Costi incompleti: utile da calcolare' : referenceOnly ? (input.auto?.solo_contabile ? 'Spedito · stima ai costi di riferimento' : 'Utile stimato · quotazioni da confermare') : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
+        const status=!complete ? (input.vendita?.iva_vendita?.da_verificare ? 'Aliquote IVA da verificare' : 'Costi incompleti: utile da calcolare') : referenceOnly ? (input.auto?.solo_contabile ? 'Spedito · stima ai costi di riferimento' : 'Utile stimato · quotazioni da confermare') : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
             !Number.isFinite(target) ? 'Positivo · obiettivo non disponibile' : profit >= target-5 ? 'In obiettivo' : `Positivo · ${money(target-profit)} sotto obiettivo`;
         const state=!complete ? 'unknown' : referenceOnly ? 'reference' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
         const rowHtml = r => {
@@ -89,7 +89,7 @@
         return {list, state, label, html:`<section class="mg-glass-account" aria-label="Controllo costi ordine">` +
             `<div class="mg-glass-identity"><div><strong class="mg-glass-customer">${esc(input.cliente || '')}</strong><small>${input.vendita?.data ? 'Venduto il '+date(input.vendita.data) : ''}</small></div>` +
             `<div><small>Obiettivo utile SRL</small><strong>${money(target)}</strong></div></div>` +
-            `<div class="mg-glass-metrics"><div><small>Venduto al cliente</small><strong>${money(input.vendita?.totale)}</strong><span>Ricavo storico · upgrade inclusi</span></div>` +
+            `<div class="mg-glass-metrics"><div><small>Venduto al cliente</small><strong>${money(input.vendita?.totale)}</strong><span>Ricavo storico · upgrade inclusi${input.vendita?.iva_vendita ? ' · IVA '+Math.round(input.vendita.iva_vendita.aliquota*100)+'%' : ''}${input.vendita?.iva_vendita?.fonte==='confermata utente'?' confermata da te':''}</span></div>` +
             `<div><small>Costo totale${complete?'':' noto · parziale'}</small><strong>${money(input.costo)}</strong><span>Netto · extra e servizi inclusi</span></div>` +
             `<div><small>Utile SRL stimato</small><strong>${money(profit)}</strong><span>${input.conti.confermato ? 'Costi acquistati conservati' : 'Sul ricavo di questo ordine'}</span></div>` +
             `<div class="mg-glass-status ${state}" role="status"><b>${esc(status)}</b><small>${input.nMancanti ? input.nMancanti+' costi da completare' : unquoted ? unquoted+' riferimenti di costo · confermare prima dell’acquisto' : 'Conto completo nelle fonti in basso'}</small></div></div>` +

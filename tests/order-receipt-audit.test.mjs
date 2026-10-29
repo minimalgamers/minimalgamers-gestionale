@@ -41,3 +41,10 @@ test('an existing explicit upgrade line and a payment reference are never counte
  o.line_items.push({id:502,name:'OPZIONI AGGIORNAMENTO',price:'69.90',quantity:1,current_quantity:1,properties:props({_gpo_parent_product_group:'pc',_upgrade_pagato:'#DEMO-UP'})});o.current_total_price='1069.90';o.total_price='1069.90';
  assert.equal(A.prezzoVendita('100',[o,u],stale).totale,1069.9);
 });
+
+test('shipped financial context is available to accounts but excluded from purchase proposals',()=>{
+ const {A}=env(),pc={solo_contabile:true,quantita:1,pezzi:[{tipo:'WIFI',fisso:{costo:20}}]};
+ const data={ordini:{},conti_spediti:{100:{pc:[pc]}}};
+ assert.equal(A.pcAutomatico(data,'100'),null);assert.equal(A.pcContabile(data,'100').solo_contabile,true);
+ assert.equal(A.pcContabile(data,'100').pezzi[0].fisso.costo,20);
+});

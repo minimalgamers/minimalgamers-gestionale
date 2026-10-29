@@ -83,3 +83,9 @@ operativa degli upgrade continua invece a riguardare soltanto i PC da spedire.
 Le quotazioni note devono arrivare anche alle schede già spedite ancora caricate
 nel gestionale, senza trasformare i prodotti non ordinabili in acquisti possibili
 o sostituire i prezzi pagati.
+
+Le schede spedite usano un riepilogo contabile separato, che conserva anche i
+costi di extra e upgrade. Queste righe non consumano disponibilità per gli ordini
+aperti e non generano nuove proposte, cambi componenti o conferme di acquisto.
+Se manca il riepilogo contabile, l'utile resta da verificare. Gli ordini spediti o
+annullati sono esclusi dagli ambiti delle sostituzioni condivise.

@@ -67,3 +67,11 @@ test('sidebar economics distinguish loss, break even, under-target and unknown c
  assert.equal(G.render(input()).state,'warning');
  assert.equal(G.render({...input(),nMancanti:1}).state,'unknown');
 });
+
+test('a shipped card retains all accounting rows and does not offer purchasing or replacement actions',()=>{
+ const i=input();i.auto.solo_contabile=true;i.montaggio=[{tipo:'COOLER',descrizione:'Paid cooler',costo:50,ordine:'#DEMO-UP'}];
+ const {html,list}=G.render(i);
+ assert.ok(list.some(r=>r.title==='Paid cooler'));assert.match(html,/Upgrade della build spedita/);
+ assert.match(html,/data-glass-confirm disabled/);assert.match(html,/Ordine già spedito/);
+ assert.doesNotMatch(html,/data-glass-change=|class="mg-budget"/);
+});

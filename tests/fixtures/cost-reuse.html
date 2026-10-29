@@ -1,0 +1,19 @@
+<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Collaudo locale costi e sostituzioni</title>
+<style>body{font:16px system-ui;margin:32px;background:#f3f5f7;color:#182333}main{max-width:1000px;background:white;padding:24px;border-radius:18px}button{font:inherit;padding:8px 12px;cursor:pointer}.acc-nota{padding:12px;background:#f3f5f7;border-radius:8px}.acc-pezzo{padding:10px 0!important}.acc-azioni-pezzo{display:flex;gap:8px}.acc-utile .riga{display:flex;justify-content:space-between;gap:20px}fieldset{border:1px solid #ccc;margin:16px 0;padding:16px}output{display:block;padding:12px;color:#164875}small{line-height:1.5}</style></head>
+<body><main><h1>DEMO · Costi noti e sostituzione definitiva</h1><p>Dati fittizi. Nessun ordine reale, nessuna chiamata al database.</p><output id="esito">Costo già disponibile: puoi modificarlo senza reinserirlo da zero.</output><div id="riferimenti"></div><div id="pezzi" class="acc-utile"></div><button id="sostituzione">Verifica conferma sostituzione</button><section id="scelta"></section></main>
+<script src="../../assets/js/accoppiamento-auto.js"></script><script>
+const A=window.AccoppiamentoAuto;A.stile();
+const part={tipo:'COOLER',ean:'DISSIPATORE A LIQUIDO 360MM (AMAZON) NERO',fornitore:'AMAZON',nome:'Dissipatore a liquido 360 mm nero',costo:47.12,quantita:1,fonte:'fisso'};
+document.querySelector('#riferimenti').innerHTML=A.pannelloCostiRiferimento([{...part,i:0}]);
+document.querySelector('#pezzi').innerHTML=A.righePezziConto([part],false);
+document.querySelectorAll('[data-costo-riga]').forEach(b=>b.addEventListener('click',()=>A.apriCosto('DEMO',part)));
+document.querySelector('#sostituzione').onclick=()=>{
+const r={origine:{id:'DEMO',tipo:'CASE',ean:'CASE-OLD-BLACK',fornitore:'ABACO',ordine:'#DEMO-A'}};
+const sim={uguali:[{id:'DEMO-B',ordine:'#DEMO-B',foglio:1,tipo:'CASE',ean:'CASE-OLD-BLACK',fornitore:'ABACO',bloccato:false},
+{id:'DEMO-C',ordine:'#DEMO-C',foglio:2,tipo:'CASE',ean:'CASE-OLD-BLACK',fornitore:'ABACO',bloccato:true,nota:'già acquistato'}],equivalenti:[]};
+document.querySelector('#scelta').innerHTML='<fieldset><legend>Conferma richiesta prima del salvataggio</legend>'+A.htmlSceltaScheda(r,{codice:'CASE-NEW-BLACK',fornitore:'ABACO',descrizione:'Nuovo case nero di esempio',prezzo:55},sim)+'<button id="simula">Simula conferma senza salvare</button></fieldset>';
+document.querySelectorAll('[name="acc-dove"]').forEach(b=>b.onchange=()=>{document.querySelector('[data-lista="uguali"]').hidden=b.value==='solo';});
+document.querySelector('#simula').onclick=()=>{const ids=A.pcDaCambiare(document.querySelector('#scelta'),r,sim).map(p=>p.id);const scope=document.querySelector('[name="acc-dove"]:checked').value;
+document.querySelector('#esito').textContent='Simulazione: '+ids.join(', ')+(scope==='definitivo'?' + regola per gli ordini futuri':'')+'. DEMO-C già acquistato: escluso. Nessuna scrittura eseguita.';};
+};
+</script></body></html>

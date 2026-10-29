@@ -353,13 +353,13 @@
     function pezzoDellaRiga(auto, tipo, ean) {
         if (!auto || !Array.isArray(auto.pezzi)) return null;
         const t = TIPI[tipo] || tipo;
-        const c = chiave(ean);
+        const c = chiaveIdentitaCosto(ean);
         const stessi = auto.pezzi.filter(x => x.tipo === t);
         if (!stessi.length || !c) return null;
         // stesso codice, anche con una nota in piu' (es. «ASIN B0G39F6MQH» e «ASIN B0G39F6MQH (nero)»)
         const simile = (k) => !!k && (k === c || (Math.min(k.length, c.length) >= 8 && (k.startsWith(c) || c.startsWith(k))));
-        const uguale = stessi.find(x => simile(chiave(x.manuale && x.manuale.codice))) ||
-            stessi.find(x => x.auto && simile(chiave(x.auto.codice)));
+        const uguale = stessi.find(x => simile(chiaveIdentitaCosto(x.manuale && x.manuale.codice))) ||
+            stessi.find(x => x.auto && simile(chiaveIdentitaCosto(x.auto.codice)));
         if (uguale) return uguale;
         if (t !== 'ACCESSORIO' && t !== 'MONITOR') return null;
         const fam = (String(ean).toUpperCase().match(FAMIGLIA_ACCESSORIO) || [])[0] || (t === 'MONITOR' ? 'MONITOR' : '');
@@ -423,6 +423,30 @@
     function chiaveCostoOrdine(tipo, ean, fornitore) {
         return `${TIPI[tipo] || tipo}|${chiave(ean)}|${String(fornitore || '').toUpperCase().trim()}`;
     }
+    // La nota del canale non cambia il prodotto; colore, misura e modello restano nell'identità.
+    const chiaveIdentitaCosto = codice => chiave(String(codice || '').replace(/\(\s*AMAZON\s*\)/gi, ''));
+
+    function quotazioneScelta(d) {
+        if (d?.prezzo == null || d.prezzo === '') return {};
+        const n = Number(d.prezzo);
+        if (!Number.isFinite(n) || n < 0) return {};
+        const out = { costo_unitario: tonda(n), prezzo_il: new Date().toISOString() };
+        if (d.prezzo_listino != null && d.prezzo_listino !== '' && Number.isFinite(Number(d.prezzo_listino)) && Number(d.prezzo_listino) >= 0)
+            out.prezzo_listino = tonda(Number(d.prezzo_listino));
+        return out;
+    }
+    function costoSostituzione(tipo, ean, fornitore, quantita = 1, regole = sostituzioniProdotto()) {
+        const k = chiaveCostoOrdine(tipo, ean, fornitore);
+        const candidati = Object.values(regole).filter(r => !r.conflitto && chiaveCostoOrdine(r.tipo, r.a?.codice, r.a?.fornitore) === k &&
+            Number.isFinite(r.a?.costo_unitario) && r.a.costo_unitario >= 0);
+        const locale = leggiLS(K_COSTI, {})[k];
+        if (locale?.fonte === 'buyer_desk' && Number.isFinite(locale.unitario) && locale.unitario >= 0)
+            candidati.push({ a: { costo_unitario: locale.unitario, prezzo_il: locale.il } });
+        candidati.sort((a,b) => (Date.parse(b.a.prezzo_il || b.il) || 0) - (Date.parse(a.a.prezzo_il || a.il) || 0));
+        const primo = candidati[0];
+        if (!primo || candidati.some(r => (r.a.prezzo_il || r.il) === (primo.a.prezzo_il || primo.il) && r.a.costo_unitario !== primo.a.costo_unitario)) return null;
+        return { costo: tonda(primo.a.costo_unitario * quantita), il: primo.a.prezzo_il || primo.il };
+    }
 
     // Le correzioni restano registrate con l'ordine d'origine, ma valgono per il prodotto.
     // Le voci personalizzate sono spese specifiche dell'ordine, senza identità di catalogo.
@@ -457,7 +481,7 @@
                 k !== chiaveCostoOrdine(v.tipo,v.da.ean,v.da.fornitore)) continue;
             const old = out[k], quando = Date.parse(v.il) || 0;
             if (!old || quando > (Date.parse(old.il)||0)) out[k] = v;
-            else if (quando === (Date.parse(old.il)||0) && ['codice','fornitore','descrizione'].some(f=>v.a[f] !== old.a[f])) out[k] = {...old,conflitto:true};
+            else if (quando === (Date.parse(old.il)||0) && ['codice','fornitore','descrizione','costo_unitario','prezzo_listino'].some(f=>v.a[f] !== old.a[f])) out[k] = {...old,conflitto:true};
         }
         return out;
     }
@@ -489,7 +513,7 @@
             throw new Error('Mantieni il colore del case o del dissipatore a liquido scelto dal cliente');
         const regole = sostituzioniProdotto();
         const key = chiaveCostoOrdine(r.tipo,r.ean,r.fornitore);
-        const regola = {tipo:r.tipo,da:{ean:r.ean,fornitore:r.fornitore || ''},a:{codice:d.codice,fornitore:d.fornitore,descrizione:d.descrizione},il:new Date().toISOString()};
+        const regola = {tipo:r.tipo,da:{ean:r.ean,fornitore:r.fornitore || ''},a:{codice:d.codice,fornitore:d.fornitore,descrizione:d.descrizione,...quotazioneScelta(d)},il:new Date().toISOString()};
         if (!sostituzioneDefinitiva({type:r.tipo,ean:r.ean,supplier:r.fornitore},{...regole,[key]:regola}))
             throw new Error('La sostituzione crea un ciclo o un conflitto: scegli un altro prodotto');
         const cp = await window.SupabaseDB.saveProductReplacement(orderId,regola);
@@ -621,11 +645,10 @@
         const q = Math.max(1, Number(voce.quantita) || 1);
         const g = definizioneScorta(orderId,voce), mag = magazzinoDellaRiga(orderId,voce);
         const correzione = costiProdotto()[chiaveCostoOrdine(voce.tipo,voce.ean,voce.fornitore)];
-        const attuale = Number.isFinite(correzione?.unitario) ? correzione.unitario :
-            (voce.fonte === 'fisso' || voce.costo == null ? '' : tonda(voce.costo/q));
+        const attuale = costoInizialeEditor(voce, correzione);
         ov.innerHTML = `<form class="acc-finestra-box"><h3>Costo di ${esc(voce.tipo)}</h3><div class="acc-finestra-corpo">` +
             `<p><b>${esc(voce.descrizione || voce.nome || voce.ean)}</b><br>${esc(voce.fornitore || '')} · ${esc(voce.ean)} · quantità ${q}</p>` +
-            `<label>Quanto hai pagato per un pezzo?<input name="costo" inputmode="decimal" required value="${attuale}"></label>` +
+            `<label>Costo per un pezzo<input name="costo" inputmode="decimal" required value="${attuale}"></label>` +
             `<label>Importo inserito<select name="iva"><option value="netto">IVA esclusa</option><option value="inclusa">IVA inclusa</option></select></label>` +
             `<p data-netto>Il conto usa il costo netto, IVA esclusa.</p>` +
             (voce.tipo === 'PERSONALIZZATO' ? '' : `<label><input type="checkbox" name="magazzino"${mag ? ' checked' : ''}> Abbiamo questo prodotto in magazzino</label>` +
@@ -663,6 +686,16 @@
         ov.querySelector('[name=costo]').addEventListener('input',anteprima);
         ov.querySelector('[name=iva]').addEventListener('change',anteprima);
         ov.querySelector('input').focus();
+    }
+    function costoInizialeEditor(voce, correzione) {
+        return Number.isFinite(correzione?.unitario) ? correzione.unitario :
+            Number.isFinite(voce?.costo) ? tonda(voce.costo / Math.max(1, Number(voce.quantita) || 1)) : '';
+    }
+    function pannelloCostiRiferimento(righe) {
+        if (!righe.length) return '';
+        return `<div class="acc-nota acc-costi-riferimento"><strong>Costi di riferimento già inclusi nel conto:</strong> ` +
+            righe.map(r => `${esc(r.tipo)} ${eur(r.costo)} <button type="button" data-costo-riga="${r.i}">Modifica</button>`).join(' · ') +
+            '<br><small>Importi previsti o ultimo prezzo scelto. Puoi aggiornarli; la quantità in magazzino si gestisce separatamente.</small></div>';
     }
 
     function pannelloCostiMancanti(voci) {
@@ -1086,7 +1119,7 @@
         return h;
     }
 
-    const NOME_FONTE = { acquistato: 'prezzo pagato (acquisto confermato)', listino: '', inserito: 'inserito da te', fisso: 'budget fisso', magazzino: 'a magazzino: prezzo pagato', riferimento_magazzino: 'costo pagato di riferimento; prelievo da confermare',
+    const NOME_FONTE = { acquistato: 'prezzo pagato (acquisto confermato)', listino: '', inserito: 'inserito da te', fisso: 'budget previsto', magazzino: 'a magazzino: prezzo pagato', riferimento_magazzino: 'costo pagato di riferimento; prelievo da confermare', riferimento_sostituzione: 'ultimo prezzo scelto: quotazione corrente da verificare',
         altro: 'stimato: stesso pezzo, prezzo di un altro fornitore',
         stima: 'stimato col pezzo consigliato: questo non ha un prezzo di listino' };
 
@@ -1128,7 +1161,8 @@
             const val = r.costo == null ? '<span class="acc-incompleto">manca</span>' : `${r.fonte === 'stima' || r.fonte === 'altro' ? '≈ ' : ''}${eur(r.costo)}`;
             const info = [r.ean && chiave(r.ean) !== chiave(nome) ? `codice ${esc(r.ean)}` : '',
                 r.fonte === 'listino' ? esc(comeSiPaga(r.fornitore, r.tipo, r.costo)) : ''].filter(Boolean).join(' · ');
-            let sotto = [info, NOME_FONTE[r.fonte] ? esc(NOME_FONTE[r.fonte]) : ''].filter(Boolean).map(x => `<small>${x}</small>`).join('<br>');
+            let sotto = [info, NOME_FONTE[r.fonte] ? esc(NOME_FONTE[r.fonte]) +
+                (r.fonte === 'riferimento_sostituzione' && r.prezzo_il ? ` · scelto il ${esc(dataBreve(r.prezzo_il))}` : '') : ''].filter(Boolean).map(x => `<small>${x}</small>`).join('<br>');
             const c = r.consigliato;
             if (c && r.costo != null && r.costo - c.costo >= 1 && r.fonte !== 'stima') {
                 const d = String(c.descrizione || '');
@@ -1637,10 +1671,11 @@
     }
 
     function costoRigaVerificato({ ean, fornitore, quantita = 1, pagato, inserito, mag, magPreso = true, offerta, sch, vStesso, scelto,
-        pRiga, salvato, delCodice, salvati = {} }) {
+        pRiga, salvato, delCodice, salvati = {}, riferimentoSostituzione }) {
         const risultato = (costo, fonte) => ({ costo, fonte });
-        const stessaRiga = p => p?.manuale && chiave(p.manuale.codice) === chiave(ean) &&
-            (!fornitore || String(p.manuale.fornitore || '').toUpperCase() === String(fornitore).toUpperCase());
+        const stessaRiga = p => p?.manuale && chiaveIdentitaCosto(p.manuale.codice) === chiaveIdentitaCosto(ean) &&
+            (!fornitore || String(p.manuale.fornitore || '').toUpperCase() === String(fornitore).toUpperCase() ||
+                !p.manuale.fornitore && p.fisso && String(p.fisso.fornitore || '').toUpperCase() === String(fornitore).toUpperCase());
         if (pagato != null) return risultato(pagato, 'acquistato');
         if (mag != null && magPreso) return risultato(mag, 'magazzino');
         if (inserito != null) return risultato(inserito, 'inserito');
@@ -1652,11 +1687,13 @@
         if (scelto != null) return risultato(scelto, 'listino');
         if (salvato != null) return risultato(salvato, 'inserito');
         for (const p of [pRiga, vStesso]) {
-            if (stessaRiga(p) && !p.auto && p.fisso?.costo != null) return risultato(costoPezzo(p, salvati).costo, 'fisso');
+            if (stessaRiga(p) && !p.auto && p.fisso?.costo != null)
+                return risultato(tonda(costoPezzo(p, salvati).costo * quantita / (Number(p.manuale.quantita) || 1)), 'fisso');
         }
         if (delCodice?.costo != null && delCodice.fonte === 'listino') return risultato(tonda(delCodice.costo * quantita), 'listino');
         // Un prezzo già pagato è un riferimento, non la prova del prelievo per questo PC.
         if (mag != null) return risultato(mag, 'riferimento_magazzino');
+        if (riferimentoSostituzione?.costo != null) return { ...risultato(riferimentoSostituzione.costo, 'riferimento_sostituzione'), prezzo_il: riferimentoSostituzione.il };
         return risultato(null, null);
     }
 
@@ -1691,8 +1728,9 @@
             const mag = costoDelPrelievo(pMag);
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
             const offertaAttuale = offertaDelPezzo(dati, man.ean, man.fornitore);
-            const {costo, fonte} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
-                offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati });
+            const {costo, fonte, prezzo_il} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
+                offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati,
+                riferimentoSostituzione: costoSostituzione(tipo, man.ean, man.fornitore, quantita) });
             // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
             // scheda); la scheda dell'assemblatore resta generica (chipset), qui serve a chi compra
             const stessoCodice = (m) => m && m.descrizione && chiave(m.codice) === chiave(man.ean) ? m.descrizione : '';
@@ -1701,7 +1739,7 @@
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
             // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
-                nome: man.nome, descrizione, costo, fonte, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati) });
+                nome: man.nome, descrizione, costo, fonte, prezzo_il, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
             else conti.man += costo;
         }
@@ -1836,7 +1874,7 @@
         const opzioniSenzaCosto = extraLista.filter(x => x.costo == null).map(x => x.nome);
         const mancantiOpzioni = opzioniSenzaCosto.length
             ? `<div class="mancanti">Manca il costo di: ${esc(opzioniSenzaCosto.join(', '))} <small>(inseriscilo in «➕ Opzioni»)</small></div>` : '';
-        const costiDaConfermare = conti.confermato ? [] : conti.righe.map((r,i)=>({...r,i})).filter(r=>['fisso','riferimento_magazzino','stima','altro'].includes(r.fonte));
+        const costiDaConfermare = conti.confermato ? [] : conti.righe.map((r,i)=>({...r,i})).filter(r=>['fisso','riferimento_magazzino','riferimento_sostituzione','stima','altro'].includes(r.fonte));
         const nAvvisi = lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length + (consiglio ? 1 : 0);
         const sezioni = [
             { id: 'conto', nome: '💶 Conto', html: `<div class="acc-conto">${contoOrdine({ ...vendita, provvisorio:!!costiDaConfermare.length, data: vendita.data || (auto && auto.data) }, costi, nMancanti, obiettivoConto)}${oggi}${riferimentoGW}${avvisoRif}</div>` + acquistato },
@@ -1852,11 +1890,10 @@
             (conti.upgradeRitirati ? '<div class="acc-esito" role="status">⚠ Pagamento upgrade modificato o ritirato: verificare cosa è stato acquistato e montato. Nessun movimento di magazzino automatico.</div>' : '') +
             (montaggio.length ? '<div class="acc-esito" role="status">⬆ Distinta di montaggio aggiornata · conto provvisorio, nuovi pezzi da verificare</div>' : '') +
             (montaggio.length && !nMancanti ? `<div class="acc-esito">UTILE SRL STIMATO · ${eur(u.srl)} · include il pezzo sostituito</div>` :
-                costiDaConfermare.length && !nMancanti ? `<div class="acc-esito acc-provvisorio" role="status">UTILE PROVVISORIO ${eur(u.srl)} · ${costiDaConfermare.length} costi da confermare</div>` :
+                costiDaConfermare.length && !nMancanti ? `<div class="acc-esito acc-provvisorio" role="status">UTILE STIMATO ${eur(u.srl)} · ${costiDaConfermare.length} costi di riferimento</div>` :
                 rigaEsito(u, nMancanti, obiettivoConto)) + (conti.confermato ? '<div class="acc-acquistati-mini">✅ acquisti precedenti conservati</div>' : '') +
             pannelloCostiMancanti(vociMancanti) +
-            (costiDaConfermare.length ? `<div class="acc-costi-mancanti"><strong>Conferma il costo reale di questi pezzi</strong>` +
-                costiDaConfermare.map(r=>`<div><span>${esc(r.tipo)}: ${esc(r.descrizione || r.nome || r.ean)} · ${eur(r.costo)} previsti</span><button type="button" data-costo-riga="${r.i}">Costo e magazzino</button></div>`).join('') + '</div>' : '') +
+            pannelloCostiRiferimento(costiDaConfermare) +
             (erroreVoci ? '<div class="acc-costi-mancanti" role="alert">Voci personalizzate non leggibili: impossibile verificare i loro costi. Ricarica la scheda prima di confermare l’acquisto.</div>' : '') +
             `<div class="acc-menu">` + sezioni.map(x => `<button type="button" data-sez="${x.id}" class="${x.id === aperta ? 'attivo' : ''}${x.allerta ? ' allerta' : ''}">${x.nome}</button>`).join('') +
             `<button type="button" data-ordine-cliente="1" title="Gira la scheda: cosa ha comprato il cliente su Shopify">🧾 Ordine cliente</button>` +
@@ -3864,6 +3901,7 @@
             `<p><b>Dove lo cambio?</b></p>` +
             `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="solo" checked> Solo in <b>${esc(o.ordine)}</b></label></div>` +
             `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="definitivo"> Sostituzione definitiva: questi ordini con lo stesso prodotto e tutti i futuri</label></div>` +
+            `<p><small>La regola definitiva resta salvata e condivisa tra dispositivi. Il prezzo scelto resta come riferimento; i listini correnti continuano ad aggiornare i costi. Puoi modificare il prezzo dalla riga del nuovo pezzo.</small></p>` +
             (simili.uguali.length ? `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="uguali"> Anche negli altri ordini con lo stesso pezzo ` +
                 `<b>${esc(o.ean)}</b> (${liberi(simili.uguali)} PC)</label></div>` : '') +
             (simili.equivalenti.length ? `<div class="acc-fin-riga"><label><input type="radio" name="acc-dove" value="equivalenti"> Anche negli ordini con un pezzo equivalente ` +
@@ -3918,11 +3956,12 @@
                 ? await updateProcessedOrderComponent(p.id, p.tipo, d.codice, d.descrizione || d.codice, d.fornitore) : false;
             if (ok) { fatti++; pulisciModificheLocali(p.id, p.tipo); }
         }
-        // costo netto del Buyer Desk come costo inserito, se i dati automatici non lo conoscono ancora
-        const prezzo = Number(d.prezzo);
-        if (fatti && !isNaN(prezzo) && prezzo > 0) {
+        // Quotazione di riferimento: non è un costo fisso e non prevale su un listino più recente.
+        const quotazione = quotazioneScelta(d);
+        if (fatti && quotazione.costo_unitario != null) {
             const costi = leggiLS(K_COSTI, {});
-            for (const p of scelti) { const k = `${p.tipo}|${chiave(d.codice)}`; if (costi[k] == null) costi[k] = tonda(prezzo); }
+            for (const p of scelti) costi[chiaveCostoOrdine(p.tipo, d.codice, d.fornitore)] =
+                { unitario: quotazione.costo_unitario, il: quotazione.prezzo_il, fonte: 'buyer_desk' };
             scriviLS(K_COSTI, costi);
         }
         cambio.riga = null;
@@ -4145,7 +4184,8 @@
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,
-        indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva,
+        indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva, costoSostituzione, quotazioneScelta,
+        costoInizialeEditor, pannelloCostiRiferimento,
         disponibilitaRiga, segnaDisponibilitaRiga, statoAvvisoComponente, stile,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,

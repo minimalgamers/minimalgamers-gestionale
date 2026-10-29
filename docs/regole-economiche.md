@@ -31,3 +31,17 @@ Correzione del 28 ottobre: «Cambia» e «Modifica costo» devono avere aree sep
 I costi inseriti e le nuove conferme sono nei campi riservati `_costi_netti_gestionale` e `_acquisto_confermato_gestionale` delle proprietà dell’ordine. Questi dati non sono scelte del cliente e non devono apparire nelle descrizioni Shopify o nei fogli di montaggio.
 
 Il confronto per componente legge la distinta Excel con le GPU approvate aggiornate. L’impronta del catalogo GPU Watch viene pubblicata nel file cifrato. Se somma della distinta e riferimento aggregato non coincidono, la differenza è segnalata: non diventa un costo inventato dell’ordine.
+
+Il 29 ottobre Antonio richiede di riutilizzare i costi già disponibili senza
+domandarli di nuovo su ogni ordine. Un budget previsto resta riconoscibile come
+riferimento nel conto stimato, con il comando per modificarlo; non viene promosso
+a prezzo realmente pagato. Anche l'editor parte dall'importo già noto. Una nota
+di visualizzazione «(AMAZON)» non cambia l'identità del prodotto; un altro modello,
+colore, dimensione o fornitore continua a richiedere il proprio costo.
+
+La conferma della sostituzione permette l'ambito singolo, gli altri ordini aperti
+selezionati oppure la regola definitiva anche per i futuri. La regola condivisa
+conserva il prezzo netto scelto, l'eventuale listino originale e la data della
+scelta. Questa quotazione è soltanto un riferimento quando manca un costo
+attuale: non prevale sui listini aggiornati, su un costo corretto dall'operatore
+o sui prezzi già pagati. Non conferma acquisti o movimenti di magazzino.

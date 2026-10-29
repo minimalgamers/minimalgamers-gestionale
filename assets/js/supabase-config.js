@@ -420,6 +420,13 @@ async function dbSaveProductReplacement(shopifyOrderId, rule) {
     const key = `${rule.tipo}|${norm(rule.da.ean)}|${String(rule.da.fornitore || '').toUpperCase().trim()}`;
     const value = {tipo:rule.tipo,da:{ean:rule.da.ean,fornitore:rule.da.fornitore || ''},
         a:{codice:rule.a.codice,fornitore:rule.a.fornitore,descrizione:rule.a.descrizione},il:new Date().toISOString()};
+    // Il prezzo scelto è un riferimento, non un acquisto o un costo fisso che blocca i nuovi listini.
+    if (typeof rule.a.costo_unitario === 'number' && Number.isFinite(rule.a.costo_unitario) && rule.a.costo_unitario >= 0) {
+        value.a.costo_unitario = Math.round(rule.a.costo_unitario * 100) / 100;
+        value.a.prezzo_il = value.il;
+        if (typeof rule.a.prezzo_listino === 'number' && Number.isFinite(rule.a.prezzo_listino) && rule.a.prezzo_listino >= 0)
+            value.a.prezzo_listino = Math.round(rule.a.prezzo_listino * 100) / 100;
+    }
     const nuovo = {...cp,_sostituzioni_componenti:{...(cp._sostituzioni_componenti || {}),[key]:value}};
     let q = supabase.from('processed_orders').update({custom_properties:nuovo,updated_at:new Date().toISOString()}).eq('id',order.id);
     q = order.updated_at == null ? q.is('updated_at',null) : q.eq('updated_at',order.updated_at);

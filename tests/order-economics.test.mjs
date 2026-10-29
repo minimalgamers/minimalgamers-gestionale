@@ -300,6 +300,80 @@ test('exact quotes, approved fixed budgets and paid costs keep their precedence 
  assert.equal(A.costoRigaVerificato({ean:'AK400',inserito:0}).costo,0);
 });
 
+test('known Amazon budget survives a display annotation and an unspecified original channel without crossing identities',()=>{
+ const {A}=env();
+ const p={tipo:'COOLER',manuale:{codice:'DISSIPATORE A LIQUIDO 360MM NERO',fornitore:'',quantita:1,costo:null},auto:null,
+  fisso:{id:'aio_360',fornitore:'AMAZON',costo:47.12}};
+ const ean='DISSIPATORE A LIQUIDO 360MM (AMAZON) NERO';
+ assert.equal(A.pezzoDellaRiga({pezzi:[p]},'COOLER',ean),p);
+ const cost=A.costoRigaVerificato({ean,fornitore:'AMAZON',quantita:2,pRiga:p});
+ assert.equal(cost.costo,94.24);assert.equal(cost.fonte,'fisso');
+ for(const other of ['DISSIPATORE A LIQUIDO 240MM NERO','DISSIPATORE A LIQUIDO 360MM BIANCO'])
+  assert.equal(A.costoRigaVerificato({ean:other,fornitore:'AMAZON',pRiga:p}).costo,null);
+ assert.equal(A.costoRigaVerificato({ean,fornitore:'ABACO',pRiga:p}).costo,null);
+ assert.equal(A.costoRigaVerificato({ean:'CASE ATX',fornitore:'ALTRO',pRiga:{...p,manuale:{codice:'NOUA VITRA'}}}).costo,null);
+});
+
+test('known budgets prefill the per-piece price and remain explicit references, without a repeated confirmation request',()=>{
+ const {A}=env();
+ assert.equal(A.costoInizialeEditor({costo:81.96,quantita:2,fonte:'fisso'}),40.98);
+ assert.equal(A.costoInizialeEditor({costo:0,fonte:'fisso'}),0);
+ assert.equal(A.costoInizialeEditor({costo:null}), '');
+ assert.equal(A.costoInizialeEditor({costo:99},{unitario:12}),12);
+ const html=A.pannelloCostiRiferimento([{tipo:'KIT',costo:40.98,i:3}]);
+ assert.match(html,/già inclusi nel conto/);assert.match(html,/40,98/);assert.match(html,/data-costo-riga="3"/);
+ assert.ok(!/Conferma il costo|Inserisci costo|Costo e magazzino/.test(html));
+ assert.equal(A.pannelloCostiRiferimento([]),'');
+});
+
+test('confirmed permanent replacement stores its selected quote across reloads and future quantities, never as a paid price',async()=>{
+ const {s,parts,order}=dbMock();
+ const rule={tipo:'CPU',da:{ean:'C',fornitore:'ACTION'},a:{codice:'NEW',fornitore:'ABACO',descrizione:'CPU nuova',costo_unitario:35,prezzo_listino:35}};
+ const cp=await s.dbSaveProductReplacement('77',rule);
+ assert.equal(cp._sostituzioni_componenti['CPU|C|ACTION'].a.costo_unitario,35);
+ assert.equal(cp._sostituzioni_componenti['CPU|C|ACTION'].a.prezzo_listino,35);
+ assert.ok(cp._sostituzioni_componenti['CPU|C|ACTION'].a.prezzo_il);
+ assert.equal(parts[0].price,null);assert.equal(order.custom_properties._acquisto_confermato_gestionale,undefined);
+ const fresh=env();fresh.s.processedOrdersCache[77]={customProperties:JSON.parse(JSON.stringify(cp))};
+ const q=fresh.A.costoSostituzione('CPU','NEW','ABACO',2);
+ assert.equal(q.costo,70);
+ assert.equal(fresh.A.costoSostituzione('CPU','NEW','ACTION',2),null);
+ assert.equal(fresh.A.costoSostituzione('CPU','OTHER','ABACO',2),null);
+ assert.equal(fresh.A.costoRigaVerificato({ean:'NEW',fornitore:'ABACO',riferimentoSostituzione:q}).fonte,'riferimento_sostituzione');
+ assert.equal(fresh.A.costoRigaVerificato({ean:'NEW',quantita:2,offerta:{costo_unitario:40},riferimentoSostituzione:q}).costo,80);
+ assert.equal(fresh.A.costoRigaVerificato({ean:'NEW',pagato:60,riferimentoSostituzione:q}).costo,60);
+ assert.equal(fresh.A.costoRigaVerificato({ean:'NEW',inserito:50,riferimentoSostituzione:q}).costo,50);
+});
+
+test('permanent replacement confirmation includes future scope and excludes purchased orders from a mass change',()=>{
+ const {A}=env();
+ const r={origine:{id:'77',tipo:'CASE',ean:'OLD',fornitore:'ABACO',ordine:'#77'}};
+ const sim={uguali:[{id:'78',tipo:'CASE',ean:'OLD',fornitore:'ABACO',bloccato:false},{id:'79',bloccato:true}],equivalenti:[]};
+ const html=A.htmlSceltaScheda(r,{codice:'NEW',fornitore:'ABACO',descrizione:'Case nuovo',prezzo:40},sim);
+ assert.match(html,/value="solo" checked/);assert.match(html,/value="definitivo"/);assert.match(html,/tutti i futuri/);
+ assert.match(html,/prezzo scelto resta come riferimento/);
+ const body={querySelector:()=>({value:'definitivo'}),querySelectorAll:()=>[{checked:true,dataset:{i:'0'}},{checked:true,dataset:{i:'1'}}]};
+ assert.deepEqual(Array.from(A.pcDaCambiare(body,r,sim),p=>p.id),['77','78']);
+});
+
+test('remembered replacement prices retain date and zero; conflicting or invalid quotes cannot create a current price',()=>{
+ const {A}=env();
+ assert.deepEqual(Object.keys(A.quotazioneScelta({prezzo:null})),[]);
+ assert.deepEqual(Object.keys(A.quotazioneScelta({prezzo:''})),[]);
+ assert.deepEqual(Object.keys(A.quotazioneScelta({prezzo:-1})),[]);
+ assert.equal(A.quotazioneScelta({prezzo:0}).costo_unitario,0);
+ const r=n=>({tipo:'CASE',da:{ean:'OLD',fornitore:'ABACO'},a:{codice:'NEW',fornitore:'ABACO',descrizione:'Case nero',costo_unitario:n,prezzo_il:'2026-10-29T10:00:00Z'},il:'2026-10-29T10:00:00Z'});
+ const map={'CASE|OLD|ABACO':r(40)};
+ const q=A.costoSostituzione('CASE','NEW','ABACO',2,map);
+ const costo=A.costoRigaVerificato({ean:'NEW',riferimentoSostituzione:q});
+ assert.equal(costo.costo,80);assert.equal(costo.prezzo_il,'2026-10-29T10:00:00Z');
+ assert.match(A.righePezziConto([{tipo:'CASE',ean:'NEW',fornitore:'ABACO',...costo}]),/scelto il 29\/10\/2026/);
+ assert.equal(A.costoSostituzione('CASE','NEW','ABACO',1,{...map,'CASE|ALT|ABACO':r(41)}),null);
+ const conflict=A.indiceSostituzioni([map,{'CASE|OLD|ABACO':r(41)}]);
+ assert.equal(conflict['CASE|OLD|ABACO'].conflitto,true);
+ assert.equal(A.costoSostituzione('CASE','NEW','ABACO',1,conflict),null);
+});
+
 test('an exact EAN or manufacturer code resolves the real quote without substituting a cooler model',()=>{
  const {A}=env();const offerte_ordinabili=[{fornitore:'ACTION',codice:'CHLDECCPU0059',ean:'6933412729495',mpn:'R-AK400-BKADMN-GJD',costo_unitario:35},
  {fornitore:'OMEGA',codice:'CHLDECCPU0059',costo_unitario:2}, {fornitore:'ACTION',codice:'AG300',costo_unitario:12}];

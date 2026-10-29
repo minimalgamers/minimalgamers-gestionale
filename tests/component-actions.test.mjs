@@ -9,6 +9,14 @@ function env(){
  vm.createContext(s);vm.runInContext(source,s);return {s,A:s.window.AccoppiamentoAuto,windows};
 }
 const tipi=['CASE','CPU','MOBO','SSD','RAM','GPU','PSU','COOLER','MONITOR','KIT GAMING'];
+
+test('Valuta offerta searches the exact manufacturer code while retaining the original row for confirmation',()=>{
+ const {A,windows}=env();
+ A.apriCambioPezzo('100',{tipo:'COOLER',ean:'OLD-SKU',fornitore:'ACTION',nome:'Demo cooler | ACTION OLD-SKU',ricerca:'DEMO-MPN-BLACK'});
+ assert.equal(new URL(windows[0].url).searchParams.get('q'),'DEMO-MPN-BLACK');
+ assert.equal(A.cambio.riga.origine.ean,'OLD-SKU');
+ assert.equal(A.cambio.riga.origine.fornitore,'ACTION');
+});
 test('ogni pezzo ha due pulsanti distinti, raggruppati e indicizzati sulla riga corretta',()=>{
  const {A}=env();
  const html=A.righePezziConto(tipi.map(tipo=>({tipo,ean:`SKU-${tipo}`,fornitore:'ABACO',descrizione:`Prodotto ${tipo}`,costo:40,fonte:'listino'})),true);

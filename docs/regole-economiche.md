@@ -45,3 +45,12 @@ conserva il prezzo netto scelto, l'eventuale listino originale e la data della
 scelta. Questa quotazione è soltanto un riferimento quando manca un costo
 attuale: non prevale sui listini aggiornati, su un costo corretto dall'operatore
 o sui prezzi già pagati. Non conferma acquisti o movimenti di magazzino.
+
+Un prezzo di listino noto rimane utilizzabile anche se il prodotto è riservato,
+esaurito o non ordinabile: prezzo e disponibilità sono verifiche separate. Se uno
+SKU non si trova più, il MPN esplicitamente registrato nel nome della riga può
+ricondurlo alla quotazione dello stesso prodotto e fornitore. Non basta una
+somiglianza nel nome. Se la quotazione esiste soltanto presso un altro fornitore,
+la scheda mostra quel fornitore, il suo prezzo e la disponibilità con «Valuta
+offerta»: il costo non viene attribuito al fornitore originale e la sostituzione
+richiede la normale conferma dell'operatore.

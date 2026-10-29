@@ -700,9 +700,14 @@
 
     function pannelloCostiMancanti(voci) {
         if (!voci.length) return '';
-        return `<div class="acc-costi-mancanti" role="status"><strong>Da inserire per calcolare l’utile</strong>` + voci.map((v, i) =>
+        return `<div class="acc-costi-mancanti" role="status"><strong>Costi da verificare per calcolare l’utile</strong>` + voci.map((v, i) =>
             `<div><span><b>${esc(v.tipo)}</b>: ${esc(v.descrizione || v.nome || v.ean)}${v.quantita > 1 ? ` ×${v.quantita}` : ''}` +
-            `${v.fornitore ? ` <small>(${esc(v.fornitore)})</small>` : ''}</span><button type="button" data-costo-mancante="${i}">Inserisci costo</button></div>`).join('') + '</div>';
+            `${v.fornitore ? ` <small>(${esc(v.fornitore)})</small>` : ''}` +
+            (v.offertaAlternativa ? `<br><small>Prezzo ${esc(v.fornitore)} assente nel listino attuale. Stesso modello da <b>${esc(v.offertaAlternativa.fornitore)}</b>: ` +
+                `<b>${eur(v.offertaAlternativa.costo_unitario)} netti/pezzo</b> · ${esc(v.offertaAlternativa.disponibilita || 'disponibilità da verificare')}. ` +
+                `Il fornitore della scheda resta ${esc(v.fornitore)} fino alla tua conferma.</small>` : '') +
+            `</span>` + (v.offertaAlternativa ? `<button type="button" data-offerta-mancante="${i}">Valuta offerta</button>` : '') +
+            `<button type="button" data-costo-mancante="${i}">${v.offertaAlternativa ? 'Inserisci costo pagato' : 'Inserisci costo'}</button></div>`).join('') + '</div>';
     }
 
     // ---------------------------------------------------------------- obiettivo e prezzo (Antonio 29/09)
@@ -1314,7 +1319,7 @@
         st.textContent = `
 .acc-utile{margin-top:10px;padding:8px 10px;border-radius:6px;font-size:.82em;line-height:1.6;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.12);color:#fff}
 .acc-costi-mancanti{margin:10px 0;padding:10px;border:1px solid #d8ad79;border-radius:9px;background:#fff4e7;color:#713f18;line-height:1.5}
-.acc-costi-mancanti>div{display:flex;align-items:center;gap:8px;margin-top:7px}.acc-costi-mancanti>div>span{flex:1;min-width:0;overflow-wrap:anywhere}
+.acc-costi-mancanti>div{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:7px}.acc-costi-mancanti>div>span{flex:1 1 240px;min-width:0;overflow-wrap:anywhere}
 .acc-costi-mancanti button{flex:none;background:#fff;border:1px solid #a9783e;border-radius:6px;padding:5px 7px;color:#713f18;cursor:pointer;font-weight:600}
 .acc-finestra input[name=costo],.acc-finestra input[name=quantita],.acc-finestra select[name=iva]{box-sizing:border-box;display:block;width:100%;margin-top:8px;padding:10px;border:1px solid #999;border-radius:6px;font:inherit}
 .acc-finestra-corpo>label{display:block;margin-top:12px}.acc-finestra label[hidden]{display:none!important}
@@ -1580,6 +1585,27 @@
             [a.codice, a.ean, a.mpn].some(c => chiave(c) === k)).sort((a,b) => a.costo_unitario - b.costo_unitario)[0] || null;
     }
 
+    function mpnEsplicito(nome) {
+        const codici = [...new Set(Array.from(String(nome || '').toUpperCase().matchAll(/\bMPN\s*[:=]?\s*([A-Z0-9][A-Z0-9._-]{4,})\b/g), m => m[1]))];
+        return codici.length === 1 ? codici[0] : null;
+    }
+
+    function quotazioniDellaRiga(dati, r) {
+        const diretto = offertaDelPezzo(dati, r.ean, r.fornitore);
+        const scheda = costoScheda(dati, r.ean, r.fornitore);
+        const mpn = mpnEsplicito(r.nome || r.descrizione);
+        const fornitore = String(r.fornitore || '').trim().toUpperCase();
+        const perMpn = mpn ? (dati?.offerte_ordinabili || []).filter(a => chiave(a.mpn) === chiave(mpn)) : [];
+        const proprio = diretto || perMpn.find(a => String(a.fornitore || '').trim().toUpperCase() === fornitore) || null;
+        const altre = [...perMpn, ...(scheda?.fonte?.startsWith('listino ') ? [{...scheda, costo_unitario:scheda.costo}] : [])]
+            .filter(a => a.fornitore && String(a.fornitore).trim().toUpperCase() !== fornitore &&
+                Number.isFinite(a.costo_unitario) && a.costo_unitario >= 0);
+        // Il costo di un altro fornitore non entra nel conto del fornitore originale.
+        const alternativa = altre.sort((a,b) => Number(!offertaOrdinabile({...a,costo:a.costo_unitario,quantita:r.quantita || 1})) -
+            Number(!offertaOrdinabile({...b,costo:b.costo_unitario,quantita:r.quantita || 1})) || a.costo_unitario-b.costo_unitario)[0] || null;
+        return {proprio, alternativa};
+    }
+
     // Disponibilità del prodotto scritto nella scheda: il costo noto e un'alternativa
     // proposta non rendono acquistabile quel prodotto da quel fornitore.
     function disponibilitaRiga(dati, auto, r, confermato = false) {
@@ -1589,7 +1615,7 @@
         const forn = String(r.fornitore || '').toUpperCase().trim();
         const p = pezzoDellaRiga(auto, r.tipo, r.ean);
         const mag = r.magazzino ? {mag:r.magazzino} : p;
-        const a = offertaDelPezzo(dati, r.ean, forn);
+        const a = quotazioniDellaRiga(dati, r).proprio;
         const uguale = x => x && String(x.fornitore || '').toUpperCase().trim() === forn &&
             [x.codice, x.ean, x.mpn].filter(Boolean).map(chiave).includes(chiave(r.ean));
         if (p && uguale(p.manuale) && p.quantita_non_coperta > 0) {
@@ -1727,7 +1753,8 @@
             const pMag = magazzinoDellaRiga(orderId,{tipo,...man,quantita},dati,auto);
             const mag = costoDelPrelievo(pMag);
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
-            const offertaAttuale = offertaDelPezzo(dati, man.ean, man.fornitore);
+            const quotazioni = quotazioniDellaRiga(dati, { ...man, quantita });
+            const offertaAttuale = quotazioni.proprio;
             const {costo, fonte, prezzo_il} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
                 offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati,
                 riferimentoSostituzione: costoSostituzione(tipo, man.ean, man.fornitore, quantita) });
@@ -1739,7 +1766,8 @@
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
             // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
-                nome: man.nome, descrizione, costo, fonte, prezzo_il, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati) });
+                nome: man.nome, descrizione, costo, fonte, prezzo_il, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati),
+                ...(costo == null && quotazioni.alternativa ? {offertaAlternativa:quotazioni.alternativa} : {}) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
             else conti.man += costo;
         }
@@ -1901,6 +1929,10 @@
             sezioni.map(x => `<div class="acc-sez" data-sez="${x.id}"${x.id === aperta ? '' : ' hidden'}>${x.html}</div>`).join('');
         el.querySelectorAll('[data-costo-mancante]').forEach(b => b.addEventListener('click', e => {
             e.stopPropagation(); apriCosto(orderId, vociMancanti[Number(b.dataset.costoMancante)]);
+        }));
+        el.querySelectorAll('[data-offerta-mancante]').forEach(b => b.addEventListener('click', e => {
+            e.stopPropagation(); const r = vociMancanti[Number(b.dataset.offertaMancante)];
+            if (r) apriCambioPezzo(orderId, {...r, ricerca:r.offertaAlternativa.mpn || r.offertaAlternativa.codice});
         }));
         el.querySelectorAll('[data-costo-riga]').forEach(b => b.addEventListener('click', e => {
             e.stopPropagation(); apriCosto(orderId, conti.righe[Number(b.dataset.costoRiga)]);
@@ -3798,6 +3830,7 @@
     const cambio = { riga: null, aperto: 0 };
 
     function ricercaPerCambio(riga) {
+        if (riga.ricerca) return String(riga.ricerca).trim().slice(0, 100);
         const nome = (riga.pezzi || []).map(p => p.nome).find(Boolean) || riga.descrizione || riga.codice || '';
         return String(nome).replace(/\b(WHITE|BLACK|BIANCO|BIANCA|NERO|NERA)\b/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
     }
@@ -3883,7 +3916,7 @@
         let nomeOrdine = '';
         try { nomeOrdine = (processedOrdersCache[orderId] || {}).orderIdFlip || ''; } catch (e) { nomeOrdine = ''; }
         if (!nomeOrdine) nomeOrdine = ((stato.dati && stato.dati.ordini && stato.dati.ordini[String(orderId).split('.')[0]]) || {}).nome || `#${orderId}`;
-        apriCambio({ codice: r.ean, descrizione: r.descrizione || r.nome || r.ean,
+        apriCambio({ codice: r.ean, descrizione: r.descrizione || r.nome || r.ean, ricerca:r.ricerca,
             // la ricerca nel Buyer Desk parte dal nome generico della scheda (es. «RTX 5060 Ti 8GB»): tutte le marche
             pezzi: [{ id: orderId, tipo: r.tipo, ean: r.ean, fornitore: r.fornitore || '', nome: r.nome || r.descrizione || '', ordine: nomeOrdine }],
             origine: { id: orderId, tipo: r.tipo, ean: r.ean, fornitore: r.fornitore || '', ordine: nomeOrdine } });
@@ -4185,7 +4218,7 @@
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,
         indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva, costoSostituzione, quotazioneScelta,
-        costoInizialeEditor, pannelloCostiRiferimento,
+        costoInizialeEditor, pannelloCostiRiferimento, mpnEsplicito, quotazioniDellaRiga,
         disponibilitaRiga, segnaDisponibilitaRiga, statoAvvisoComponente, stile,
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,

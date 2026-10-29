@@ -4,7 +4,9 @@
 <script src="../../assets/js/accoppiamento-auto.js"></script><script>
 const A=window.AccoppiamentoAuto;A.stile();
 const part={tipo:'COOLER',ean:'DISSIPATORE A LIQUIDO 360MM (AMAZON) NERO',fornitore:'AMAZON',nome:'Dissipatore a liquido 360 mm nero',costo:47.12,quantita:1,fonte:'fisso'};
-document.querySelector('#riferimenti').innerHTML=A.pannelloCostiRiferimento([{...part,i:0}]);
+document.querySelector('#riferimenti').innerHTML=A.pannelloCostiRiferimento([{...part,i:0}])+A.pannelloCostiMancanti([
+{tipo:'COOLER',ean:'DEMO-SKU-OLD',nome:'Dissipatore demo con display | MPN DEMO-MPN-BLACK',fornitore:'ACTION',quantita:1,
+offertaAlternativa:{fornitore:'ABACO',codice:'DEMO-NEW',costo_unitario:100,disponibilita:'10 pz'}}]);
 document.querySelector('#pezzi').innerHTML=A.righePezziConto([part],false);
 document.querySelectorAll('[data-costo-riga]').forEach(b=>b.addEventListener('click',()=>A.apriCosto('DEMO',part)));
 document.querySelector('#sostituzione').onclick=()=>{

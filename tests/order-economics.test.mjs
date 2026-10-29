@@ -45,6 +45,36 @@ test('missing-cost panel identifies exact part and edit command without hiding i
  assert.equal(A.pannelloCostiMancanti([]),'');
 });
 
+test('a missing supplier SKU resolves only through a declared exact MPN and the same supplier',()=>{
+ const {A}=env(), quote={fornitore:'ACTION',codice:'NEW-SKU',mpn:'DEMO-MPN-BLACK',costo_unitario:80,stock:10,ordinabile:true};
+ const r={tipo:'COOLER',ean:'OLD-SKU',fornitore:'ACTION',nome:'Demo cooler | MPN DEMO-MPN-BLACK',quantita:2};
+ const q=A.quotazioniDellaRiga({offerte_ordinabili:[quote]},r);
+ assert.equal(q.proprio.codice,'NEW-SKU');assert.equal(q.alternativa,null);
+ assert.equal(A.costoRigaVerificato({...r,offerta:q.proprio}).costo,160);
+ assert.equal(A.disponibilitaRiga({offerte_ordinabili:[quote]},null,r),null);
+ for(const nome of ['Demo cooler BLACK','Demo cooler | MPN DEMO-MPN-WHITE','MPN DEMO-MPN-BLACK | MPN OTHER-MPN'])
+   assert.equal(A.quotazioniDellaRiga({offerte_ordinabili:[quote]},{...r,nome}).proprio,null);
+});
+
+test('another supplier for the exact MPN is shown with its own price without changing the original account',()=>{
+ const {A}=env(),quote={fornitore:'ABACO',codice:'NEW-SKU',mpn:'DEMO-MPN-BLACK',costo_unitario:100,stock:10,ordinabile:true,disponibilita:'10 pz'};
+ const r={tipo:'COOLER',ean:'OLD-SKU',fornitore:'ACTION',nome:'Demo | MPN DEMO-MPN-BLACK',quantita:2};
+ const prima=JSON.stringify(r),q=A.quotazioniDellaRiga({offerte_ordinabili:[quote]},r);
+ assert.equal(q.proprio,null);assert.equal(q.alternativa.fornitore,'ABACO');
+ assert.equal(A.costoRigaVerificato({...r,offerta:q.proprio}).costo,null);assert.equal(JSON.stringify(r),prima);
+ const html=A.pannelloCostiMancanti([{...r,offertaAlternativa:q.alternativa}]);
+ assert.match(html,/Prezzo ACTION assente/);assert.match(html,/ABACO/);assert.match(html,/100,00/);
+ assert.match(html,/Valuta offerta/);assert.match(html,/fino alla tua conferma/);assert.match(html,/Inserisci costo pagato/);
+});
+
+test('same supplier price from the exported sheet remains usable when the product cannot be ordered',()=>{
+ const {A}=env(),sch={costo:80,fonte:'listino',fornitore:'ACTION',codice:'NEW-SKU',identita_da:'mpn_esplicito',ordinabile:false,disponibilita:'non disponibile'};
+ const r={tipo:'COOLER',ean:'OLD-SKU',fornitore:'ACTION',quantita:2};
+ const dati={offerte_ordinabili:[],per_codice:{'ACTION|OLDSKU':sch}};
+ assert.equal(A.costoRigaVerificato({...r,sch:A.costoScheda(dati,r.ean,r.fornitore)}).costo,160);
+ assert.equal(A.disponibilitaRiga(dati,null,r).stato,'non_ordinabile');
+});
+
 test('cost entry accepts Italian money and explicit zero, rejects incomplete or invalid numbers',()=>{
  const {A}=env();for(const [input,n] of [['28,69',28.69],['1.234,56',1234.56],['1234.56',1234.56],['0',0]])assert.equal(A.numeroCosto(input),n);
  for(const bad of ['',null,'-1','10abc','Infinity','3,141','1,2,3'])assert.equal(A.numeroCosto(bad),null);

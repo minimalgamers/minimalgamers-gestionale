@@ -8,7 +8,7 @@
         (/\bPC\s+GAMING\b/i.test(li.name || li.title || '') || props(li)._has_gpo);
     const quantity = li => Number(li.current_quantity ?? li.quantity);
 
-    function riferimenti(ordini) {
+    function riferimenti(ordini, opzioni = {}) {
         const originali = new Map((ordini || []).map(o => [String(o.id), o]));
         const out = new Map();
         for (const o of ordini || []) {
@@ -22,10 +22,14 @@
             }
             lines.forEach((li, indice) => {
                 const p = props(li), original = originali.get(String(p._upgrade_ordine_id || ''));
-                if (!original || original.cancelled_at || original.fulfillment_status === 'fulfilled' || quantity(li) <= 0 ||
-                    !p._upgrade_chiave || !p._upgrade_valore || !p._upgrade_linea_id) return;
-                const pcs = (original.line_items || []).filter(pc);
-                const target = pcs.find(l => id(l.id) === id(p._upgrade_linea_id));
+                if (!original || original.cancelled_at || (!opzioni.ancheSpediti && original.fulfillment_status === 'fulfilled') || quantity(li) <= 0 ||
+                    !p._upgrade_chiave || !p._upgrade_valore || (!p._upgrade_linea_id && !opzioni.ancheSpediti)) return;
+                const pcs = (original.line_items || []).filter(opzioni.ePc || pc);
+                const legacyIndex = p._upgrade_riga == null || p._upgrade_riga === '' ? null : Number(p._upgrade_riga);
+                const legacyTarget = legacyIndex === null ? (pcs.length === 1 ? pcs[0] : null) :
+                    (Number.isInteger(legacyIndex) && legacyIndex >= 0 ? original.line_items[legacyIndex] : null);
+                const target = p._upgrade_linea_id ? pcs.find(l => id(l.id) === id(p._upgrade_linea_id)) :
+                    (pcs.includes(legacyTarget) ? legacyTarget : null);
                 const unit = p._upgrade_unita == null || p._upgrade_unita === '' ? 0 : Number(p._upgrade_unita);
                 if (!target || !Number.isInteger(unit) || unit < 0 || unit >= quantity(target) ||
                     quantity(target) !== Number(target.quantity)) return;
@@ -34,10 +38,13 @@
                 const totalPc = pcs.reduce((n, l) => n + Number(l.quantity), 0);
                 const number = pcs.slice(0, pcs.indexOf(target)).reduce((n, l) => n + Number(l.quantity), 0) + unit + 1;
                 const key = `${o.id}:${li.id || indice}`;
+                const prezzo = Number(li.price) * quantity(li) - (li.discount_allocations || [])
+                    .reduce((t,d) => t + Number(d.amount || 0),0) * quantity(li) / Number(li.quantity || 1);
+                if (!Number.isFinite(prezzo) || prezzo < 0) return;
                 out.set(key, { key, id_upgrade: String(o.id), ordine_upgrade: o.name,
                     originale: String(original.id), scheda: String(original.id) + (totalPc > 1 ? '.' + number : ''),
                     linea_id: id(target.id), unita: unit, categoria: p._upgrade_categoria || p._upgrade_chiave,
-                    valore: p._upgrade_valore });
+                    valore: p._upgrade_valore, prezzo: Math.round(prezzo * 100) / 100 });
             });
         }
         return [...out.values()];
@@ -93,7 +100,9 @@
         }
         return singleton.tick(ordini);
     }
-    const api = { riferimenti, inAttesa, monitor, avvia, verifica: () => singleton?.tick() };
+    // La spedizione chiude il lavoro operativo, non cancella il ricavo storico.
+    const incassi = (ordini, opzioni = {}) => riferimenti(ordini, {...opzioni, ancheSpediti:true});
+    const api = { riferimenti, incassi, inAttesa, monitor, avvia, verifica: () => singleton?.tick() };
     if (typeof window !== 'undefined') window.UpgradePaidSync = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

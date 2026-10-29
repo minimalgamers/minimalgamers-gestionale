@@ -1,63 +1,88 @@
-# Scrivanie iOS E1–E4 — fase 3/7, 04/10/2026
+# Scheda ordine Liquid Glass - 29 ottobre 2026
 
 final result: passed
 
-## Ambito e stato
+## Fonte e perimetro
 
-Base main verificata `245ae1258d312d0164aca6572a1697d8abd9c20b`, dopo PR #48 e #49 approvate e pubblicate. Questa terza fase è preparata sul branch `codex/design-ios-desks`: NON mergiata e NON pubblicata. Serve approvazione della relativa PR. Non dichiarare completato il redesign dell'intero tool.
+Direzione scelta esplicitamente da Antonio: terza immagine dell'ultima serie Liquid Glass.
+Fonte: outputs/gestionale-liquid-glass-20261029/riferimento-selezionato-3.png
+Risultato: outputs/gestionale-liquid-glass-20261029/demo-desktop-1488.jpg
+Confronti letti insieme: confronto-desktop-finale.png e confronto-righe-finale.png nella stessa cartella.
+Report precedente letto e conservato in docs/liquid-glass-20261029/design-qa-prima.md.
+La prova visuale usa esclusivamente dati fittizi e nessun database.
 
-Direzione scelta: opzione 2 «Schede native» raffinata dall'utente. Card chiare leggermente trasparenti; sfondo montagna originale; font di sistema; icone piatte. Testate Minimal black, MSI hot red, DeepCool hot cyan, Configuratore hot fuchsia. Utile hot verde/rosso/arancione trasparente con testo e icona opachi. Sotto obiettivo e costi incompleti restano condizioni distinte e mantengono le diciture originali.
+## Dimensioni, stato e normalizzazione
 
-Solo `#processed-container`: griglia 3/2/1, card/componenti, toolbar, conto, menu segmentato e footer. Solo scorciatoia Panoramica delle singole card nascosta; pulsante globale conservato. Login, altri tab, modali, IVA, costi, profitto, query e operazioni non modificati. Nessun framework/CDN/asset generato.
+Desktop Chrome: viewport impostato 1488 x 1056 CSS pixel; screenshot restituito 1478 x 1049 pixel.
+Fonte Image Gen: 1487 x 1058 pixel. Confronto normalizzato a larghezza 1487, scala uniforme
+1,0061 della cattura, immagine risultante 1487 x 1055 e tre pixel neutri aggiunti in basso.
+Nessuna deformazione, taglio di contenuti o giudizio su differenze di tre pixel di densita'.
+Stato: E1, ordine DEMO-01, tre aumenti, undici voci complete, due acquisti conservati,
+extra ventole e upgrade Wi-Fi pagato dal cliente con hardware ancora da preparare.
+Mobile aggiuntivo: viewport 390 x 844 CSS pixel, clientWidth e scrollWidth entrambi 380;
+prova in Chrome con larghezza mobile, non test su un iPhone fisico o Safari.
 
-## Verifiche automatiche e isolamento
+## Confronto e iterazioni
 
-- Suite sul clone originale: 25 pass, 0 fail (17 precedenti + 8 nuovi). Diff check pulito.
-- Contratto originale ID/classi/data/handler invariato. Index aggiunge soltanto i due asset versionati di presentazione.
-- 18 script applicativi sicuri byte-identici nelle anteprime prima/dopo. `supabase-config.js` e `api-adapter.js` esclusi preventivamente dalle copie e dai confronti delle preview. Nessun segreto estratto o pubblicato.
-- Nuovo decoratore: solo root scrivanie; nessuna rete, storage, calcolo, handler di azione o sostituzione innerHTML. Conserva nodi, testo, classi di stato, disabled e hidden. Test unitari su decorazione, rerender e idempotenza.
-- Selettori CSS isolati; [hidden] e visibilità gestiti dall'app, non forzati. Test focus, disabled, reduced motion, hit area e contrasto composito >=4,5:1 sui tre esiti.
-- Harness e ordini fittizi fuori repo. Adapter reali esclusi, richieste remote/non-GET, form e nuove finestre bloccati. Nessun acquisto/elaborazione/finalizzazione o modifica dati effettuati. Non eseguire la suite generale sulla preview sanitizzata: alcuni test richiedono i file originali intenzionalmente esclusi.
+- P2 iniziale: tabella troppo alta, mancavano servizi e totale nel primo viewport.
+  Misurate righe di 53 px e comandi Limiti su seconda riga. Ridotti padding duplicati,
+  riuniti i comandi e mantenuti modello e codice leggibili; eliminata la sola ripetizione
+  visiva della caption mantenendola accessibile. Undici righe, totale e CTA visibili.
+- P2 iniziale del harness mobile: testata non responsiva e offset relativo della nav
+  dimostrativa causavano sovrapposizione e bodyWidth 416 su viewport380. Corretti gli
+  stili del harness; verificato 380/380 e lettura della scheda sotto la navigazione.
+- P2 finanziario intercettato: gli stati della barra laterale dovevano distinguere
+  perdita, sotto obiettivo e costi mancanti. Collegati agli stessi esiti del conto,
+  con test espliciti anche per pareggio. Nessun utile positivo con costi incompleti.
+- I confronti finali mostrano gerarchia, vetro chiaro, ordine laterale selezionato,
+  tre righe aumentate in testa e elenco completo. Nessun P0/P1/P2 visuale aperto
+  negli stati dimostrativi provati.
 
-## Browser e confronto visuale
+## Cinque superfici di fedelta'
 
-- Screenshot sintetici prima/riferimento/dopo: CSS 1440×1023, pixel 1584×1126; CSS 390×900, pixel 429×990. Confronti desktop della card normalizzati alla stessa scala e mobile prima/riferimento/dopo riletti affiancati, non solo separatamente.
-- 1440: tre colonne; 1023: due; 390: una. Nessun overflow orizzontale negli stati provati. Card senza altezza fissa; nomi lunghi a capo. Pulsanti/badge principali min 44 px, menu stretto min 58 px.
-- Navigazione E1–E4 verificata senza spostare ordini. Testate RGB: Configuratore 225/0/132, DeepCool 0/217/237, MSI 237/0/40, Minimal 5/5/5.
-- Conto, Pezzi, Opzioni, Avvisi e Ordine cliente provati con dati finti. Toggle originali preservati; Ordine cliente mantiene il flip originale. Nessuna conferma/scrittura premuta.
-- 54 nodi testo di componenti, conto, pezzi ed esiti: confronto DOM prima/dopo esattamente identico. Esempio DEMO: pagato 1250 €, IVA 225,41 €, commissioni 56,25 €, pezzi 805 €, servizi 40 €, lordo 123,34 €, tasse 37 €, SRL 86,34 €, obiettivo 120 €. NON prezzi correnti aziendali.
-- Pezzi mobile: otto righe scrollWidth=clientWidth=310 px; dettagli IVA/intermediario/codici non tagliati. Avviso lungo e opzione aggiuntiva leggibili, contatori preservati.
-- Quattro stati prodotti dai dati/calcoli originali: pos/in target, neg/perdita, basso/sotto obiettivo, incompleto/mancano 8 costi. Riempimenti rgba approvati; classi/testi non falsificati dal decoratore.
-- Vuoto originale «Nessun ordine elaborato.» nel flusso. Fixture disabled: pulsanti scrivania ancora disabilitati. Titoli lunghi senza overflow.
-- Focus tastiera sul menu Pezzi: outline blu visibile. Panoramica globale display:block; scorciatoia card display:none.
-- Console finale: nessun errore. Warning atteso del harness: template respinto HTTP 403 dalla barriera alle scritture; nessun servizio reale contattato.
+- Tipografia: stack di sistema Segoe/SF gia' usato dal gestionale, titolo27,
+  importi25, righe12-14 a seconda della larghezza e note codice10-11. Numeri tabulari,
+  nome e codice separati; nessun testo monetario tagliato. Le note non sostituiscono
+  i valori principali. Dimensioni contenute per includere tutte le voci nella scheda.
+- Spazi: navigazione laterale, una superficie principale, righe e separatori semplici.
+  Azioni allineate, nessuna altezza rigida per contenuti reali piu' lunghi. Mobile con
+  righe su due colonne e selettore ordini orizzontale indipendente dalla pagina.
+- Colori: vetro bianco/azzurro traslucido, testo scuro, aumenti arancio, pagato verde,
+  perdita rossa e costi incompleti ambra. Focus blu e alternativa opaca quando richiesta.
+- Immagini: riusato lo sfondo originale del prodotto e le icone locali Phosphor
+  con licenza gia' presente. Nessuna illustrazione, forma CSS o SVG artigianale sostituisce
+  asset del riferimento. Nessun nuovo logo aziendale inventato.
+- Testi: corretta intenzionalmente la dicitura Alla vendita quando manca una fonte
+  storica verificabile. Il confronto diventa Riferimento Excel, con copertura esplicita.
+  Nessun fornitore inventato per servizi, nessun altro prezzo attribuito ad ACTION.
 
-## Differenze intenzionali e correzioni
+## Funzioni provate e protezioni
 
-Toolbar in normale flusso sotto la navigazione già pubblicata, non assoluta nel masthead: evita collisioni con filtri/azioni. Circa 64 px di spostamento desktop dell'intera griglia rispetto al prototipo, non cambia la card. Altezza prima card normalizzata: riferimento 836,15 px, candidate 838,10 px. Masthead fasi 1–2 già approvato e non riscritto.
+Ricerca Sara nella navigazione; passaggio a DEMO-02; conferma dimostrativa riferita
+soltanto a DEMO-02 e senza scritture; limite RAM285,83 per utile positivo e42,97 per
+obiettivo170 a parita' degli altri costi; modalita' modifica costo RAM precompilata75;
+annullamento senza salvataggio. Fonti e gestione componenti originali restano apribili.
+Console del browser senza errori/warning nelle prove. I test del repository includono
+costi mancanti, extra nominati, prezzi acquistati, quantita', ordine degli indici,
+MPN non ambiguo, ambito singolo e ambito scrivania. Nessun messaggio o acquisto inviato.
 
-Non aggiunta dicitura MINIMAL assente nel markup originale: riconoscimento tramite nero e titolo esistente. Icone ufficiali locali Phosphor MIT, piatte, niente emoji sferici visualmente. Decorazioni emoji originali conservate nel textContent per compatibilità.
+## Differenze intenzionali e limiti
 
-Prima del pass: URL mask SVG corretto rispetto al CSS; margini/padding legacy dei nomi rimossi, badge centrati, font mobile 13 px; crop corretto per devicePixelRatio 1,1. Fixture stati aggiorna prezzo dell'item oltre al totale e disabled osserva il contenitore fittizio corretto; nessuna formula app cambiata.
+Rimosso il duplicato del totale rincari gia' presente nel richiamo arancione.
+Conservati i controlli globali E1-E4 e di gestione del prodotto, anche se il mock
+aveva solo una barra semplificata. Le azioni originali non vengono sostituite con
+comandi fittizi. I codici reali sono necessari e aggiungono una nota alle righe.
+Per dati storici assenti il confronto di vendita rimane indisponibile, senza
+ricostruzioni o prezzi inventati. Cambiamenti di dati reali e conferme di acquisto
+non sono stati eseguiti nel collaudo; passano dai percorsi esistenti testati.
 
-Nessun P0/P1/P2 aperto nel perimetro fase 3. Le guide di design hanno influenzato isolamento, confronto alla stessa scala, contrasto, wrapping e focus, non introdotto un nuovo design.
+## Checklist
 
-## Prove e consegna
+- Fonte e cattura aperte e confrontate insieme, anche in dettaglio.
+- Densita' desktop corretta e overflow mobile assente negli stati provati.
+- Tutte le categorie ed extra presenti nell'elenco principale.
+- Prezzi pagati protetti; conferma ristretta al PC attivo.
+- Nessuna modifica a IVA, commissioni, ricavo o calcolo utile esistente.
+- Nessun P0/P1/P2 aperto nel perimetro verificato.
 
-`docs/design-phase-3/`: otto immagini sintetiche before/after/reference desktop e mobile, comparison-desktop e comparison-mobile. Report fase 2 conservato in `docs/design-phase-2/design-qa.md`. Nessuna fixture/password/cliente reale/configurazione riservata caricata.
-
-Anteprima: `http://127.0.0.1:8776/after/?view=e3&demoGrid=1&costi=0`. Approvazione della PR prima di merge. Poi Panoramica, popup/form, pagine secondarie e audit mobile generale, con rilasci separati.
-
-Final result: passed.
-
-## Ultima verifica: supporto app iPhone — 05-10-2026
-
-Questo è il controllo più recente, successivo alle sette fasi già pubblicate.
-Report completo, fonte, screenshot, dimensioni, confronto e gap di dispositivo in
-`docs/iphone/design-qa.md`. Base visuale main `c77b353`; implementation con la stessa
-grafica e funzioni. Confronti affiancati desktop/mobile a pari stato e scala,
-40 test pass e 66 combinazioni responsive con dati finti. Nessun P0/P1/P2 aperto
-nel perimetro provato; installazione/Safari e operazioni reali restano da verificare
-su iPhone. Main non modificato: rilascio dopo approvazione.
-
-Final result: passed
+final result: passed

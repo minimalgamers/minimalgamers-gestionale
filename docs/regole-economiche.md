@@ -54,3 +54,23 @@ somiglianza nel nome. Se la quotazione esiste soltanto presso un altro fornitore
 la scheda mostra quel fornitore, il suo prezzo e la disponibilità con «Valuta
 offerta»: il costo non viene attribuito al fornitore originale e la sostituzione
 richiede la normale conferma dell'operatore.
+
+La scheda Liquid Glass selezionata il 29 ottobre presenta gli ordini nella
+navigazione laterale e un elenco unico di hardware, extra, upgrade e servizi.
+Il conto continua a usare i calcoli e il ricavo storico esistenti. Un riferimento
+Excel è etichettato come tale: non diventa un prezzo rilevato alla data di vendita.
+Un costo mancante impedisce di mostrare un utile completo e i limiti di spesa.
+Gli scostamenti positivi dai riferimenti disponibili sono mostrati prima delle
+altre righe, senza cambiare gli indici delle azioni o l'identità dei componenti.
+
+«Limiti» mostra il massimo netto della riga per conservare un utile positivo o
+raggiungere l'obiettivo, a parità di tutti gli altri costi. Per quantità multiple
+vale il totale della riga. Il margine prudenziale di un centesimo evita che gli
+arrotondamenti creino un limite superiore al margine disponibile. Se l'obiettivo
+non è recuperabile intervenendo solo su quella riga, il messaggio lo esplicita.
+
+La conferma nella scheda restringe il normale percorso di conferma al solo PC
+attivo. La conferma generale della scrivania mantiene il suo ambito precedente.
+Gli acquisti già registrati restano bloccati. I componenti sostituiti da un
+upgrade pagato sono marcati «non montare», conservandone il costo precedente.
+Fonti, verifiche, scorte e controlli originari restano accessibili dalla scheda.

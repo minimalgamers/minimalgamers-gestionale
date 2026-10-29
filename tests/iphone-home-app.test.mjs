@@ -63,6 +63,8 @@ test('no business script, protected adapter, body markup or handler changes', ()
         .replace(/\s*<script src="assets\/js\/upgrade-paid-sync\.js\?v=\d+"><\/script>/, '')
         // 15/10: vista di montaggio autorizzata (PDF, extra e colore case).
         .replace(/\s*<script src="assets\/js\/montaggio-export\.js\?v=\d+"><\/script>/, '')
+        // 29/10: Liquid Glass order desk explicitly selected by Antonio. Original body/handlers stay protected.
+        .replace(/\s*<script src="assets\/js\/order-glass\.js\?v=\d+"><\/script>/, '')
         .replace(/(\.(?:js|css))\?v=\d+/g, '$1')).digest('hex');
     assert.equal(bodyHash(html), bodyHash(before), 'Body markup/handlers must remain identical (LF/CRLF normalized).');
     assert.equal(bodyHash(git(['show', `${appIphone}:index.html`])), bodyHash(before));

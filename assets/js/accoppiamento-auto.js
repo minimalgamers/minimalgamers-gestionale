@@ -1977,6 +1977,29 @@
             ev.stopPropagation();
             apriCambioPezzo(orderId, conti.righe[parseInt(b.dataset.cambia, 10)]);
         }));
+        if (window.MGOrderGlass) {
+            const original = ordini.find(o => String(o.id) === String(orderId).split('.')[0]);
+            const cliente = [original?.customer?.first_name, original?.customer?.last_name].filter(Boolean).join(' ') || original?.customerName || '';
+            const custom = vociPers.map(it => {
+                const q = Math.max(1,Number(it.quantity ?? it.quantita)||1);
+                const manuale = costoInseritoOrdine(orderId,'PERSONALIZZATO',`CUSTOM-${it.id}`,'',q);
+                const raw = it.price ?? it.prezzo;
+                const n = raw == null || raw === '' ? NaN : Number(raw);
+                return {...it,costo:manuale ?? (Number.isFinite(n) && n>=0 ? n*q : null)};
+            });
+            if (congelato && extra > 0 && !custom.length) custom.push({id:'CONFERMATI',name:'Extra personalizzati già confermati',costo:extra,locked:true});
+            window.MGOrderGlass.mount(el,{orderId,conti,auto,vendita,cliente,costo,nMancanti,utile:u,obiettivo:obiettivoConto,
+                extraLista:extraLista.map(x=>({...x,locked:!!congelato})),custom,montaggio,servizi:serviziLista,generato:dati?.generato,
+                paidTypes:[...scelteUpgradeMontaggio(auto).keys()],
+                noticeHtml:rigaUpgradeAttesa(orderId)+rigaNonPagate(auto)+avvisoRif+
+                    (conti.upgradeRitirati ? '<div class="mg-glass-warnings" role="alert">Pagamento upgrade modificato o ritirato: verifica i pezzi acquistati e da montare.</div>' : ''),
+                avvisi:[...avvisiAuto,...diversi.map(x=>`${x.tipo}: ${x.motivo || `nella scheda ${x.scheda}; da verificare ${x.giusto}`}`),
+                    ...(erroreVoci ? ['Voci personalizzate non leggibili: ricarica prima di confermare acquisti.'] : [])]}, {
+                change:r=>apriCambioPezzo(orderId,r), cost:r=>apriCosto(orderId,r),
+                refresh:async()=>{await carica(true);await aggiornaOrdine(orderId);},
+                confirm:section=>confermaScrivania(scrivaniaAttiva(),section,[String(orderId)])
+            });
+        }
     }
 
     // Chiamata dopo che l'operatore ha cambiato a mano un pezzo: si ricalcola l'utile
@@ -2760,9 +2783,13 @@
         }
     }
 
-    async function confermaScrivania(n, barra) {
+    function ambitoConferma(ids, soloOrdini = null) {
+        return soloOrdini == null ? ids : ids.filter(id => soloOrdini.includes(String(id)));
+    }
+
+    async function confermaScrivania(n, barra, soloOrdini = null) {
         const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
-        const ids = ordiniScrivania().filter(id => !acquistoConfermato(id));
+        const ids = ambitoConferma(ordiniScrivania().filter(id => !acquistoConfermato(id)), soloOrdini);
         if (!ids.length) { scrivi(`E${n}: non ci sono PC da confermare (sono già tutti acquistati).`); return; }
         for (const id of ids) await aggiornaOrdine(id);
         let dati = null;
@@ -4212,7 +4239,7 @@
         righePezziDiversi, cercaPerCodice, wattAlimentatore, utileConPezziGiusti, costoScheda, costoEquivalente,
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
-        confermaScrivania, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
+        confermaScrivania, ambitoConferma, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,

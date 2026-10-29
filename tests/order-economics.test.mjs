@@ -80,6 +80,14 @@ test('cost entry accepts Italian money and explicit zero, rejects incomplete or 
  for(const bad of ['',null,'-1','10abc','Infinity','3,141','1,2,3'])assert.equal(A.numeroCosto(bad),null);
 });
 
+test('single order confirmation can narrow the current desk, never add another or confirm the full desk accidentally',()=>{
+ const {A}=env(),ids=['77','78','79.1'];
+ assert.deepEqual(Array.from(A.ambitoConferma(ids,['78'])),['78']);
+ assert.deepEqual(Array.from(A.ambitoConferma(ids,['999'])),[]);
+ assert.deepEqual(Array.from(A.ambitoConferma(ids,[])),[]);
+ assert.deepEqual(Array.from(A.ambitoConferma(ids)),ids);
+});
+
 test('one product correction applies to all orders, preserves paid prices and quantities, resets for all',async()=>{
  const {s,A}=env();const old={CASE:'WHITE',_costi_netti_gestionale:{}};
  s.processedOrdersCache[77]={customProperties:old,components:[{type:'RAM',ean:'R',quantity:2,price:null}]};

@@ -996,6 +996,7 @@
                 descrizione: modelloValido ? a.descrizione || a.codice : u.valore,
                 fornitore: modelloValido ? a.fornitore || '' : (p && p.fisso && p.fisso.fornitore) || '',
                 costo: costo == null ? null : costo, stimato: true,
+                ...(p?.riferimento_costo ? {fonte:p.riferimento_costo.fonte,riferimento:p.riferimento_costo} : {}),
                 modelloDaConfermare: !modelloValido });
         }
         return out;
@@ -1125,6 +1126,7 @@
     }
 
     const NOME_FONTE = { acquistato: 'prezzo pagato (acquisto confermato)', listino: '', inserito: 'inserito da te', fisso: 'budget previsto', magazzino: 'a magazzino: prezzo pagato', riferimento_magazzino: 'costo pagato di riferimento; prelievo da confermare', riferimento_sostituzione: 'ultimo prezzo scelto: quotazione corrente da verificare',
+        budget:'budget previsto, prezzo effettivo da confermare', riferimento_excel:'riferimento Excel, non quotazione attuale', riferimento_altro:'stima da altro fornitore, cambio da confermare',
         altro: 'stimato: stesso pezzo, prezzo di un altro fornitore',
         stima: 'stimato col pezzo consigliato: questo non ha un prezzo di listino' };
 
@@ -1736,6 +1738,10 @@
         // Un prezzo già pagato è un riferimento, non la prova del prelievo per questo PC.
         if (mag != null) return risultato(mag, 'riferimento_magazzino');
         if (riferimentoSostituzione?.costo != null) return { ...risultato(riferimentoSostituzione.costo, 'riferimento_sostituzione'), prezzo_il: riferimentoSostituzione.il };
+        const refPart = [pRiga,vStesso].find(p=>stessaRiga(p) && p.riferimento_costo);
+        const ref = sch?.stima || (sch?.riferimento_costo ? sch : refPart?.riferimento_costo);
+        if (ref && ['budget','riferimento_excel','riferimento_altro'].includes(ref.fonte) && Number.isFinite(ref.costo) && ref.costo >= 0)
+            return {costo:tonda(ref.costo * quantita / (ref === sch || ref === sch?.stima ? 1 : Number(refPart?.manuale?.quantita)||1)),fonte:ref.fonte,riferimento:ref};
         return risultato(null, null);
     }
 
@@ -1771,7 +1777,7 @@
             const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
             const quotazioni = quotazioniDellaRiga(dati, { ...man, quantita });
             const offertaAttuale = quotazioni.proprio;
-            const {costo, fonte, prezzo_il} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
+            const {costo, fonte, prezzo_il, riferimento} = costoRigaVerificato({ ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
                 offerta: offertaAttuale, sch, vStesso, scelto, pRiga, salvato: costoManualeSalvato(tipo, man.ean), delCodice, salvati,
                 riferimentoSostituzione: costoSostituzione(tipo, man.ean, man.fornitore, quantita) });
             // 02/10 (Antonio: «nei pezzi non vedo i nomi precisi dei componenti»): nome esatto del prodotto (listino o
@@ -1782,8 +1788,8 @@
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
             // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
-                nome: man.nome, descrizione, costo, fonte, prezzo_il, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati),
-                ...(costo == null && quotazioni.alternativa ? {offertaAlternativa:quotazioni.alternativa} : {}) });
+                nome: man.nome, descrizione, costo, fonte, prezzo_il, riferimento, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati),
+                ...((costo == null || fonte==='riferimento_altro') && quotazioni.alternativa ? {offertaAlternativa:quotazioni.alternativa} : {}) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
             else conti.man += costo;
         }
@@ -1919,7 +1925,7 @@
         const opzioniSenzaCosto = extraLista.filter(x => x.costo == null).map(x => x.nome);
         const mancantiOpzioni = opzioniSenzaCosto.length
             ? `<div class="mancanti">Manca il costo di: ${esc(opzioniSenzaCosto.join(', '))} <small>(inseriscilo in «➕ Opzioni»)</small></div>` : '';
-        const costiDaConfermare = conti.confermato ? [] : conti.righe.map((r,i)=>({...r,i})).filter(r=>['fisso','riferimento_magazzino','riferimento_sostituzione','stima','altro'].includes(r.fonte));
+        const costiDaConfermare = conti.confermato ? [] : conti.righe.map((r,i)=>({...r,i})).filter(r=>['fisso','budget','riferimento_excel','riferimento_altro','riferimento_magazzino','riferimento_sostituzione','stima','altro'].includes(r.fonte));
         const nAvvisi = lista.length + opzioniSenzaCosto.length + diversi.length + avvisiAuto.length + (consiglio ? 1 : 0);
         const sezioni = [
             { id: 'conto', nome: '💶 Conto', html: `<div class="acc-conto">${contoOrdine({ ...vendita, provvisorio:!!costiDaConfermare.length, data: vendita.data || (auto && auto.data) }, costi, nMancanti, obiettivoConto)}${oggi}${riferimentoGW}${avvisoRif}</div>` + acquistato },
@@ -2805,6 +2811,7 @@
     function ambitoConferma(ids, soloOrdini = null) {
         return soloOrdini == null ? ids : ids.filter(id => soloOrdini.includes(String(id)));
     }
+    const prezzoConferma = r => ['riferimento_altro','riferimento_excel'].includes(r.fonte) ? '' : r.costo == null ? '' : String(r.costo).replace('.', ',');
 
     async function confermaScrivania(n, barra, soloOrdini = null) {
         const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
@@ -2820,8 +2827,8 @@
             return `<div class="acc-fin-ordine"><label><input type="checkbox" data-ordine="${esc(id)}" ${conti.nMancantiExtra ? 'disabled' : 'checked'}> <b>${esc(nome)}</b></label>` +
                 (conti.nMancantiExtra ? '<p>Completa prima i costi delle opzioni e degli upgrade nella scheda.</p>' : '') +
                 conti.righe.map((r, i) => `<div class="acc-fin-riga"><span><b>${esc(r.tipo)}</b>: ${esc(r.fornitore || '')} ${esc(r.descrizione || r.nome || r.ean)}${r.quantita > 1 ? ` ×${esc(r.quantita)}` : ''}` +
-                    `${r.fonte === 'stima' || r.fonte === 'altro' ? ' <small class="acc-incompleto">≈ stimato: metti il prezzo pagato</small>' : ''}</span>` +
-                    `<span><input type="text" inputmode="decimal" class="acc-prezzo" data-ordine="${esc(id)}" data-i="${i}" value="${r.costo == null ? '' : String(r.costo).replace('.', ',')}"> €</span></div>`).join('') +
+                    `${['stima','altro','budget','riferimento_altro','riferimento_excel'].includes(r.fonte) ? ' <small class="acc-incompleto">≈ riferimento: conferma il prezzo effettivamente pagato al fornitore di questa riga</small>' : ''}</span>` +
+                    `<span><input type="text" inputmode="decimal" class="acc-prezzo" data-ordine="${esc(id)}" data-i="${i}" value="${prezzoConferma(r)}"> €</span></div>`).join('') +
                 `</div>`;
         }).join('');
         const corpo = `<p>Prezzi <b>netti (IVA esclusa), totali della riga</b>: con quantità maggiori di uno inserisci il totale pagato per tutti i pezzi della riga. Sono già scritti quelli di oggi, correggi quelli diversi. ` +
@@ -2870,6 +2877,8 @@
         if (salvati && salvati[k] != null) return { costo: salvati[k], fonte: 'inserito' };
         if (p.fisso && p.fisso.costo != null) return { costo: p.fisso.costo, fonte: 'fisso' };
         if (p.manuale && p.manuale.costo != null) return { costo: p.manuale.costo, fonte: 'manuale' };
+        if (p.riferimento_costo && Number.isFinite(p.riferimento_costo.costo) && p.riferimento_costo.costo >= 0)
+            return {costo:p.riferimento_costo.costo,fonte:p.riferimento_costo.fonte};
         return { costo: null, fonte: null };
     }
 
@@ -4260,7 +4269,7 @@
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ambitoConferma, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
         offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
-        chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo,
+        chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo, prezzoConferma,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,
         indiceSostituzioni, sostituzioneDefinitiva, sostituzioniProdotto, salvaSostituzioneDefinitiva, costoSostituzione, quotazioneScelta,

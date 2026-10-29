@@ -81,3 +81,11 @@ test('a shipped account with no registered paid costs is labelled as a current r
  const r=G.render(i);assert.equal(r.state,'reference');assert.match(r.html,/stima ai costi di riferimento/);assert.doesNotMatch(r.html,/>In perdita</);
  i.conti.confermato=true;assert.equal(G.render(i).state,'negative');
 });
+
+test('known budgets and alternate quotations complete estimates without pretending to be original supplier prices',()=>{
+ const i=input();i.conti.righe[0]={...i.conti.righe[0],fonte:'riferimento_altro',riferimento:{fornitore_riferimento:'ABACO',nota:'Confermare prezzo'}};
+ const r=G.render(i);assert.equal(r.state,'reference');assert.equal(r.list[0].delta,null);
+ assert.match(r.html,/Stima da ABACO/);assert.match(r.html,/≈ /);assert.match(r.html,/quotazioni da confermare/);
+ assert.doesNotMatch(r.html,/>In obiettivo</);assert.match(r.html,/>ACTION</);
+ i.conti.righe[0].fonte='budget';assert.match(G.render(i).html,/Budget previsto/);
+});

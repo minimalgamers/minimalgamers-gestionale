@@ -54,9 +54,10 @@
         const higher=list.filter(r => r.delta > .01), rest=list.filter(r => !(r.delta > .01));
         const delta=round(higher.reduce((s,r)=>s+r.delta,0)), covered=list.filter(r=>r.ref).length;
         const profit=complete ? input.utile?.srl : null;
-        const status=!complete ? 'Costi incompleti: utile da calcolare' : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
+        const referenceOnly=Boolean(input.auto?.solo_contabile && !input.conti.confermato && list.some(r=>r.kind==='hardware' && !r.locked));
+        const status=!complete ? 'Costi incompleti: utile da calcolare' : referenceOnly ? 'Spedito · stima ai costi di riferimento' : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
             !Number.isFinite(target) ? 'Positivo · obiettivo non disponibile' : profit >= target-5 ? 'In obiettivo' : `Positivo · ${money(target-profit)} sotto obiettivo`;
-        const state=!complete ? 'unknown' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
+        const state=!complete ? 'unknown' : referenceOnly ? 'reference' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
         const rowHtml = r => {
             const q=Number(r.quantita)||1, lim=input.auto?.solo_contabile ? null : budget(r.costo,input.utile,target,complete);
             const actionable=r.kind !== 'service' && r.ean && !r.locked;
@@ -80,7 +81,7 @@
         };
         // Sorted views retain original row objects and indexes for edits.
         const ordered=[...higher,...rest];
-        const label=profit===0 && complete ? 'In pareggio' : {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[state];
+        const label=referenceOnly && complete ? 'Stima di riferimento' : profit===0 && complete ? 'In pareggio' : {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[state];
         return {list, state, label, html:`<section class="mg-glass-account" aria-label="Controllo costi ordine">` +
             `<div class="mg-glass-identity"><div><strong class="mg-glass-customer">${esc(input.cliente || '')}</strong><small>${input.vendita?.data ? 'Venduto il '+date(input.vendita.data) : ''}</small></div>` +
             `<div><small>Obiettivo utile SRL</small><strong>${money(target)}</strong></div></div>` +

@@ -75,3 +75,9 @@ test('a shipped card retains all accounting rows and does not offer purchasing o
  assert.match(html,/data-glass-confirm disabled/);assert.match(html,/Ordine già spedito/);
  assert.doesNotMatch(html,/data-glass-change=|class="mg-budget"/);
 });
+
+test('a shipped account with no registered paid costs is labelled as a current reference estimate',()=>{
+ const i=input();i.auto.solo_contabile=true;i.utile={srl:-50,lordo:-50};
+ const r=G.render(i);assert.equal(r.state,'reference');assert.match(r.html,/stima ai costi di riferimento/);assert.doesNotMatch(r.html,/>In perdita</);
+ i.conti.confermato=true;assert.equal(G.render(i).state,'negative');
+});

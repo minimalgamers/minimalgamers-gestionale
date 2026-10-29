@@ -1758,7 +1758,7 @@
         if (pagato != null) return risultato(pagato, 'acquistato');
         if (mag != null && magPreso) return risultato(mag, 'magazzino');
         if (inserito != null) return risultato(inserito, 'inserito');
-        const fissoCurved = costoCurved(tipo, [ean,nome,pRiga?.cliente,offerta?.descrizione].filter(Boolean).join(' '));
+        const fissoCurved = costoCurved(tipo, [ean,nome,offerta?.descrizione].filter(Boolean).join(' '));
         if (fissoCurved != null) return risultato(tonda(fissoCurved * quantita), 'inserito');
         if (offerta?.costo_unitario != null) return risultato(tonda(offerta.costo_unitario * quantita), 'listino');
         if (sch?.costo != null && sch.fonte === 'listino') return risultato(tonda(sch.costo * quantita), 'listino');

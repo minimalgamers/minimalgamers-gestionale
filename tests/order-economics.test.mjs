@@ -25,6 +25,7 @@ test('CURVED black, white and legacy aliases use the user fixed gross 60, never 
   assert.equal(A.costoRigaVerificato({...r,inserito:110}).costo,110);
  }
  for(const ean of ['DARK CAVE AKU WHITE','DARK CAVE PANO BLACK'])assert.equal(A.costoRigaVerificato({tipo:'CASE',ean,offerta:{costo_unitario:100}}).costo,100);
+ assert.equal(A.costoRigaVerificato({tipo:'CASE',ean:'DARK CAVE PANO BLACK',pRiga:{cliente:'DARK CAVE CURVED BLACK'},offerta:{costo_unitario:100}}).costo,100);
 });
 
 test('actual Shopify order receipts remain historical when current GPU Watch retail price changes',()=>{

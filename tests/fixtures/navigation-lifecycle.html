@@ -1,0 +1,31 @@
+<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Collaudo menu e popup</title>
+<link rel="stylesheet" href="../../assets/css/navigation-lifecycle.css"><style>
+body{font:16px system-ui;margin:0;background:#eaf0f4;color:#182a40}header{position:sticky;top:0;background:#fff;padding:12px;z-index:4000}button{padding:12px;border:1px solid #ccc;border-radius:10px;cursor:pointer}main{padding:24px}nav{display:flex;gap:8px;flex-wrap:wrap}#fixtures>div{background:#fff;padding:24px;border:1px solid #999;border-radius:16px}#results{white-space:pre-wrap;padding:20px;background:#fff}input{padding:12px}#search-bar{display:none}
+</style></head><body><header><h1>Menu e popup: test isolato</h1><nav><button class="tab-button" data-tab="orders">Ordini</button><button class="tab-button" data-tab="processed">E1</button><button class="tab-button" data-tab="settings">Impostazioni</button></nav><button id="run">Esegui test</button></header>
+<main><p>Solo dati dimostrativi. Nessuna connessione a ordini o fornitori.</p><input id="origin" value="Dato di prova conservato"><div id="search-bar">Ricerca</div><div id="fixtures"></div><pre id="results" role="status">Pronto</pre></main>
+<script src="../../assets/js/navigation-lifecycle.js"></script><script>
+const N=window.MGNavigation,fixtures=document.querySelector('#fixtures'),out=document.querySelector('#results');
+const tick=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+let checks=[],actions=0;const assert=(x,n)=>{if(!x)throw Error(n);checks.push('✓ '+n);};
+const visible=e=>e&&getComputedStyle(e).display!=='none'&&e.isConnected;
+function root(id,{remove=false,cls=''}={}){let e=document.getElementById(id);if(!e){e=document.createElement('div');e.id=id;e.className=cls;fixtures.append(e);}
+ e.innerHTML='<h3>'+id+'</h3><input value="Bozza conservata"><button id="cancel-'+id+'">Annulla</button><button data-save>Salva</button>';
+ e.style.cssText='display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;min-width:450px;z-index:3000';
+ e.querySelector('[data-save]').onclick=()=>actions++;e.querySelector('button').onclick=()=>remove?e.remove():e.style.display='none';return e;}
+for(const id of N.fixed)root(id);for(const id of N.pages)root(id);for(const id of N.shades){const d=document.createElement('div');d.id=id;d.style.display='none';fixtures.append(d);}
+const route=()=>document.querySelector('[data-tab=orders]').click();
+document.querySelector('#run').onclick=async()=>{checks=[];actions=0;out.textContent='Controllo in corso';try{
+ for(const id of N.pages){const p=document.getElementById(id);p.style.display='block';document.body.classList.add('no-scroll');route();assert(!visible(p)&&!document.body.classList.contains('no-scroll'),id+' chiuso e scorrimento sbloccato');}
+ for(const id of N.fixed){const p=document.getElementById(id);p.style.display='block';for(const s of N.shades){let shade=document.getElementById(s);if(!shade){shade=document.createElement('div');shade.id=s;fixtures.append(shade);}shade.style.display='block';}route();assert(!visible(p),id+' chiuso cambiando pagina');assert(N.shades.every(s=>!visible(document.getElementById(s))),id+': nessun fondale residuo');}
+ for(const id of N.dynamic){const p=root(id,{remove:true});p.style.display='block';route();assert(!p.isConnected,id+' eliminato senza salvare');}
+ for(const cls of ['acc-finestra','search-component-popup-gpo']){const p=root('dynamic-test',{remove:true,cls});p.style.display='block';let cancelled=false;p.querySelector('button').onclick=()=>{cancelled=true;p.remove();};route();assert(cancelled&&!p.isConnected,cls+': annullamento eseguito');}
+ const p=document.getElementById('payment-popup');document.getElementById('origin').focus();p.style.display='block';await tick();assert(p.getAttribute('role')==='dialog'&&p.getAttribute('aria-modal')==='true','Ruolo accessibile del popup');
+ const rect=p.getBoundingClientRect();assert(rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight,'Popup entro i bordi dello schermo');
+ p.querySelector('input').focus();p.querySelector('[data-save]').focus();p.dispatchEvent(new KeyboardEvent('keydown',{key:'Tab',bubbles:true,cancelable:true}));assert(document.activeElement===p.querySelector('input'),'Focus contenuto nel popup');
+ p.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));assert(!visible(p),'Escape chiude senza confermare');assert(document.activeElement.id==='origin','Focus restituito al controllo precedente');
+ document.getElementById('origin').value='Bozza conservata';route();assert(document.getElementById('origin').value==='Bozza conservata','La navigazione conserva i valori dei moduli');
+ assert(actions===0,'Nessun salvataggio o conferma attivato durante la chiusura');
+ const ticket=N.current();route();assert(!N.valid(ticket),'Risposte precedenti riconosciute come superate');
+ out.textContent='PASS '+checks.length+' controlli\n'+checks.join('\n');
+}catch(e){out.textContent='FAIL '+e.message+'\n'+checks.join('\n');throw e;}};
+</script></body></html>

@@ -214,6 +214,15 @@
         scrollToOrder(id);
     }
     function selection(ids,requested) {return ids.includes(requested)?requested:ids[0] || '';}
+    // A single displayed detail/search is presentation, not a selection of orders to buy for.
+    function inPurchaseScope(card) {
+        if (card.hidden || card.style.display === 'none') return false;
+        const style=card.ownerDocument.defaultView.getComputedStyle(card);
+        return style.visibility !== 'hidden' && (style.display !== 'none' || card.classList.contains('mg-order-inactive'));
+    }
+    function purchaseScopeCards() {
+        return typeof document === 'undefined' ? [] : [...document.querySelectorAll('#processed-container .order-card[data-order-id]')].filter(inPurchaseScope);
+    }
     function sync() {
         if (typeof document==='undefined')return;
         const container=document.getElementById('processed-container');if(!container)return;
@@ -278,7 +287,7 @@
         }).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class','hidden']});
         sync();
     }
-    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan,deskVisible,navigationSelection};
+    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan,deskVisible,navigationSelection,inPurchaseScope,purchaseScopeCards};
     if(typeof window!=='undefined')window.MGOrderGlass=api;
     if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',init);
 })();

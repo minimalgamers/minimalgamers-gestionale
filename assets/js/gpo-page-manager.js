@@ -17,7 +17,7 @@ function hasSupplierSummaryData() {
 }
 
 document.getElementById('gpo-mapping-btn')?.addEventListener('click', async () => {
-    await closeAllOverlayPages(true);
+    if (await closeAllOverlayPages(true) === false) return;
 
     const page = document.getElementById('gpo-mapping-page');
     if (page) {
@@ -336,10 +336,12 @@ function openEditGpoMappingPopup(mapping) {
             return;
         }
 
+        const searchNavigation = window.MGNavigation?.current();
         editEanSearchTimer = setTimeout(async () => {
             try {
                 const response = await fetch(`api_gateway/db_bridge/components_service/endpoint/api-components.php?search=${encodeURIComponent(query)}&limit=15`);
                 const data = await response.json();
+                if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
 
                 if (data.success && data.components && data.components.length > 0) {
                     const sorted = [...data.components].sort((a, b) => {
@@ -485,10 +487,12 @@ function openGPOComponentSearchPopup(mappingId, variableType) {
             return;
         }
 
+        const searchNavigation = window.MGNavigation?.current();
         searchTimer = setTimeout(async () => {
             try {
                 const response = await fetch(`api_gateway/db_bridge/components_service/endpoint/api-components.php?search=${encodeURIComponent(query)}&limit=30`);
                 const data = await response.json();
+                if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
 
                 if (data.success && data.components && data.components.length > 0) {
                     const sorted = [...data.components].sort((a, b) => {
@@ -635,10 +639,12 @@ document.getElementById('new-gpo-ean')?.addEventListener('input', (e) => {
         return;
     }
 
+    const searchNavigation = window.MGNavigation?.current();
     gpoEanSearchTimer = setTimeout(async () => {
         try {
             const response = await fetch(`api_gateway/db_bridge/components_service/endpoint/api-components.php?search=${encodeURIComponent(query)}&limit=15`);
             const data = await response.json();
+            if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
 
             if (data.success && data.components && data.components.length > 0) {
                 const inputRect = e.target.getBoundingClientRect();

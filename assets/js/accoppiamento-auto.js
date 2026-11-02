@@ -2818,6 +2818,7 @@
     }
 
     async function aggiornaScrivania(n, barra, soloOrdini = null) {
+        const navigation = typeof window !== "undefined" ? window.MGNavigation?.current() : undefined;
         const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
         const bottoni = Array.from(barra.querySelectorAll('button'));
         bottoni.forEach(x => { x.disabled = true; });
@@ -2837,6 +2838,7 @@
             } catch (e) { throw new Error(`richiesta dei nuovi listini non riuscita (${e.message}). Nessun cambio effettuato`); }
             dati = await attendiListini(esito, prima, { scrivi });
             }
+        if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
             verificaListini(dati, 5 * 60 * 1000, Date.now(), ids);
             const quando = oraBreve(dati && dati.generato);
             const nota = '';
@@ -2856,6 +2858,7 @@
                 `Togli la spunta ai pezzi che vuoi lasciare come sono; con «🔁 Altro dal Buyer Desk» scegli un'altra offerta per quel pezzo.</p>` +
                 `<p><small>I PC con i pezzi già acquistati non si toccano. Se un pezzo l'hai già comprato, togli la spunta e poi premi «CONFERMA ACQUISTO PEZZI».</small></p>` +
                 `<p>Le righe «Articoli Shopify» mostrano prima e dopo la rettifica degli accessori. Si applicano soltanto confermando qui; il browser conserva una copia dei dati precedenti.</p>`;
+            if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
             const scelta = await finestraProposte(`🔄 Scrivania E${n}: ${proposte.length === 1 ? '1 pezzo da cambiare' : `${proposte.length} pezzi da cambiare`}`, intro, proposte);
             if (!scelta || !scelta.scelte.length) { scrivi(`E${n}: prezzi aggiornati con i listini delle ${quando}${nota}. Pezzi lasciati come sono.`); return; }
             const fatti = await salvaProposte(scelta.scelte, { confermaAccessori: scelta.confermaAccessori });
@@ -2883,12 +2886,14 @@
     const prezzoConferma = r => ['riferimento_altro','riferimento_excel'].includes(r.fonte) ? '' : r.costo == null ? '' : String(r.costo).replace('.', ',');
 
     async function confermaScrivania(n, barra, soloOrdini = null) {
+        const navigation = typeof window !== "undefined" ? window.MGNavigation?.current() : undefined;
         const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
         const ids = ambitoConferma(ordiniScrivania().filter(id => !acquistoConfermato(id)), soloOrdini);
         if (!ids.length) { scrivi(`E${n}: non ci sono PC da confermare (sono già tutti acquistati).`); return; }
         for (const id of ids) await aggiornaOrdine(id);
         let dati = null;
         try { dati = await carica(); } catch (e) { /* nomi dal gestionale */ }
+        if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
         const blocchi = ids.map(id => {
             const conti = ultimiConti[id];
             if (!conti || !conti.righe.length) return '';
@@ -3763,7 +3768,7 @@
             riepilogo.nomi = {};
             return true;
         }
-        const carte = Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]')).filter(c => {
+        const carte = window.MGOrderGlass?.purchaseScopeCards ? window.MGOrderGlass.purchaseScopeCards() : Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]')).filter(c => {
             const s = window.getComputedStyle(c);
             return s.display !== 'none' && s.visibility !== 'hidden';
         });
@@ -3954,6 +3959,8 @@
     const URL_BUYER_DESK = 'https://listini.minimalgamers.it/';
     const ORIGINI_BUYER_DESK = ['https://listini.minimalgamers.it', 'https://minimal-gamers-listini.pages.dev'];
     const cambio = { riga: null, aperto: 0 };
+    if (typeof window !== 'undefined' && window.addEventListener)
+        window.addEventListener('mg:navigate', () => { cambio.riga = null; });
 
     function ricercaPerCambio(riga) {
         if (riga.ricerca) return String(riga.ricerca).trim().slice(0, 100);
@@ -4087,8 +4094,10 @@
     }
 
     async function applicaSceltaScheda(d, riga) {
+        const navigation = window.MGNavigation?.current();
         let dati = null;
         try { dati = await carica(); } catch (e) { dati = null; }
+        if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
         const simili = pezziSimili(dati, riga.origine, schedeElaborate());
         const promessa = finestra(`🔁 Cambia ${esc(riga.origine.tipo)} ${esc(riga.origine.ordine)}`, htmlSceltaScheda(riga, d, simili), 'Cambia', 'Annulla');
         const ovs = document.querySelectorAll('.acc-finestra');

@@ -16,12 +16,15 @@ function hasSupplierSummaryData() {
 }
 
 async function closeAllOverlayPages(saveConfigsFirst = false) {
+    const navigation = window.MGNavigation?.current();
     if (saveConfigsFirst) {
         const configsPage = document.getElementById('standard-configs-page');
         if (configsPage && configsPage.style.display === 'block') {
             await saveAllConfigurations();
         }
     }
+    if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return false;
+    window.MGNavigation?.transient();
 
     const gpoPage = document.getElementById('gpo-mapping-page');
     if (gpoPage && gpoPage.style.display === 'block') {
@@ -51,10 +54,12 @@ async function closeAllOverlayPages(saveConfigsFirst = false) {
     }
 
     document.body.classList.remove('no-scroll');
+    window.MGOrderGlass?.sync();
+    return true;
 }
 
 document.getElementById('custom-components-btn')?.addEventListener('click', async () => {
-    await closeAllOverlayPages(true);
+    if (await closeAllOverlayPages(true) === false) return;
 
     const page = document.getElementById('custom-components-page');
     if (page) {

@@ -2082,7 +2082,7 @@
                     ...(riepilogoSpeditoMancante ? ['Riepilogo costi della scheda spedita non disponibile: utile da verificare.'] : []),
                     ...(erroreVoci ? ['Voci personalizzate non leggibili: ricarica prima di confermare acquisti.'] : [])]}, {
                 change:r=>apriCambioPezzo(orderId,r), cost:r=>apriCosto(orderId,r),
-                plan:()=>aggiornaScrivania(scrivaniaAttiva(),el.querySelector('.mg-glass-account'),[String(orderId)]),
+                plan:()=>aggiornaScrivania(scrivaniaAttiva(),document.querySelector('#processed-container .acc-barra') || el.querySelector('.mg-glass-account'),[String(orderId)]),
                 refresh:async()=>{await carica(true);await aggiornaOrdine(orderId);},
                 confirm:section=>confermaScrivania(scrivaniaAttiva(),section,[String(orderId)])
             });

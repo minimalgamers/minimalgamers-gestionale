@@ -143,7 +143,9 @@
                 for (const p of pc.pezzi || []) {
                     const m = p.auto || p.manuale || {};
                     p.costo_inserito = costoInseritoOrdine(idPc, p.tipo, m.codice, m.fornitore, m.quantita || 1, pc)
-                        ?? costoInseritoOrdine(idPc, p.tipo, m.codice || chiaveFisso(p), p.fisso?.fornitore || m.fornitore, m.quantita || 1, pc);
+                        ?? costoInseritoOrdine(idPc, p.tipo, m.codice || chiaveFisso(p), p.fisso?.fornitore || m.fornitore, m.quantita || 1, pc)
+                        ?? (() => { const n=costoHardwareFisso(p.tipo,m.codice,p.fisso?.fornitore || m.fornitore,dati);
+                            return n == null ? null : tonda(n * (Number(m.quantita) || 1)); })();
                     if (p.giacenza && defs[p.giacenza] && defs[p.giacenza].codice) {
                         Object.defineProperty(p, 'mag', { value: { def: defs[p.giacenza], uso: chiaveUso(id, i + 1, p.giacenza), ordine: o.nome }, enumerable: false, configurable: true });
                     }

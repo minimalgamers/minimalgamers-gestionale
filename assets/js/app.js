@@ -8,6 +8,7 @@ let apiKey = null;
 let processedOrdersMap = new Map(); 
 let processedOrdersCache = {}; 
 let processedRenderToken = 0;
+let tabEventsInitialized = false;
 const PROCESSED_TAB_TO_WORKSHEET = {
     processed: 1,
     'processed-e2': 2,
@@ -4826,6 +4827,8 @@ function initializeTabs() {
             operatorFilterContainer.style.display = 'none';
         }
     }
+    if (tabEventsInitialized) return;
+    tabEventsInitialized = true;
     
     tabButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -4844,6 +4847,7 @@ function initializeTabs() {
             if (targetContent) {
                 targetContent.classList.add('active');
             }
+            window.MGOrderGlass?.sync();
             
             
             const hiddenTabBtn = document.querySelector('.tab-button[data-tab="hidden"]');

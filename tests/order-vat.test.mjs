@@ -15,6 +15,17 @@ test('the confirmed whole-order 18% convention uses VAT 4%, preserving actual di
  assert.equal(v.imponibile,820/1.04);assert.equal(JSON.stringify(o),before);
  assert.equal(A.utile(v.totale,600,v).srl,106.09);
 });
+
+test('4901: PC at 18% and undiscounted cooler use the confirmed 4% convention, with no invented receipts',()=>{
+ const {A}=env(),o=order();o.current_total_price=o.total_price='1935.92';
+ o.line_items=[{...line('2161'),name:'PC GAMING DOMINATOR V.1'}, {...line('139'),id:501,name:'OPZIONI 360MM',discount_allocations:[]}];
+ o.line_items[0].properties=[{name:'_gpo_product_group',value:'DEMO'}];
+ o.line_items[1].properties=[{name:'_gpo_parent_product_group',value:'DEMO'}];
+ const before=JSON.stringify(o),v=A.prezzoVendita('100',[o],{});
+ assert.equal(v.totale,1935.92);assert.equal(v.iva_vendita.aliquota,.04);
+ assert.equal(v.imponibile,1935.92/1.04);assert.equal(A.utile(v.totale,1669.09,v).srl,73.68);assert.equal(JSON.stringify(o),before);
+ o.line_items.push({...line('1000'),id:502,discount_allocations:[]});assert.equal(A.ivaVendita('100',o).aliquota,.22);
+});
 test('partial, compounded, other-percent and unrelated discounts do not trigger the convention',()=>{
  const {A}=env();
  for(const mutate of [o=>o.line_items.push({...line('50'),discount_allocations:[]}),o=>o.line_items[0].discount_allocations.push({amount:'2',discount_application_index:1}),o=>o.line_items[0].discount_allocations[0].amount='170',o=>o.line_items.push({...line('50'),discount_allocations:[{amount:'9',discount_application_index:1}]}),o=>delete o.line_items[0].discount_allocations[0].discount_application_index]){

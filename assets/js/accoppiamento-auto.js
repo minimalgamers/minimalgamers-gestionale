@@ -432,17 +432,21 @@
         if (valido(manuale)) return {...manuale,fonte:'confermata utente'};
         if (valido(auto?.prezzo?.iva_vendita) && auto.prezzo.iva_vendita.fonte==='confermata utente') return auto.prezzo.iva_vendita;
         // Regola operativa confermata dall'utente: 18% riservato all'IVA 4%.
-        // Deve coprire tutte le righe positive, con una sola applicazione comune.
+        // Copre anche le opzioni non scontate dello stesso ordine se tutti i PC
+        // hanno la rettifica comune. L'incasso resta quello effettivo Shopify.
         const righe = (ordine?.line_items || []).filter(l=>Number(l.current_quantity ?? l.quantity ?? 1)>0 && Number(l.price)>0);
-        const indici = new Set();
-        const intero = righe.length && righe.every(l=>{
+        const sconto18 = l=>{
             const ds=l.discount_allocations || [];
             if(ds.length!==1 || ds[0].discount_application_index==null)return false;
-            indici.add(ds[0].discount_application_index);
             const base=Number(l.price)*Math.max(1,Number(l.quantity)||1);
             return Math.abs(Number(ds[0].amount)-Math.round(base*.18*100)/100)<.011;
-        });
-        if(intero && indici.size===1)return {aliquota:.04,fonte:'regola interna sconto 18%'};
+        };
+        const pc=righe.filter(l=>/\bPC GAMING\b|^MSI\s|^\[PC\+/i.test(l.title || l.name || ''));
+        const scontate=righe.filter(l=>l.discount_allocations?.length);
+        const intero=righe.length && righe.every(sconto18);
+        const tuttiPc=pc.length && pc.every(sconto18);
+        if((intero || tuttiPc) && scontate.every(sconto18) && new Set(scontate.map(l=>l.discount_allocations[0].discount_application_index)).size===1)
+            return {aliquota:.04,fonte:'regola interna sconto 18%'};
         const rates = [...new Set((ordine?.line_items || []).filter(l=>Number(l.current_quantity ?? l.quantity ?? 1)>0 && Array.isArray(l.tax_lines) && l.tax_lines.length)
             .map(l=>l.tax_lines.reduce((s,t)=>s+Number(t.rate||0),0)).filter(r=>Number.isFinite(r)&&r>=0&&r<=1))];
         if(rates.length===1)return {aliquota:rates[0],fonte:'Shopify'};
@@ -2071,12 +2075,14 @@
             window.MGOrderGlass.mount(el,{orderId,conti,auto,vendita,cliente,costo,nMancanti,utile:u,obiettivo:obiettivoConto,
                 extraLista:extraLista.map(x=>({...x,locked:!!congelato})),custom,montaggio,servizi:serviziLista,generato:dati?.generato,listini:dati?.listini,
                 paidTypes:[...scelteUpgradeMontaggio(auto).keys()],
+                proposte:dati?.politica_acquisto==='cpu-tutti-primari-v2' ? proposteOrdine(dati,orderId,conti.righe) : [],
                 noticeHtml:rigaUpgradeAttesa(orderId)+rigaNonPagate(auto)+avvisoRif+
                     (conti.upgradeRitirati ? '<div class="mg-glass-warnings" role="alert">Pagamento upgrade modificato o ritirato: verifica i pezzi acquistati e da montare.</div>' : ''),
                 avvisi:[...avvisiAuto,...diversi.map(x=>`${x.tipo}: ${x.motivo || `nella scheda ${x.scheda}; da verificare ${x.giusto}`}`),
                     ...(riepilogoSpeditoMancante ? ['Riepilogo costi della scheda spedita non disponibile: utile da verificare.'] : []),
                     ...(erroreVoci ? ['Voci personalizzate non leggibili: ricarica prima di confermare acquisti.'] : [])]}, {
                 change:r=>apriCambioPezzo(orderId,r), cost:r=>apriCosto(orderId,r),
+                plan:()=>aggiornaScrivania(scrivaniaAttiva(),el.querySelector('.mg-glass-account'),[String(orderId)]),
                 refresh:async()=>{await carica(true);await aggiornaOrdine(orderId);},
                 confirm:section=>confermaScrivania(scrivaniaAttiva(),section,[String(orderId)])
             });
@@ -2375,6 +2381,7 @@
             if (timer) clearTimeout(timer);
         }
         if (!dati) return cambi;
+        try { verificaListini(dati); } catch { return cambi; }
         const variants = ctx.variants || {};
         const auto = orderId != null ? pcAutomatico(dati, orderId) : null;
         const autoGiusto = auto && Array.isArray(auto.pezzi) && (!auto.build || auto.build === ctx.configKey) ? auto : null;
@@ -2421,6 +2428,8 @@
         if (!auto || !Array.isArray(auto.pezzi)) return [];
         const out = [];
         for (const r of righeScheda) {
+            if (acquistoConfermato(orderId) || ['PSU','COOLER'].includes(TIPI[r.tipo] || r.tipo) ||
+                ['acquistato','magazzino','inserito','fisso_utente'].includes(r.fonte)) continue;
             const salvato = componentiSalvati(orderId).find(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean));
             // nome salvato, non quello mostrato (la scheda aggiunge il colore del case a scheda video e madre)
             const p = sostitutoDaOrdine(auto, { tipo: r.tipo, ean: r.ean, fornitore: r.fornitore,
@@ -2808,22 +2817,26 @@
         throw new Error('i nuovi listini non sono ancora arrivati. Nessun cambio effettuato: riprova tra poco');
     }
 
-    async function aggiornaScrivania(n, barra) {
+    async function aggiornaScrivania(n, barra, soloOrdini = null) {
         const scrivi = (t) => { const s = barra.querySelector('.acc-barra-stato'); if (s) s.textContent = t; };
         const bottoni = Array.from(barra.querySelectorAll('button'));
         bottoni.forEach(x => { x.disabled = true; });
         try {
-            const ids = ordiniScrivania().filter(id => !acquistoConfermato(id));
+            const ids = ordiniScrivania().filter(id => !acquistoConfermato(id) && (!soloOrdini || soloOrdini.includes(String(id))));
             if (!ids.length) { scrivi(`E${n}: i PC di questa scrivania hanno già i pezzi acquistati.`); return; }
             const prima = await carica(true);
+            let dati = null;
+            if (soloOrdini) { try { dati=verificaListini(prima,5*60*1000,Date.now(),ids); } catch { /* richiedi dati recenti */ } }
             // 1) listini dei fornitori di adesso (lo stesso aggiornamento che parte da solo ogni mezz'ora)
+            if (!dati) {
             scrivi(`E${n}: chiedo ai fornitori i listini di adesso…`);
             let esito = null;
             try {
                 esito = await richiediJson(URL_AGGIORNA_LISTINI, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password: password() || '' }) });
             } catch (e) { throw new Error(`richiesta dei nuovi listini non riuscita (${e.message}). Nessun cambio effettuato`); }
-            const dati = await attendiListini(esito, prima, { scrivi });
+            dati = await attendiListini(esito, prima, { scrivi });
+            }
             verificaListini(dati, 5 * 60 * 1000, Date.now(), ids);
             const quando = oraBreve(dati && dati.generato);
             const nota = '';

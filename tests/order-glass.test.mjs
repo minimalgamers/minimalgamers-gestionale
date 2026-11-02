@@ -9,6 +9,28 @@ const input=()=>({conti:{righe:[{tipo:'GPU',ean:'GPU',fornitore:'ACTION',nome:'D
  auto:{pezzi:[{tipo:'GPU',manuale:{codice:'GPU'},excel:{costo:100}}]},extraLista:[{tipo:'VENTOLE',nome:'5 ventole RGB',chiave:'FAN',costo:20}],
  custom:[{id:4,value:'Personalizzazione XYZ',costo:0}],montaggio:[],servizi:[{nome:'Montaggio',costo:10}]});
 
+test('current purchase plan shows the cheaper supplier and correct VAT margin without mutating saved or paid rows',()=>{
+ const i=input();i.vendita={totale:1935.92,imponibile:1935.92/1.04};
+ i.proposte=[{tipo:'GPU',da:{ean:'GPU',fornitore:'ACTION'},a:{codice:'NEW',fornitore:'OMEGA',descrizione:'Compatible GPU',costo:100,ordinabile:true}},
+ {tipo:'CPU',da:{ean:'CPU'},a:{codice:'NEWCPU',fornitore:'FOCELDA',costo:60,ordinabile:true}}];
+ const before=JSON.stringify(i),r=G.render(i);
+ assert.equal(r.input.costo,210);assert.equal(r.input.utile.srl,1095.04);
+ assert.equal(r.list[0].ean,'NEW');assert.equal(r.list[0].fornitore,'OMEGA');
+ assert.equal(r.list[1].costo,80);assert.match(r.html,/Proposta da confermare/);assert.match(r.html,/Salvato:/);
+ assert.equal(JSON.stringify(i),before);
+ i.conti.confermato=true;assert.equal(G.render(i).input.costo,230);
+});
+
+test('a purchase plan preserves fixed coolers, manual costs, replaced pieces and stale quotes',()=>{
+ for(const patch of [{tipo:'COOLER'},{tipo:'PSU'},{fonte:'inserito'},{fonte:'magazzino'},{fonte:'fisso_utente'}]){
+  const i=input();Object.assign(i.conti.righe[0],patch);const r=i.conti.righe[0];
+  i.proposte=[{tipo:r.tipo,da:{ean:r.ean,fornitore:r.fornitore},a:{codice:'NEW',costo:1,ordinabile:true}}];
+  assert.equal(G.render(i).input.costo,230);
+ }
+ const i=input();i.generato='2020-01-01';i.proposte=[{tipo:'GPU',da:{ean:'GPU',fornitore:'ACTION'},a:{codice:'NEW',costo:1,ordinabile:true}}];
+ assert.equal(G.render(i).input.costo,230);
+});
+
 test('stale feed is explicit in complete and incomplete accounts and cannot offer a current spending limit',()=>{
  const i=input();i.now=Date.parse('2026-11-02T10:00:00Z');i.generato='2026-10-31T08:00:00Z';
  let r=G.render(i);assert.equal(r.stale,true);assert.equal(r.state,'unknown');assert.equal(r.label,'Listini non aggiornati');

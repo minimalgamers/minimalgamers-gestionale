@@ -1,0 +1,9 @@
+/* Bound legacy and dynamically created dialogs on desktop and phones alike. */
+.mg-managed-dialog,.mg-managed-dialog-content { box-sizing:border-box; min-width:0!important; max-width:calc(100vw - 24px)!important; max-height:calc(100dvh - 24px)!important; overflow-y:auto; overscroll-behavior:contain; }
+.mg-managed-dialog :is(input,select,textarea) { max-width:100%; box-sizing:border-box; }
+.mg-managed-dialog button { min-height:44px; }
+@media(max-width:640px) {
+    .mg-managed-dialog { left:50%!important; top:50%!important; transform:translate(-50%,-50%)!important; }
+    .mg-managed-dialog [style*="display: flex"] { min-width:0; }
+    .acc-finestra-bottoni { flex-wrap:wrap; }
+}

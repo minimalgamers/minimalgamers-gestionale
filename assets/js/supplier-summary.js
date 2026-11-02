@@ -59,7 +59,7 @@ exportBtn?.addEventListener('click', async () => {
     lastSupplierSummaryContext = summaryContext;
     
     
-    await closeAllOverlayPages(true);
+    if (await closeAllOverlayPages(true) === false) return;
     
     
     const suppliersTab = document.querySelector('[data-tab="suppliers"]');

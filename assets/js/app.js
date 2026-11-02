@@ -997,6 +997,7 @@ function pickTemplateRuleForChannel(channel, rules = []) {
         overlay.style.zIndex = '4000';
 
         const popup = document.createElement('div');
+        popup.dataset.mgTransient = 'template-choice';
         popup.style.position = 'fixed';
         popup.style.top = '50%';
         popup.style.left = '50%';
@@ -1049,6 +1050,7 @@ function pickTemplateRuleForChannel(channel, rules = []) {
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
         cancelBtn.textContent = 'Annulla';
+        cancelBtn.dataset.mgCancel = '1';
         cancelBtn.style.padding = '8px 12px';
         cancelBtn.style.borderRadius = '8px';
         cancelBtn.style.border = '1px solid rgba(255,255,255,0.32)';
@@ -2130,7 +2132,7 @@ function initBackgroundSelector() {
     
     settingsBtn.addEventListener('click', async () => {
         
-        await closeAllOverlayPages(true);
+        if (await closeAllOverlayPages(true) === false) return;
         settingsTabBtn?.click();
     });
 
@@ -6216,6 +6218,7 @@ function loadDeletedComponents(orderId) {
 
 
 async function loadProductNameForInput(input, showSupplierPopup = false) {
+    const navigation = window.MGNavigation?.current();
     const ean = input.dataset.ean;
     const componentType = input.dataset.componentType;
     
@@ -6321,7 +6324,7 @@ async function loadProductNameForInput(input, showSupplierPopup = false) {
             input.title = `EAN: ${ean}\n(Prodotto non trovato in database)`;
             
             
-            if (showSupplierPopup) {
+            if (showSupplierPopup && input.isConnected && (navigation === undefined || window.MGNavigation.valid(navigation))) {
                 openSupplierSelectPopup(input, ean, componentType);
             }
         }
@@ -6589,6 +6592,7 @@ async function deleteCustomItemFromSQL(ean, nome) {
 function showCustomItemPopup(orderId) {
     
     const overlay = document.createElement('div');
+    overlay.dataset.mgTransient = 'order-custom-item';
     overlay.style.cssText = `
         position: fixed;
         top: 0;
@@ -6679,7 +6683,7 @@ function showCustomItemPopup(orderId) {
     
     
     setTimeout(() => {
-        document.getElementById('order-custom-item-name').focus();
+        if (overlay.isConnected) document.getElementById('order-custom-item-name')?.focus();
     }, 100);
     
     
@@ -6884,10 +6888,11 @@ const searchClearBtn = document.getElementById('search-clear-btn');
 
 async function toggleSearchBar() {
     const isVisible = searchBar.style.display === 'flex';
+    window.MGNavigation?.begin();
     if (!isVisible) {
         
         if (typeof window.closeAllOverlayPages === 'function') {
-            await window.closeAllOverlayPages(true);
+            if (await window.closeAllOverlayPages(true) === false) return;
         }
     }
     searchBar.style.display = isVisible ? 'none' : 'flex';
@@ -8087,6 +8092,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
     results.innerHTML = '<p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Ricerca in corso...</p>';
     
     
+    const searchNavigation = window.MGNavigation?.current();
     searchDebounceTimer = setTimeout(async () => {
         try {
         
@@ -8101,6 +8107,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
         
         const response = await fetch(url);
         const data = await response.json();
+        if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
         
         
         let customData = { success: false, items: [] };
@@ -8143,6 +8150,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
             const availableComponents = allComponents.filter(c => parseInt(c.quantita) > 0);
             
             if (availableComponents.length === 0) {
+                if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
                 results.innerHTML = '<p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Nessun componente disponibile (quantità > 0)</p>';
                 return;
             }
@@ -8214,6 +8222,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
                     `).join('');
             }
             
+            if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
             results.innerHTML = html;
             
             
@@ -8234,6 +8243,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
                 });
             });
         } else {
+            if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
             results.innerHTML = `
                 <div style="text-align: center; padding: 30px 20px;">
                     <p style="color: rgba(255,255,255,0.5); margin-bottom: 20px; font-size: 1em;">Nessun componente trovato</p>
@@ -8250,6 +8260,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
         }
     } catch (error) {
         console.error('Errore ricerca componenti:', error);
+        if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
         results.innerHTML = '<p style="color: #e74c3c; text-align: center; padding: 20px;">Errore nella ricerca</p>';
     }
     }, 300); 
@@ -8587,16 +8598,19 @@ document.getElementById('bulk-replace-new')?.addEventListener('input', (e) => {
     results.innerHTML = '<p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Ricerca in corso...</p>';
     
     
+    const searchNavigation = window.MGNavigation?.current();
     bulkReplaceDebounceTimer = setTimeout(async () => {
         try {
             const response = await fetch(`api_gateway/db_bridge/components_service/endpoint/api-components.php?search=${encodeURIComponent(query)}`);
             const data = await response.json();
+            if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
             
             if (data.success && data.components && data.components.length > 0) {
                 
                 const availableComponents = data.components.filter(c => parseInt(c.quantita) >= bulkReplaceMinQty);
                 
                 if (availableComponents.length === 0) {
+                    if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
                     results.innerHTML = `<p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px;">Nessun componente con quantità ≥ ${bulkReplaceMinQty}</p>`;
                     return;
                 }
@@ -8640,6 +8654,7 @@ document.getElementById('bulk-replace-new')?.addEventListener('input', (e) => {
                         `).join('');
                 }
                 
+                if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
                 results.innerHTML = html;
                 
                 
@@ -8661,6 +8676,7 @@ document.getElementById('bulk-replace-new')?.addEventListener('input', (e) => {
                 });
             } else {
                 
+                if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
                 results.innerHTML = `
                     <p style="color: rgba(255,255,255,0.5); text-align: center; padding: 20px 20px 10px;">Nessun componente trovato</p>
                     <div style="text-align: center; padding: 10px;">
@@ -8681,6 +8697,7 @@ document.getElementById('bulk-replace-new')?.addEventListener('input', (e) => {
             }
         } catch (error) {
             console.error('Errore ricerca componenti:', error);
+            if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
             results.innerHTML = '<p style="color: #e74c3c; text-align: center; padding: 20px;">Errore nella ricerca</p>';
         }
     }, 300);
@@ -9075,7 +9092,7 @@ async function applyBulkReplaceManual() {
 
 document.getElementById('standard-configs-btn')?.addEventListener('click', async () => {
     
-    await closeAllOverlayPages(false);
+    if (await closeAllOverlayPages(false) === false) return;
     
     openStandardConfigsPage();
 });
@@ -10428,6 +10445,7 @@ function closeConfigSupplierPopup() {
 
 
 async function searchNewConfigComponents(query, componentType, componentIndex, suggestionsDiv) {
+    const navigation = window.MGNavigation?.current();
     if (!suggestionsDiv) return;
     
     try {
@@ -10484,6 +10502,8 @@ async function searchNewConfigComponents(query, componentType, componentIndex, s
         }
         
         if (results.length > 0) {
+            if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
             suggestionsDiv.style.display = 'block';
             
             
@@ -10544,16 +10564,22 @@ async function searchNewConfigComponents(query, componentType, componentIndex, s
                     const ean = item.dataset.ean;
                     const supplier = item.dataset.supplier || '';
                     applyNewConfigSuggestion(ean, componentIndex, supplier);
+                    if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
                     suggestionsDiv.style.display = 'none';
                 });
             });
             
         } else {
+            if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
             suggestionsDiv.style.display = 'block';
             suggestionsDiv.innerHTML = '<p style="color: rgba(255,255,255,0.5); text-align: center; padding: 12px; margin: 0;">Nessun componente trovato</p>';
         }
     } catch (error) {
         console.error('Errore ricerca componenti:', error);
+        if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
         suggestionsDiv.style.display = 'block';
         suggestionsDiv.innerHTML = '<p style="color: #e74c3c; text-align: center; padding: 12px; margin: 0;">Errore nella ricerca</p>';
     }
@@ -10634,6 +10660,7 @@ async function applyNewConfigSuggestion(ean, componentIndex, supplier = '') {
 
 
 async function searchConfigComponents(query, componentType, configKey, componentIndex) {
+    const navigation = window.MGNavigation?.current();
     const suggestionsDiv = document.querySelector(`.config-suggestions[data-config-key="${configKey}"][data-component-type="${componentType}"][data-component-index="${componentIndex}"]`);
     
     if (!suggestionsDiv) return;
@@ -10789,6 +10816,8 @@ async function searchConfigComponents(query, componentType, configKey, component
                     const ean = item.dataset.ean;
                     const supplier = item.dataset.supplier;
                     applyConfigSuggestion(ean, supplier, configKey, componentType, componentIndex);
+                    if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
                     suggestionsDiv.style.display = 'none';
                 });
             });
@@ -11396,6 +11425,7 @@ async function setupInventorySearch() {
         }
         
         clearTimeout(searchTimeout);
+        const searchNavigation = window.MGNavigation?.current();
         searchTimeout = setTimeout(async () => {
             try {
                 let components = [];
@@ -11407,6 +11437,7 @@ async function setupInventorySearch() {
                     const response = await fetch(url);
                     if (response.ok) {
                         const data = await response.json();
+                        if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
                         if (data.success && data.component) {
                             components = [data.component];
                         }
@@ -11417,6 +11448,7 @@ async function setupInventorySearch() {
                     const response = await fetch(url);
                     if (response.ok) {
                         const data = await response.json();
+                        if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;
                         components = data.components || [];
                     }
                 }
@@ -11778,6 +11810,7 @@ document.querySelectorAll('.manual-component-search').forEach(input => {
 });
 
 async function searchManualComponent(query, inputElement) {
+    const navigation = window.MGNavigation?.current();
     const resultsDiv = document.getElementById('manual-search-results');
     const componentType = inputElement.dataset.component.toLowerCase();
     
@@ -11904,12 +11937,16 @@ async function searchManualComponent(query, inputElement) {
         `;
         
         resultsDiv.innerHTML = resultsHtml;
+        if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
         resultsDiv.style.display = 'block';
         
         
         resultsDiv.querySelectorAll('.manual-search-result').forEach(result => {
             result.addEventListener('click', () => {
                 selectManualComponent(inputElement, result.dataset.name, result.dataset.ean, result.dataset.supplier);
+                if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
                 resultsDiv.style.display = 'none';
             });
             
@@ -11923,12 +11960,16 @@ async function searchManualComponent(query, inputElement) {
         
         
         resultsDiv.querySelector('.manual-entry-option')?.addEventListener('click', () => {
+            if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
             resultsDiv.style.display = 'none';
             showManualEntryPopup(inputElement, query);
         });
         
     } catch (error) {
         console.error('Errore ricerca componenti:', error);
+        if (navigation !== undefined && !window.MGNavigation.valid(navigation)) return;
+
         resultsDiv.style.display = 'none';
     }
 }

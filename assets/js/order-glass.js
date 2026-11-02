@@ -172,45 +172,113 @@
         sync();
     }
 
-    let active='', showAll=false, timer=null;
-    function select(id) { active=id;showAll=false;sync();document.getElementById('mg-order-navigation')?.querySelector('[aria-current="true"]')?.focus({preventScroll:true}); }
+    const desks=new Map();
+    let currentDesk='', timer=null;
+    const setClass=(el,name,on)=>{if(el.classList.contains(name)!==on)el.classList.toggle(name,on);};
+    const setHidden=(el,on)=>{if(el.hidden!==on)el.hidden=on;};
+    const searchKey=v=>String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('it').trim();
+    function deskState(key) {
+        if(!desks.has(key))desks.set(key,{active:'',showAll:false,query:'',scrollTop:0,scrollLeft:0});
+        return desks.get(key);
+    }
+    function rendered(el) {
+        for(let node=el;node;node=node.parentElement){
+            const style=node.ownerDocument.defaultView.getComputedStyle(node);
+            if(node.hidden || style.display==='none' || style.visibility==='hidden')return false;
+        }
+        return true;
+    }
+    function deskVisible(container,tab,blocked=false) {
+        return !blocked && (!tab || /^processed(?:-e[234])?$/.test(tab)) &&
+            (!container.classList.contains('tab-content') || container.classList.contains('active')) && rendered(container);
+    }
+    function navigationSelection(items,requested,query) {
+        const q=searchKey(query),matches=items.filter(i=>!q || searchKey(i.text).includes(q));
+        return {ids:matches.map(i=>i.id),active:selection(matches.map(i=>i.id),requested)};
+    }
+    function scrollToOrder(id) {
+        const c=document.getElementById('processed-container');
+        const card=[...c.querySelectorAll(':scope > .order-card[data-order-id]')].find(c=>c.dataset.orderId===id);
+        if(!card || !rendered(card))return;
+        const win=c.ownerDocument.defaultView;
+        const top=Math.max(0,...['fixed-header','tabs-container'].map(id=>{
+            const el=document.getElementById(id);
+            return el && rendered(el) && win.getComputedStyle(el).position==='fixed' ? el.getBoundingClientRect().bottom : 0;
+        }));
+        win.scrollTo({top:Math.max(0,win.scrollY+card.getBoundingClientRect().top-top-16),behavior:'auto'});
+    }
+    function select(id) {
+        if(!currentDesk)return;
+        const state=deskState(currentDesk);state.active=id;state.showAll=false;sync();
+        document.getElementById('mg-order-navigation')?.querySelector('[aria-current="true"]')?.focus({preventScroll:true});
+        scrollToOrder(id);
+    }
     function selection(ids,requested) {return ids.includes(requested)?requested:ids[0] || '';}
     function sync() {
         if (typeof document==='undefined')return;
         const container=document.getElementById('processed-container');if(!container)return;
         let nav=document.getElementById('mg-order-navigation');
-        if(!nav){nav=document.createElement('nav');nav.id='mg-order-navigation';nav.setAttribute('aria-label','Ordini della scrivania');container.before(nav);}
+        if(!nav){
+            nav=document.createElement('nav');nav.id='mg-order-navigation';nav.hidden=true;nav.setAttribute('aria-label','Ordini della scrivania');
+            nav.innerHTML='<label class="mg-order-search">Cerca nella scrivania<input type="search" placeholder="Ordine, cliente o build" aria-label="Cerca nella scrivania"></label>' +
+                '<button type="button" class="mg-all-orders"></button><div class="mg-order-list"></div>';
+            container.before(nav);
+            nav.addEventListener('click',e=>{
+                const button=e.target.closest('button');if(!button || !currentDesk)return;
+                if(button.dataset.glassOrder)select(button.dataset.glassOrder);
+                else if(button.classList.contains('mg-all-orders')){
+                    const state=deskState(currentDesk);state.showAll=!state.showAll;sync();scrollToOrder(nav.querySelector('[aria-current="true"]')?.dataset.glassOrder || state.active);
+                }
+            });
+            nav.querySelector('input').oninput=e=>{if(currentDesk){deskState(currentDesk).query=e.target.value;sync();}};
+            nav.addEventListener('scroll',()=>{if(currentDesk)deskState(currentDesk).scrollTop=nav.scrollTop;},{passive:true});
+            nav.querySelector('.mg-order-list').addEventListener('scroll',e=>{if(currentDesk)deskState(currentDesk).scrollLeft=e.target.scrollLeft;},{passive:true});
+        }
         const cards=[...container.querySelectorAll(':scope > .order-card[data-order-id]')];
-        const visible=container.ownerDocument.defaultView.getComputedStyle(container).display!=='none' && cards.length>0;
-        document.body.classList.toggle('mg-glass-desk',visible);nav.hidden=!visible;
+        const tab=document.querySelector('.tab-button.active')?.dataset.tab;
+        const blocked=['gpo-mapping-page','custom-components-page','standard-configs-page','settings-popup'].some(id=>{
+            const page=document.getElementById(id);return page && rendered(page);
+        });
+        const visible=deskVisible(container,tab,blocked) && cards.length>0;
+        setClass(document.body,'mg-glass-desk',visible);setHidden(nav,!visible);
         if(!visible)return;
-        active=selection(cards.map(c=>c.dataset.orderId),active);
-        const query=nav.querySelector('input')?.value || '', searchFocused=document.activeElement===nav.querySelector('input');
-        const html='<label class="mg-order-search">Cerca nella scrivania<input type="search" placeholder="Ordine, cliente o build" aria-label="Cerca nella scrivania"></label>' +
-            '<button type="button" class="mg-all-orders">'+(showAll?'Scheda singola':'Tutti gli ordini')+'</button><div class="mg-order-list">' + cards.map(c=>{
+        const key=tab || 'processed',changedDesk=key!==currentDesk;currentDesk=key;
+        const state=deskState(key),input=nav.querySelector('input'),list=nav.querySelector('.mg-order-list');
+        if(changedDesk)input.value=state.query;
+        state.active=selection(cards.map(c=>c.dataset.orderId),state.active);
+        const items=cards.map(c=>({id:c.dataset.orderId,text:[c.querySelector('.card-header h2')?.textContent,c.querySelector('.config-badge')?.textContent,c.dataset.glassCustomer].join(' ')}));
+        const filtered=navigationSelection(items,state.active,state.query),matching=new Set(filtered.ids);
+        const html=cards.map(c=>{
                 const id=c.dataset.orderId,title=c.querySelector('.card-header h2')?.textContent.trim() || id;
                 const build=c.querySelector('.config-badge')?.textContent.trim() || '',customer=c.dataset.glassCustomer || '';
-                c.classList.toggle('mg-order-inactive',!showAll && id!==active);
+                setClass(c,'mg-order-inactive',!matching.has(id) || !state.showAll && id!==filtered.active);
                 const economic=c.dataset.glassState || 'unknown';
                 const label=c.dataset.glassLabel || {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[economic];
-                return `<button type="button" class="mg-order-link${!showAll && id===active?' active':''}" data-economic="${esc(economic)}" data-glass-order="${esc(id)}"${id===active?' aria-current="true"':''}><b>${esc(title)}</b><strong>${esc(c.dataset.glassProfit || 'Calcolo…')}</strong><span>${esc(customer)}${label?' · '+label:''}</span><small>${esc(build)}</small></button>`;
-            }).join('')+'</div>';
-        if(nav.dataset.content!==html){nav.innerHTML=html;nav.dataset.content=html;nav.querySelector('input').value=query;
-            if(searchFocused)nav.querySelector('input').focus({preventScroll:true});
-            nav.querySelectorAll('[data-glass-order]').forEach(b=>b.onclick=()=>select(b.dataset.glassOrder));
-            nav.querySelector('.mg-all-orders').onclick=()=>{showAll=!showAll;sync();};
-            nav.querySelector('input').oninput=e=>{const q=e.target.value.toLocaleLowerCase('it');nav.querySelectorAll('.mg-order-link').forEach(b=>b.hidden=!b.textContent.toLocaleLowerCase('it').includes(q));};
+                return `<button type="button" class="mg-order-link${!state.showAll && id===filtered.active?' active':''}" data-economic="${esc(economic)}" data-glass-order="${esc(id)}"${!matching.has(id)?' hidden':''}${!state.showAll && id===filtered.active?' aria-current="true"':''}><b>${esc(title)}</b><strong>${esc(c.dataset.glassProfit || 'Calcolo…')}</strong><span>${esc(customer)}${label?' · '+label:''}</span><small>${esc(build)}</small></button>`;
+            }).join('');
+        const focusId=document.activeElement?.dataset.glassOrder;
+        if(list.dataset.content!==html){
+            list.innerHTML=html;list.dataset.content=html;
+            if(focusId)[...list.querySelectorAll('[data-glass-order]')].find(b=>b.dataset.glassOrder===focusId && !b.hidden)?.focus({preventScroll:true});
         }
-        if(query)nav.querySelector('input').dispatchEvent(new Event('input'));
+        const all=nav.querySelector('.mg-all-orders');
+        all.textContent=state.showAll?'Scheda singola':'Tutti gli ordini';all.setAttribute('aria-pressed',String(state.showAll));
+        let empty=container.querySelector('.mg-order-empty');
+        if(!empty){empty=document.createElement('div');empty.className='mg-order-empty';empty.hidden=true;empty.setAttribute('role','status');empty.textContent='Nessun ordine corrisponde alla ricerca. Modifica o cancella il testo nel menu.';container.prepend(empty);}
+        setHidden(empty,filtered.ids.length>0);
+        nav.scrollTop=state.scrollTop;list.scrollLeft=state.scrollLeft;
     }
     function init(){
         const c=document.getElementById('processed-container');if(!c)return;
         const schedule=()=>{clearTimeout(timer);timer=setTimeout(sync,50);};
-        new MutationObserver(schedule).observe(c,{childList:true,subtree:true});
-        new MutationObserver(schedule).observe(c,{attributes:true,attributeFilter:['style','class']});
+        new MutationObserver(records=>{
+            if(records.some(({target})=>!target.closest?.('#mg-order-navigation') &&
+                (target===document.body || c.contains(target) || target.contains?.(c) ||
+                 target.matches?.('.tab-button,.tab-content,#gpo-mapping-page,#custom-components-page,#standard-configs-page,#settings-popup'))))schedule();
+        }).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class','hidden']});
         sync();
     }
-    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan};
+    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan,deskVisible,navigationSelection};
     if(typeof window!=='undefined')window.MGOrderGlass=api;
     if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',init);
 })();

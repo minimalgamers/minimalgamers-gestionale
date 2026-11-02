@@ -2,8 +2,11 @@
 body.mg-glass-desk { --glass-ink:#15233c; --glass-muted:#536780; }
 body.mg-ios.mg-glass-desk::before {background:rgba(232,240,247,.77);backdrop-filter:blur(6px);}
 body.mg-glass-desk #mg-order-navigation {position:fixed;left:24px;top:188px;bottom:24px;width:236px;z-index:2;box-sizing:border-box;padding:14px;overflow-y:auto;border:1px solid rgba(255,255,255,.9);border-radius:24px;background:rgba(247,251,255,.66);backdrop-filter:blur(24px);box-shadow:0 8px 28px rgba(23,54,83,.08),inset 0 1px 0 white;}
-body.mg-glass-desk #processed-container {margin-left:280px!important;margin-right:24px!important;width:calc(100% - 304px)!important;max-width:none;display:grid;grid-template-columns:minmax(0,1fr)!important;gap:18px;}
+body.mg-glass-desk #processed-container {margin-left:280px!important;margin-right:24px!important;width:calc(100% - 304px)!important;max-width:none;grid-template-columns:minmax(0,1fr)!important;gap:18px;}
+#processed-container.tab-content:not(.active) {display:none!important;}
 #mg-order-navigation[hidden],#mg-order-navigation button[hidden],#processed-container .mg-order-inactive {display:none!important;}
+.mg-order-empty {padding:24px;border:1px solid #b7cadb;border-radius:18px;background:#f4f8fc;color:#243c5c;}
+.mg-order-empty[hidden] {display:none!important;}
 .mg-order-search {display:block;font-size:11px;font-weight:600;color:#4e637e;}
 .mg-order-search input {box-sizing:border-box;width:100%;min-width:0;margin:7px 0 10px;padding:10px;border:1px solid rgba(171,191,211,.6);border-radius:12px;background:rgba(255,255,255,.6);font:inherit;font-size:13px;color:#182d49;}
 .mg-all-orders {width:100%;border:0;background:transparent;padding:7px;text-align:left;color:#335a85;font-size:12px;cursor:pointer;}

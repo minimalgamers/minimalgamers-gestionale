@@ -79,7 +79,13 @@
         let timer;
         const richiesta = (async () => {
             const r = await fetch(url, { ...options, ...(controller ? { signal: controller.signal } : {}) });
-            if (!r.ok) throw new Error(r.status === 404 ? 'dati automatici non ancora pubblicati' : `errore HTTP ${r.status}`);
+            if (!r.ok) {
+                let dettaglio;
+                try { dettaglio = await r.json(); } catch { /* errore HTTP senza risposta JSON */ }
+                const messaggio = dettaglio?.stato === 'errore' && typeof dettaglio.messaggio === 'string'
+                    ? dettaglio.messaggio.slice(0, 240) : null;
+                throw new Error(messaggio || (r.status === 404 ? 'dati automatici non ancora pubblicati' : `errore HTTP ${r.status}`));
+            }
             return await r.json();
         })();
         try {
@@ -1749,6 +1755,15 @@
         } else if (preleva) preleva.remove();
     }
 
+    function costoHardwareFisso(tipo, ean, fornitore, dati = stato.dati) {
+        if (!['PSU','COOLER'].includes(tipo)) return null;
+        for (const f of new Set([String(fornitore || '').toUpperCase().trim(),''])) {
+            const n = dati?.costi_hardware_fissi?.[`${tipo}|${chiave(ean)}|${f}`]?.unitario;
+            if (Number.isFinite(n) && n >= 0) return n;
+        }
+        return null;
+    }
+
     function costoRigaVerificato({ tipo, nome, ean, fornitore, quantita = 1, pagato, inserito, mag, magPreso = true, offerta, sch, vStesso, scelto,
         pRiga, salvato, delCodice, salvati = {}, riferimentoSostituzione }) {
         const risultato = (costo, fonte) => ({ costo, fonte });
@@ -1758,6 +1773,8 @@
         if (pagato != null) return risultato(pagato, 'acquistato');
         if (mag != null && magPreso) return risultato(mag, 'magazzino');
         if (inserito != null) return risultato(inserito, 'inserito');
+        const fissoHardware = costoHardwareFisso(tipo, ean, fornitore);
+        if (fissoHardware != null) return risultato(tonda(fissoHardware * quantita), 'fisso_utente');
         const fissoCurved = costoCurved(tipo, [ean,nome,offerta?.descrizione].filter(Boolean).join(' '));
         if (fissoCurved != null) return risultato(tonda(fissoCurved * quantita), 'inserito');
         if (offerta?.costo_unitario != null) return risultato(tonda(offerta.costo_unitario * quantita), 'listino');
@@ -2050,7 +2067,7 @@
             });
             if (congelato && extra > 0 && !custom.length) custom.push({id:'CONFERMATI',name:'Extra personalizzati già confermati',costo:extra,locked:true});
             window.MGOrderGlass.mount(el,{orderId,conti,auto,vendita,cliente,costo,nMancanti,utile:u,obiettivo:obiettivoConto,
-                extraLista:extraLista.map(x=>({...x,locked:!!congelato})),custom,montaggio,servizi:serviziLista,generato:dati?.generato,
+                extraLista:extraLista.map(x=>({...x,locked:!!congelato})),custom,montaggio,servizi:serviziLista,generato:dati?.generato,listini:dati?.listini,
                 paidTypes:[...scelteUpgradeMontaggio(auto).keys()],
                 noticeHtml:rigaUpgradeAttesa(orderId)+rigaNonPagate(auto)+avvisoRif+
                     (conti.upgradeRitirati ? '<div class="mg-glass-warnings" role="alert">Pagamento upgrade modificato o ritirato: verifica i pezzi acquistati e da montare.</div>' : ''),
@@ -4298,7 +4315,7 @@
         return `🔗 Pagina personale: ${parti.join(' · ')}`;
     }
 
-    const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave, pcContabile,
+    const api = { decora, pezzoModificato, aggiornaOrdine, carica, decifra, voceAutomatica, prezzoVendita, utile, chiave, pcContabile,costoHardwareFisso,
         idMappatura, scelteCliente, stato, renderPagina, riepilogoFornitori, costoPezzo, contiPc, pcAutomatico, parteDellUnita, dettaglioVendita,
         annota, inv, leggiInventario, quantitaMagazzino, pezzoPreso, prendiDalMagazzino, annullaDalMagazzino,
         impostaQuantita, boxMagazzino, rigaPezzo, cellaExcel, rigaConfrontoExcel, serviziPc,

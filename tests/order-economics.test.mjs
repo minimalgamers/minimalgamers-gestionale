@@ -15,6 +15,13 @@ const pc={id:1,product_id:123,name:'PC GAMING TEST',price:'1513.00',quantity:1};
 const key={id:2,name:'Havit tastiera',sku:'KEY',quantity:1,price:'50.00',discount_allocations:[{amount:'5.00'}]};
 const mouse={id:3,name:'Logitech mouse',sku:'MOUSE',quantity:1,price:'40.00'};
 
+test('overview annotation retains fixed PSU costs, including quantities and paid-history priority',()=>{
+ const {A}=env();const p={tipo:'PSU',auto:{codice:'DEMO',fornitore:'ABACO',costo:999,quantita:2}},d={
+  costi_hardware_fissi:{'PSU|DEMO|ABACO':{unitario:62}},ordini:{77:{pc:[{pezzi:[p]}]}}};
+ A.annota(d);assert.equal(A.costoPezzo(p,{}).costo,124);
+ p.acquistato=true;p.costo=90;A.annota(d);assert.equal(A.costoPezzo(p,{}).costo,90);
+});
+
 test('CURVED black, white and legacy aliases use the user fixed gross 60, never an AKU-only or PANO model',()=>{
  const {A}=env();
  for(const ean of ['DARK CAVE AKU CURVED BLACK','DARK CAVE CURVED WHITE','ITGCADCCB','ITGCADCCW']){

@@ -38,14 +38,35 @@
             target:Number.isFinite(target) && target >= 0 ? Math.floor((rowCost + profit.lordo - target / .7 - .01) * 100) / 100 : null};
     }
 
+    function purchasePlan(input) {
+        if (input.conti.confermato || input.auto?.solo_contabile || freshness(input,input.now).stale) return input;
+        const used=[], righe=(input.conti.righe || []).map(r=>{
+            if (!['listino','stima','riferimento_altro','riferimento_excel','budget'].includes(r.fonte) || ['PSU','COOLER'].includes(r.tipo) ||
+                (input.montaggio || []).some(x=>x.tipo===r.tipo)) return r;
+            const p=(input.proposte || []).find(p=>p.tipo===r.tipo && key(p.da.ean)===key(r.ean) && key(p.da.fornitore)===key(r.fornitore));
+            if (!p || p.a?.ordinabile!==true || p.a?.daConfermare || !Number.isFinite(p.a?.costo) || p.a.costo<0) return r;
+            used.push(p);
+            return {...r,ean:p.a.codice,fornitore:p.a.fornitore,descrizione:p.a.descrizione,costo:p.a.costo,fonte:'listino',
+                verificaDisponibilita:null,offertaAlternativa:null,salvato:r,proposto:true};
+        });
+        if (!used.length) return input;
+        const delta=righe.reduce((s,r,i)=>s+(r.costo ?? 0)-(input.conti.righe[i].costo ?? 0),0);
+        const mancanti=input.nMancanti-righe.filter(r=>r.proposto && !Number.isFinite(r.salvato.costo)).length;
+        const costo=round(input.costo+delta);
+        const lordo=Number.isFinite(input.vendita?.imponibile) ? input.vendita.imponibile-input.vendita.totale*.045-costo : input.utile?.lordo-delta;
+        return {...input,conti:{...input.conti,righe},costo,nMancanti:mancanti,
+            utile:{lordo:round(lordo),srl:round(lordo>0?lordo*.7:lordo)},
+            piano:{proposte:used,costoSalvato:input.costo}};
+    }
+
     function rows(input) {
         const replaced = new Set((input.montaggio || []).map(x => x.tipo));
         const hardware = (input.conti.righe || []).map((r, i) => {
-            const ref = reference(r,input.auto), delta = !referenceCost(r) && ref && Number.isFinite(r.costo) ? round(r.costo-ref.cost) : null;
+            const ref = reference(r.salvato || r,input.auto), delta = !referenceCost(r) && ref && Number.isFinite(r.costo) ? round(r.costo-ref.cost) : null;
             return {...r, index:i, kind:'hardware', title:r.descrizione || r.nome || r.ean, ref, delta,
                 replaced:replaced.has(r.tipo), locked:['acquistato','magazzino'].includes(r.fonte),
                 customerPaid:!replaced.has(r.tipo) && (input.paidTypes || []).includes(r.tipo),
-                state:r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
+                state:r.proposto ? 'Proposta da confermare' : r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
                     /DA ACQUISTARE/i.test(r.descrizione || r.nome || '') ? 'Da acquistare' : r.fonte==='fisso_utente' ? 'Costo fisso · gestione tua' :
                     referenceCost(r) ? referenceLabel(r) : input.auto?.solo_contabile ? 'Spedito · costo di riferimento' : r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
         });
@@ -62,6 +83,7 @@
     }
 
     function render(input) {
+        input=purchasePlan(input);
         const list=rows(input), complete=input.nMancanti === 0, target=input.obiettivo;
         const freshnessState=freshness(input,input.now), stale=freshnessState.stale;
         const higher=list.filter(r => r.delta > .01), rest=list.filter(r => !(r.delta > .01));
@@ -79,6 +101,7 @@
             return `<tr class="mg-ledger-row${r.delta > .01 ? ' mg-price-up' : ''}"><td data-label="Tipo"><b>${esc(r.labelTipo || r.tipo)}</b></td>` +
                 `<td class="mg-ledger-product" data-label="Componente"><strong>${esc(r.title)}</strong>` +
                 `<small>${q>1 ? `${q} pezzi · ` : ''}${esc(r.ean || '')}${r.kind==='extra' || r.kind==='custom' ? ' · Extra' : ''}${r.customerPaid ? ' · Upgrade pagato dal cliente' : ''}</small>` +
+                (r.proposto ? `<small>Salvato: ${esc(r.salvato.fornitore)} · ${esc(r.salvato.nome || r.salvato.descrizione || r.salvato.ean)} · ${money(r.salvato.costo)}. Cambio non ancora applicato.</small>` : '') +
                 (r.replaced ? '<small class="mg-ledger-alert">Sostituito dall’upgrade: non montare. Costo precedente conservato.</small>' : '') +
                 (r.verificaDisponibilita ? `<small class="mg-ledger-alert">${esc(r.verificaDisponibilita.testo)}</small>` : '') +
                 (r.offertaAlternativa ? `<small>Prezzo ${esc(r.fornitore)} non disponibile. Stesso modello da ${esc(r.offertaAlternativa.fornitore)}: ${money(r.offertaAlternativa.costo_unitario)} netti/pezzo.</small>` +
@@ -88,7 +111,7 @@
                 `<td class="mg-num mg-delta" data-label="Scostamento">${Number.isFinite(r.delta) ? (r.delta>0?'+':'')+money(r.delta) : '—'}</td>` +
                 `<td data-label="Acquisto"><span class="mg-purchase-state${r.locked?' paid':''}">${esc(r.state)}</span></td>` +
                 `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' && !input.auto?.solo_contabile ? `<button type="button" data-glass-change="${list.indexOf(r)}" aria-label="Cambia ${esc(r.tipo)}">Cambia</button>` : ''}` +
-                `${actionable ? `<button type="button" data-glass-cost="${list.indexOf(r)}" aria-label="${r.costo==null?'Inserisci':'Modifica'} costo ${esc(r.tipo)}">${icon('pencil-simple')}</button>` : r.locked && r.kind!=='service' ? '<small>Conservato</small>' : ''}` +
+                `${actionable && !r.proposto ? `<button type="button" data-glass-cost="${list.indexOf(r)}" aria-label="${r.costo==null?'Inserisci':'Modifica'} costo ${esc(r.tipo)}">${icon('pencil-simple')}</button>` : r.locked && r.kind!=='service' ? '<small>Conservato</small>' : ''}` +
                 (lim && !r.locked ? `<details class="mg-budget"><summary role="button" aria-label="Limiti di spesa ${esc(r.tipo)}">Limiti</summary><div><b>Massimo netto per questa riga</b><br>${lim.zero<0 ? 'Perdita non recuperabile cambiando solo questa riga' : `Per restare in positivo: ${money(lim.zero)}`}<br>` +
                     `${lim.target == null ? 'Obiettivo non disponibile' : lim.target<0 ? 'Obiettivo non raggiungibile cambiando solo questa riga' : `Per l’obiettivo: ${money(lim.target)}`}<br><small>A parità degli altri costi. ${q>1?'Totale per '+q+' pezzi.':''}</small></div></details>` : '') +
                 '</td></tr>';
@@ -96,15 +119,16 @@
         // Sorted views retain original row objects and indexes for edits.
         const ordered=[...higher,...rest];
         const label=stale ? 'Listini non aggiornati' : referenceOnly && complete ? 'Stima di riferimento' : profit===0 && complete ? 'In pareggio' : {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[state];
-        return {list, state, label, stale, html:`<section class="mg-glass-account" aria-label="Controllo costi ordine">` +
+        return {list, state, label, stale, input, html:`<section class="mg-glass-account" aria-label="Controllo costi ordine">` +
             `<div class="mg-glass-identity"><div><strong class="mg-glass-customer">${esc(input.cliente || '')}</strong><small>${input.vendita?.data ? 'Venduto il '+date(input.vendita.data) : ''}</small></div>` +
             `<div><small>Obiettivo utile SRL</small><strong>${money(target)}</strong></div></div>` +
             `<div class="mg-glass-metrics"><div><small>Venduto al cliente</small><strong>${money(input.vendita?.totale)}</strong><span>Ricavo storico · upgrade inclusi${input.vendita?.iva_vendita ? ' · IVA '+Math.round(input.vendita.iva_vendita.aliquota*100)+'%' : ''}${input.vendita?.iva_vendita?.fonte==='confermata utente'?' confermata da te':''}</span></div>` +
-            `<div><small>Costo totale${complete?'':' noto · parziale'}</small><strong>${money(input.costo)}</strong><span>Netto · extra e servizi inclusi</span></div>` +
+            `<div><small>${input.piano?'Costo piano di acquisto':'Costo totale'}${complete?'':' noto · parziale'}</small><strong>${money(input.costo)}</strong><span>Netto · extra e servizi inclusi</span></div>` +
             `<div><small>${stale?'Stima con listini non aggiornati':'Utile SRL stimato'}</small><strong>${money(profit)}</strong><span>${input.conti.confermato ? 'Costi acquistati conservati' : 'Sul ricavo di questo ordine'}</span></div>` +
             `<div class="mg-glass-status ${state}" role="status"><b>${esc(status)}</b><small>${input.nMancanti ? input.nMancanti+' costi da completare' : unquoted ? unquoted+' riferimenti di costo · confermare prima dell’acquisto' : 'Conto completo nelle fonti in basso'}</small></div></div>` +
             (stale ? `<div class="mg-glass-warnings" role="alert"><p><b>Listini fermi al ${date(freshnessState.last)}.</b> Aggiorna i listini prima di valutare costi, utile e limiti di spesa. Le quotazioni mancanti possono dipendere dal mancato aggiornamento; i prezzi pagati registrati restano conservati.</p></div>` : '') +
             (input.noticeHtml || '') + (input.avvisi?.length ? `<div class="mg-glass-warnings" role="alert">${input.avvisi.map(a=>`<p>${esc(a)}</p>`).join('')}</div>` : '') +
+            (input.piano ? `<div class="mg-glass-increases"><b>Piano di acquisto di oggi · ${input.piano.proposte.length} cambi proposti</b><small>Utile calcolato sulle proposte evidenziate. Distinta salvata: ${money(input.piano.costoSalvato)}. Pezzi pagati e costi fissi conservati.</small><button type="button" data-glass-plan>Rivedi e conferma i componenti proposti</button></div>` : '') +
             `<div class="mg-glass-increases"><b>${higher.length ? `${higher.length} voci sopra riferimento · +${money(delta)} netti` : 'Nessun aumento verificabile sui riferimenti disponibili'}</b>` +
             `<small>Confronto ${input.auto?.configuratore ? 'lista configuratore' : 'Excel build'} su ${covered} di ${list.length} voci. I riferimenti disponibili non sono una fotografia dei costi alla vendita.</small></div>` +
             `<div class="mg-ledger-scroll"><table class="mg-ledger"><caption>Elenco completo: hardware, extra, upgrade e servizi. Importi netti.</caption><thead><tr>` +
@@ -113,18 +137,18 @@
             `</tbody><tfoot><tr><th colspan="4">${complete?'Totale':'Costi noti · totale parziale'}</th><td class="mg-num">${money(input.costo)}</td><td colspan="3">${complete?'Montaggio e spedizione inclusi':'Utile non calcolabile finché mancano costi'}</td></tr></tfoot></table></div>` +
             `<div class="mg-glass-actions"><span class="acc-barra-stato" role="status">${input.generato ? 'Dati del '+date(input.generato) : 'Aggiornamento listini da verificare'} · importi netti</span>` +
             '<button type="button" data-glass-original aria-expanded="false">Componenti e gestione scorte</button><button type="button" data-glass-refresh>Aggiorna costi</button>' +
-            `<button type="button" class="mg-primary" data-glass-confirm${input.conti.confermato || input.auto?.solo_contabile?' disabled':''}>${input.auto?.solo_contabile ? 'Ordine già spedito' : input.conti.confermato ? 'Acquisto già confermato' : 'Conferma acquisto di questo PC'}</button></div></section>`};
+            `<button type="button" class="mg-primary" data-glass-confirm${input.conti.confermato || input.auto?.solo_contabile?' disabled':''}>${input.auto?.solo_contabile ? 'Ordine già spedito' : input.conti.confermato ? 'Acquisto già confermato' : input.piano ? 'Rivedi il piano prima dell’acquisto' : 'Conferma acquisto di questo PC'}</button></div></section>`};
     }
 
     function mount(el,input,actions) {
         if (!el.closest('#processed-container')) return;
-        const view=render(input), card=el.closest('.order-card');
+        const view=render(input), card=el.closest('.order-card');input=view.input;
         const details=document.createElement('details'); details.className='mg-glass-sources';
         const summary=document.createElement('summary');summary.textContent='Conto completo, verifiche, fonti e storico';details.appendChild(summary);
         while(el.firstChild) details.appendChild(el.firstChild);
         const section=document.createElement('div');section.innerHTML=view.html;
         el.appendChild(section);el.appendChild(details);card?.classList.add('mg-glass-order');
-        const get=b=>view.list[Number(b.dataset.glassChange ?? b.dataset.glassCost)];
+        const get=b=>{const r=view.list[Number(b.dataset.glassChange ?? b.dataset.glassCost)];return r.salvato || r;};
         section.querySelectorAll('[data-glass-change]').forEach(b=>b.onclick=()=>actions.change(get(b)));
         section.querySelectorAll('[data-glass-quote]').forEach(b=>b.onclick=()=>{
             const r=view.list[Number(b.dataset.glassQuote)];
@@ -137,7 +161,9 @@
         section.querySelector('[data-glass-refresh]').onclick=async e=>{
             const b=e.currentTarget;b.disabled=true;try{await actions.refresh();}catch(err){section.querySelector('.acc-barra-stato').textContent=err.message;}finally{b.disabled=false;}
         };
-        section.querySelector('[data-glass-confirm]').onclick=()=>actions.confirm(section);
+        const review=async e=>{const b=e.currentTarget;b.disabled=true;try{await actions.plan();}catch(err){section.querySelector('.acc-barra-stato').textContent=err.message;}finally{b.disabled=false;}};
+        section.querySelectorAll('[data-glass-plan]').forEach(b=>b.onclick=review);
+        section.querySelector('[data-glass-confirm]').onclick=input.piano?review:()=>actions.confirm(section);
         // Economic states remain available to navigation without re-reading account data.
         card.dataset.glassProfit=view.stale ? 'Non aggiornato' : input.nMancanti ? 'Costi incompleti' : money(input.utile?.srl);
         card.dataset.glassState=view.state;
@@ -184,7 +210,7 @@
         new MutationObserver(schedule).observe(c,{attributes:true,attributeFilter:['style','class']});
         sync();
     }
-    const api={reference,budget,rows,render,mount,sync,selection,select,freshness};
+    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan};
     if(typeof window!=='undefined')window.MGOrderGlass=api;
     if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',init);
 })();

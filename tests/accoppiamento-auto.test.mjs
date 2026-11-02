@@ -461,6 +461,7 @@ assert.equal(A.coloreRispettato('RAM 16GB', 'RAM 16GB black'), true);
 assert.equal(A.rispettaScheda('MINIMAL', 'PSU', 'DEEPCOOL PN850-D 850W', { descrizione: 'DeepCool PN650 650W', codice: 'X', quantita: 1 }, 1), false);
 assert.equal(A.rispettaScheda('MINIMAL', 'RAM', 'RAM 16GB', { descrizione: 'RAM 8GB', codice: 'R', quantita: 2 }, 1), false);
 // dati automatici pronti per le prove seguenti (stessa promessa che usa carica())
+Object.assign(datiM,{regole_acquisto:'buyerdesk-netto-stock-v1',generato:new Date().toISOString(),listini:new Date().toISOString(),offerte_ordinabili:[]});
 A.stato.promessa = Promise.resolve(datiM);
 A.stato.caricatoIl = Date.now();
 // ordine non ancora nei dati automatici: voci di distinta. Processore -> 2520 Tray; dissipatore bianco resta

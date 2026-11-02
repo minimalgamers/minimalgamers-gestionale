@@ -12,6 +12,14 @@
     const referenceLabel = r => r.fonte==='budget' ? 'Budget previsto' : r.fonte==='riferimento_excel' ? 'Riferimento Excel · prezzo attuale da verificare' :
         `Stima da ${r.riferimento?.fornitore_riferimento || 'altro fornitore'} · cambio da confermare`;
 
+    function freshness(input, now=Date.now()) {
+        const dates=[input.generato,input.listini].filter(Boolean).map(Date.parse);
+        const last=dates.length && dates.every(Number.isFinite) ? Math.min(...dates) : null;
+        // Paid history is independent of today's supplier feed.
+        return {stale:!input.conti.confermato && !input.auto?.solo_contabile && last!=null &&
+            (now-last>60*60*1000 || last-now>60000), last};
+    }
+
     function reference(row, pc) {
         const parts = (pc?.pezzi || []).filter(p => (p.tipo === row.tipo || p.nome_tipo === row.tipo) &&
             [p.manuale, p.auto].some(x => x && key(x.codice) === key(row.ean)) &&
@@ -38,7 +46,7 @@
                 replaced:replaced.has(r.tipo), locked:['acquistato','magazzino'].includes(r.fonte),
                 customerPaid:!replaced.has(r.tipo) && (input.paidTypes || []).includes(r.tipo),
                 state:r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
-                    /DA ACQUISTARE/i.test(r.descrizione || r.nome || '') ? 'Da acquistare' :
+                    /DA ACQUISTARE/i.test(r.descrizione || r.nome || '') ? 'Da acquistare' : r.fonte==='fisso_utente' ? 'Costo fisso · gestione tua' :
                     referenceCost(r) ? referenceLabel(r) : input.auto?.solo_contabile ? 'Spedito · costo di riferimento' : r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
         });
         const extras = (input.extraLista || []).filter(x => !x.personalizzata).map(x => ({...x,kind:'extra',title:x.scelta || x.descrizione || x.nome,
@@ -55,16 +63,17 @@
 
     function render(input) {
         const list=rows(input), complete=input.nMancanti === 0, target=input.obiettivo;
+        const freshnessState=freshness(input,input.now), stale=freshnessState.stale;
         const higher=list.filter(r => r.delta > .01), rest=list.filter(r => !(r.delta > .01));
         const delta=round(higher.reduce((s,r)=>s+r.delta,0)), covered=list.filter(r=>r.ref).length;
         const profit=complete ? input.utile?.srl : null;
         const unquoted = list.filter(referenceCost).length;
         const referenceOnly=Boolean(!input.conti.confermato && (unquoted || input.auto?.solo_contabile && list.some(r=>r.kind==='hardware' && !r.locked)));
-        const status=!complete ? (input.vendita?.iva_vendita?.da_verificare ? 'Aliquote IVA da verificare' : 'Costi incompleti: utile da calcolare') : referenceOnly ? (input.auto?.solo_contabile ? 'Spedito · stima ai costi di riferimento' : 'Utile stimato · quotazioni da confermare') : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
+        const status=stale ? 'Listini non aggiornati · conto da verificare' : !complete ? (input.vendita?.iva_vendita?.da_verificare ? 'Aliquote IVA da verificare' : 'Costi incompleti: utile da calcolare') : referenceOnly ? (input.auto?.solo_contabile ? 'Spedito · stima ai costi di riferimento' : 'Utile stimato · quotazioni da confermare') : profit < 0 ? 'In perdita' : profit===0 ? 'In pareggio' :
             !Number.isFinite(target) ? 'Positivo · obiettivo non disponibile' : profit >= target-5 ? 'In obiettivo' : `Positivo · ${money(target-profit)} sotto obiettivo`;
-        const state=!complete ? 'unknown' : referenceOnly ? 'reference' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
+        const state=stale || !complete ? 'unknown' : referenceOnly ? 'reference' : profit < 0 ? 'negative' : profit===0 || Number.isFinite(target) && profit < target-5 ? 'warning' : 'positive';
         const rowHtml = r => {
-            const q=Number(r.quantita)||1, lim=input.auto?.solo_contabile ? null : budget(r.costo,input.utile,target,complete);
+            const q=Number(r.quantita)||1, lim=input.auto?.solo_contabile || stale ? null : budget(r.costo,input.utile,target,complete);
             const actionable=r.kind !== 'service' && r.ean && !r.locked;
             const costLabel=referenceCost(r) ? referenceLabel(r)+'; '+(r.riferimento?.nota || '') : ['acquistato','magazzino'].includes(r.fonte) ? 'Prezzo pagato / prelevato' : 'Costo netto della riga';
             return `<tr class="mg-ledger-row${r.delta > .01 ? ' mg-price-up' : ''}"><td data-label="Tipo"><b>${esc(r.labelTipo || r.tipo)}</b></td>` +
@@ -86,14 +95,15 @@
         };
         // Sorted views retain original row objects and indexes for edits.
         const ordered=[...higher,...rest];
-        const label=referenceOnly && complete ? 'Stima di riferimento' : profit===0 && complete ? 'In pareggio' : {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[state];
-        return {list, state, label, html:`<section class="mg-glass-account" aria-label="Controllo costi ordine">` +
+        const label=stale ? 'Listini non aggiornati' : referenceOnly && complete ? 'Stima di riferimento' : profit===0 && complete ? 'In pareggio' : {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[state];
+        return {list, state, label, stale, html:`<section class="mg-glass-account" aria-label="Controllo costi ordine">` +
             `<div class="mg-glass-identity"><div><strong class="mg-glass-customer">${esc(input.cliente || '')}</strong><small>${input.vendita?.data ? 'Venduto il '+date(input.vendita.data) : ''}</small></div>` +
             `<div><small>Obiettivo utile SRL</small><strong>${money(target)}</strong></div></div>` +
             `<div class="mg-glass-metrics"><div><small>Venduto al cliente</small><strong>${money(input.vendita?.totale)}</strong><span>Ricavo storico · upgrade inclusi${input.vendita?.iva_vendita ? ' · IVA '+Math.round(input.vendita.iva_vendita.aliquota*100)+'%' : ''}${input.vendita?.iva_vendita?.fonte==='confermata utente'?' confermata da te':''}</span></div>` +
             `<div><small>Costo totale${complete?'':' noto · parziale'}</small><strong>${money(input.costo)}</strong><span>Netto · extra e servizi inclusi</span></div>` +
-            `<div><small>Utile SRL stimato</small><strong>${money(profit)}</strong><span>${input.conti.confermato ? 'Costi acquistati conservati' : 'Sul ricavo di questo ordine'}</span></div>` +
+            `<div><small>${stale?'Stima con listini non aggiornati':'Utile SRL stimato'}</small><strong>${money(profit)}</strong><span>${input.conti.confermato ? 'Costi acquistati conservati' : 'Sul ricavo di questo ordine'}</span></div>` +
             `<div class="mg-glass-status ${state}" role="status"><b>${esc(status)}</b><small>${input.nMancanti ? input.nMancanti+' costi da completare' : unquoted ? unquoted+' riferimenti di costo · confermare prima dell’acquisto' : 'Conto completo nelle fonti in basso'}</small></div></div>` +
+            (stale ? `<div class="mg-glass-warnings" role="alert"><p><b>Listini fermi al ${date(freshnessState.last)}.</b> Aggiorna i listini prima di valutare costi, utile e limiti di spesa. Le quotazioni mancanti possono dipendere dal mancato aggiornamento; i prezzi pagati registrati restano conservati.</p></div>` : '') +
             (input.noticeHtml || '') + (input.avvisi?.length ? `<div class="mg-glass-warnings" role="alert">${input.avvisi.map(a=>`<p>${esc(a)}</p>`).join('')}</div>` : '') +
             `<div class="mg-glass-increases"><b>${higher.length ? `${higher.length} voci sopra riferimento · +${money(delta)} netti` : 'Nessun aumento verificabile sui riferimenti disponibili'}</b>` +
             `<small>Confronto ${input.auto?.configuratore ? 'lista configuratore' : 'Excel build'} su ${covered} di ${list.length} voci. I riferimenti disponibili non sono una fotografia dei costi alla vendita.</small></div>` +
@@ -129,7 +139,7 @@
         };
         section.querySelector('[data-glass-confirm]').onclick=()=>actions.confirm(section);
         // Economic states remain available to navigation without re-reading account data.
-        card.dataset.glassProfit=input.nMancanti ? 'Costi incompleti' : money(input.utile?.srl);
+        card.dataset.glassProfit=view.stale ? 'Non aggiornato' : input.nMancanti ? 'Costi incompleti' : money(input.utile?.srl);
         card.dataset.glassState=view.state;
         card.dataset.glassLabel=view.label;
         card.dataset.glassCustomer=input.cliente || '';
@@ -174,7 +184,7 @@
         new MutationObserver(schedule).observe(c,{attributes:true,attributeFilter:['style','class']});
         sync();
     }
-    const api={reference,budget,rows,render,mount,sync,selection,select};
+    const api={reference,budget,rows,render,mount,sync,selection,select,freshness};
     if(typeof window!=='undefined')window.MGOrderGlass=api;
     if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',init);
 })();

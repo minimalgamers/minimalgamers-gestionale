@@ -106,6 +106,14 @@ test('unresponsive HTTP or JSON body times out; invalid HTTP responses fail and 
  s.fetch=async()=>({ok:true,json:async()=>({stato:'avviato'})});
  assert.equal((await A.richiediJson('test')).stato,'avviato');
 });
+
+test('a structured scheduler failure explains disabled updates instead of hiding it behind HTTP 502',async()=>{
+ const {s,A}=env();
+ s.fetch=async()=>({ok:false,status:502,json:async()=>({stato:'errore',messaggio:'Buyer Desk disabilitato: riattivare il processo.'})});
+ await assert.rejects(()=>A.richiediJson('test'),/Buyer Desk disabilitato/);
+ s.fetch=async()=>({ok:false,status:502,json:async()=>{throw Error('HTML response')}});
+ await assert.rejects(()=>A.richiediJson('test'),/HTTP 502/);
+});
 test('stock and exact customer requirement are checked again across the entire purchase plan',()=>{
  const {A}=env();const a={codice:'GPU-A',fornitore:'ACTION',costo:100,costo_unitario:100,quantita:1,stock:1,ordinabile:true};
  const part={tipo:'GPU',auto:a,alternative:[a]},d=fresh();d.offerte_ordinabili=[a];

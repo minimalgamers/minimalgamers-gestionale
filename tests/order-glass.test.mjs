@@ -9,6 +9,22 @@ const input=()=>({conti:{righe:[{tipo:'GPU',ean:'GPU',fornitore:'ACTION',nome:'D
  auto:{pezzi:[{tipo:'GPU',manuale:{codice:'GPU'},excel:{costo:100}}]},extraLista:[{tipo:'VENTOLE',nome:'5 ventole RGB',chiave:'FAN',costo:20}],
  custom:[{id:4,value:'Personalizzazione XYZ',costo:0}],montaggio:[],servizi:[{nome:'Montaggio',costo:10}]});
 
+test('stale feed is explicit in complete and incomplete accounts and cannot offer a current spending limit',()=>{
+ const i=input();i.now=Date.parse('2026-11-02T10:00:00Z');i.generato='2026-10-31T08:00:00Z';
+ let r=G.render(i);assert.equal(r.stale,true);assert.equal(r.state,'unknown');assert.equal(r.label,'Listini non aggiornati');
+ assert.match(r.html,/Stima con listini non aggiornati/);assert.match(r.html,/Listini fermi al/);
+ assert.doesNotMatch(r.html,/Limiti di spesa/);assert.match(r.html,/70,00/);
+ i.nMancanti=1;r=G.render(i);assert.match(r.html,/Non disponibile/);assert.equal(r.label,'Listini non aggiornati');
+ i.generato='2026-11-02T09:45:00Z';i.listini='2026-10-31T08:00:00Z';assert.equal(G.render(i).stale,true);
+ i.listini=i.generato;assert.equal(G.render(i).stale,false);
+});
+
+test('an old supplier feed does not invalidate confirmed purchase history',()=>{
+ const i=input();i.now=Date.parse('2026-11-02T10:00:00Z');i.generato='2026-10-31T08:00:00Z';i.conti.confermato=true;
+ const r=G.render(i);assert.equal(r.stale,false);assert.match(r.html,/Costi acquistati conservati/);
+ assert.equal(r.list[1].costo,80);assert.equal(r.list[1].state,'Pagato');
+});
+
 test('an explicit unpurchased component marker remains clear even in a shipped accounting view; paid history wins',()=>{
  const i=input();i.auto.solo_contabile=true;i.conti.righe[0].nome='RTX 5080 — DA ACQUISTARE';
  assert.equal(G.render(i).list[0].state,'Da acquistare');

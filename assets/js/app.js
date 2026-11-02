@@ -12358,3 +12358,10 @@ document.getElementById('cancel-custom-item')?.addEventListener('click', () => {
 document.getElementById('add-custom-item-overlay')?.addEventListener('click', () => {
     closeAddCustomItemPopup();
 });
+
+// Selection toolbars belong to the page where they were opened.
+window.addEventListener('mg:navigate', () => {
+    exitOrdersSelectionMode();
+    exitProcessedSelectionMode();
+    exitFinalizedSelectionMode();
+});

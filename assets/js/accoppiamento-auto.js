@@ -3768,7 +3768,7 @@
             riepilogo.nomi = {};
             return true;
         }
-        const carte = Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]')).filter(c => {
+        const carte = window.MGOrderGlass?.purchaseScopeCards ? window.MGOrderGlass.purchaseScopeCards() : Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]')).filter(c => {
             const s = window.getComputedStyle(c);
             return s.display !== 'none' && s.visibility !== 'hidden';
         });

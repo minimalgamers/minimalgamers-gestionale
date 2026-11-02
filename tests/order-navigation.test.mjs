@@ -35,6 +35,16 @@ test('search, active detail, accents, empty results and removal of a selected or
  assert.equal(G.navigationSelection(items,'removed','').active,'1');
  assert.equal(JSON.stringify(items),before);
 });
+test('procurement includes cards hidden by the single-detail view, while preserving actual exclusion filters',()=>{
+ const card=element(['mg-order-inactive'],{display:'none'});
+ // Inline display is an explicit legacy filter; computed display can be hidden by the Glass detail view.
+ card.style={};card.ownerDocument.defaultView.getComputedStyle=()=>({display:'none',visibility:'visible'});
+ assert.equal(G.inPurchaseScope(card),true);
+ card.style.display='none';assert.equal(G.inPurchaseScope(card),false);
+ card.style={};card.hidden=true;assert.equal(G.inPurchaseScope(card),false);
+ card.hidden=false;card.classList.contains=()=>false;assert.equal(G.inPurchaseScope(card),false);
+ card.ownerDocument.defaultView.getComputedStyle=()=>({display:'block',visibility:'visible'});assert.equal(G.inPurchaseScope(card),true);
+});
 
 test('reloading Shopify binds tab and operator controls once and performs a single desk render per click',()=>{
  const source=fs.readFileSync(new URL('../assets/js/app.js',import.meta.url),'utf8');

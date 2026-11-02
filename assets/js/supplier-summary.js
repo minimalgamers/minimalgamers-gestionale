@@ -16,6 +16,8 @@ const exportBtn = document.getElementById('export-btn');
 let lastSupplierSummaryContext = null;
 
 function getVisibleProcessedOrderIds() {
+    if (window.MGOrderGlass?.purchaseScopeCards)
+        return new Set(window.MGOrderGlass.purchaseScopeCards().map(c => String(c.dataset.orderId).trim()).filter(Boolean));
     return new Set(
         Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]'))
             .filter(card => {
@@ -28,6 +30,8 @@ function getVisibleProcessedOrderIds() {
 }
 
 function getVisibleProcessedOrderNumbers() {
+    if (window.MGOrderGlass?.purchaseScopeCards)
+        return new Set(window.MGOrderGlass.purchaseScopeCards().map(c => String(c.querySelector('.order-id-flip')?.textContent || c.dataset.orderId).replace('#','').trim()).filter(Boolean));
     return new Set(
         Array.from(document.querySelectorAll('#processed-container .order-card[data-order-id]'))
             .filter(card => {

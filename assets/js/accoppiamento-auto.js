@@ -3570,6 +3570,8 @@
             // la spiegazione piu' chiara vince sul solo codice (es. «CASE ATX BLACK» -> budget del case ATX)
             if (x.descrizione && x.descrizione !== x.codice && (!r.descrizione || r.descrizione === r.codice || /— nome prodotto da verificare$/.test(r.descrizione))) r.descrizione = x.descrizione;
             r.quantita += x.quantita;
+            (r.costiVista || (r.costiVista=[])).push({quantita:x.quantita,
+                unitario:Number.isFinite(x.costo)&&x.quantita>0?tonda(x.costo/x.quantita):null,stimato:!!x.stimato});
             if (x.costo == null) r.senzaCosto = true; else r.costo = tonda(r.costo + x.costo);
             if (x.stimato) r.stimato = true;
             if (x.daConfermare) r.daConfermare = true;
@@ -3924,33 +3926,89 @@
         });
     }
 
+    // Presentation only: operational rows retain their readiness, allocation and exact PC identities.
+    function raggruppaReferenzeAcquisto(righe, categoria = '') {
+        const gruppi = new Map();
+        for (const r of righe || []) {
+            const cat = r.categoria || categoria;
+            const codice = String(r.codice || '').trim();
+            const k = codice && r.fornitore !== DA_SCEGLIERE && !fornitoreVago(r.fornitore) ? JSON.stringify([r.fornitore,cat,codice]) : r;
+            if (!gruppi.has(k)) gruppi.set(k,[]);
+            gruppi.get(k).push(r);
+        }
+        return [...gruppi.values()].map(v => {
+            if (v.length === 1) return v[0];
+            const unici = campo => [...new Set(v.flatMap(r=>r[campo] || []))];
+            const pezzi = [...new Map(v.flatMap(r=>r.pezzi || []).map(p=>[p.chiaveAcquisto || JSON.stringify([p.id,p.tipo,p.ean,p.fornitore,p.componentId]),p])).values()];
+            return {...v[0],vistaRighe:v,quantita:v.reduce((s,r)=>s+r.quantita,0),costo:tonda(v.reduce((s,r)=>s+r.costo,0)),
+                senzaCosto:v.some(r=>r.senzaCosto),stimato:v.some(r=>r.stimato),ordini:unici('ordini'),pezzi,
+                listini:unici('listini'),requisiti:unici('requisiti'),politiche:unici('politiche'),motivi:unici('motivi'),
+                stock:v.flatMap(r=>r.stock || []),proposta:null,daApplicare:v.some(r=>r.daApplicare),
+                nonDisponibile:false,daVerificare:false,daDecidere:false,poco:null,verificaDisponibilita:null,statoVisivo:null,disponibilita:''};
+        });
+    }
+
+    function bersaglioReferenzaVista(riepilogo, indici) {
+        const ns = String(indici).split(',').map(x=>/^\d+$/.test(x)?Number(x):NaN);
+        if (!ns.length || ns.some(n=>!Number.isSafeInteger(n)) || new Set(ns).size !== ns.length) return null;
+        const visuali = (riepilogo.fornitori || []).flatMap(f=>f.righe || []);
+        const righe = ns.map(n=>visuali.find(r=>r.n===n) || riepilogo.righe.find(r=>r.n===n));
+        if (righe.some(r=>!r)) return null;
+        const gruppi = raggruppaReferenzeAcquisto(righe);
+        return gruppi.length === 1 ? gruppi[0] : null;
+    }
+
     function htmlRigaDaOrdinare(r, colore, magazzino, categoria) {
+        const membri = r.vistaRighe || [r], aggregata = membri.length > 1;
+        const indici = membri.map(x=>x.n).join(',');
+        const confermabile = x => x.daApplicare && rigaOrdinabile({...x,daApplicare:false});
+        const statoRiga = x => rigaOrdinabile(x) ? 'Pronti per la copia' : confermabile(x) ? 'Da confermare nelle distinte' : 'Bloccati: da verificare';
+        const pronti = membri.filter(rigaOrdinabile).reduce((s,x)=>s+x.quantita,0);
+        const pendenti = membri.filter(confermabile).reduce((s,x)=>s+x.quantita,0);
+        const bloccati = r.quantita-pronti-pendenti;
         const disp = r.disponibilita ? `${r.disponibilita}${r.daConfermare && !/confermare/i.test(r.disponibilita) ? ' · da confermare' : ''}` : '';
         const costo = r.senzaCosto && !r.costo ? 'costo —' : `${r.stimato ? '≈ ' : ''}${eur(r.costo)}${r.senzaCosto ? ' +' : ''}`;
-        const unitario = !r.senzaCosto && r.quantita > 0 ? eur(tonda(r.costo / r.quantita)) : '—';
+        const traccia = x => x.costiVista || [{quantita:x.quantita,unitario:!x.senzaCosto&&x.quantita>0?tonda(x.costo/x.quantita):null,stimato:x.stimato}];
+        const prezzi = [...new Set(membri.flatMap(traccia).filter(x=>Number.isFinite(x.unitario)).map(x=>x.unitario))].sort((a,b)=>a-b);
+        const unitario = prezzi.length ? prezzi.map(eur).join(' / ')+(r.senzaCosto?' · alcuni costi mancanti':'') : '—';
+        const dettaglioCosto = x => {
+            const valori = new Map();
+            for(const p of traccia(x)){
+                const k=JSON.stringify([p.unitario,!!p.stimato]);
+                const precedente=valori.get(k);valori.set(k,{...p,quantita:p.quantita+(precedente?.quantita||0)});
+            }
+            return [...valori.values()].map(p=>p.unitario==null?`${p.quantita} ${p.quantita===1?'pezzo':'pezzi'} senza costo`:`${p.quantita} × ${p.stimato?'≈ ':''}${eur(p.unitario)}`).join(' + ');
+        };
         const modificabili = (r.pezzi || []).filter(p => !p.personalizzato);
         const azioni = [
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
-            r.daApplicare ? `<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${r.n}">✓ Applica proposta alle schede</button>` : '',
-            modificabili.length && !magazzino ? `<button type="button" class="acc-rf-azione" data-rf-cambia="${r.n}" title="La sostituzione confermata si salva anche nella distinta di montaggio dei PC selezionati">🔁 Cambia dal Buyer Desk</button>` : '',
-            r.pezzi?.length && !magazzino ? `<button type="button" class="acc-rf-azione acc-rf-trash" data-rf-escludi="${r.n}" title="Esclude questi ${r.quantita} pezzi solo dagli acquisti. La distinta di montaggio resta invariata.">🗑 Escludi dagli acquisti</button>` : ''
+            membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${confermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join(''),
+            modificabili.length && !magazzino ? `<button type="button" class="acc-rf-azione" ${aggregata?`data-rf-cambia-gruppo="${indici}"`:`data-rf-cambia="${r.n}"`} title="La sostituzione confermata si salva anche nella distinta di montaggio dei PC selezionati">🔁 Cambia dal Buyer Desk</button>` : '',
+            r.pezzi?.length && !magazzino ? `<button type="button" class="acc-rf-azione acc-rf-trash" ${aggregata?`data-rf-escludi-gruppo="${indici}"`:`data-rf-escludi="${r.n}"`} title="Esclude questi ${r.quantita} pezzi solo dagli acquisti. La distinta di montaggio resta invariata.">🗑 Escludi dagli acquisti</button>` : ''
         ].filter(Boolean).join('');
         const info = r.statoVisivo?.livello === 'info' && !r.nonDisponibile && r.poco == null;
         const specifiche = [...(r.requisiti || []), ...(r.politiche || []), ...(r.motivi || [])].filter(Boolean);
         const quantitaStock = (r.stock || []).map(x => x.disponibile).filter(x => Number.isFinite(x));
-        const stock = r.stock?.length ? (quantitaStock.length ? `Stock libero: ${Math.max(...quantitaStock)} pezzi (prima delle assegnazioni)` : 'Stock libero non quantificato') : '';
-        return `<div class="supplier-item${r.daApplicare ? ' acc-rf-pending' : ''}${!magazzino && info ? ' acc-rf-informativo' : !magazzino && (r.nonDisponibile || r.daVerificare || r.poco != null || r.daDecidere) ? ' acc-rf-indisponibile' : ''}">` +
+        const stock = r.stock?.length ? (quantitaStock.length ? `Stock libero: ${Math.max(...quantitaStock)} pezzi (prima delle assegnazioni${aggregata?', stessa referenza: valori non sommati':''})` : 'Stock libero non quantificato') : '';
+        return `<div class="supplier-item${aggregata?' acc-rf-reference-group':''}${r.daApplicare ? ' acc-rf-pending' : ''}${!magazzino && info ? ' acc-rf-informativo' : !magazzino && (r.nonDisponibile || r.daVerificare || r.poco != null || r.daDecidere) ? ' acc-rf-indisponibile' : ''}">` +
             `<div class="supplier-item-header"><span class="supplier-item-quantity" style="background:${colore};box-shadow:0 2px 8px ${colore}40">x${r.quantita}</span>` +
             (categoria ? `<span class="acc-rf-cat">${esc(categoria)}</span>` : '') +
             `<span class="acc-cod acc-rf-code" data-copia="${esc(r.codice)}" title="Copia il codice">${esc(r.codice || '—')}</span>` +
             `<span class="acc-rf-costo">${magazzino ? '' : `${costo}<small>totale riga</small>`}</span></div>` +
             `<div class="supplier-item-name">${esc(r.descrizione)}</div>` +
-            (!magazzino ? `<div class="acc-rf-unit">Acquisto netto unitario: <b>${unitario}</b>` +
+            (!magazzino ? `<div class="acc-rf-unit">${prezzi.length>1?'Prezzi netti unitari':'Acquisto netto unitario'}: <b>${unitario}</b>` +
                 (r.listini?.length ? ` · listino originale fornitore: ${r.listini.map(eur).join(' / ')}` : '') + `</div>` : '') +
             `<div class="acc-nota">${esc((r.ordini || []).join(' '))}${disp ? ' · ' + esc(disp) : ''}</div>` +
+            (aggregata ? `<div class="acc-rf-state-summary"><span>${pronti} ${pronti===1?'pronto':'pronti'} per la copia</span><span>${pendenti} da confermare</span>${bloccati?`<span>${bloccati} bloccati</span>`:''}</div>` : '') +
+            (aggregata || prezzi.length>1 || r.senzaCosto ? `<details class="acc-rf-state-detail"><summary>Dettaglio stati e costi</summary>` + membri.map(x=>`<div><b>${x.quantita} × ${esc(statoRiga(x))}</b> · ${x.senzaCosto&&!x.costo?'Costo non disponibile':`${x.stimato?'≈ ':''}${eur(x.costo)}${x.senzaCosto?' + costo mancante':''}`}` +
+                    ` · ${dettaglioCosto(x)}<small>${esc((x.ordini || []).join(' '))}</small>` +
+                    `${x.poco!=null?`<p>Stock verificato ${x.poco} / richiesti ${x.quantita}: quantità bloccata.</p>`:''}` +
+                    `${x.verificaDisponibilita?`<p>${esc(x.statoVisivo?.testo || x.verificaDisponibilita.testo)}</p>`:x.nonDisponibile?'<p>Non disponibile da questo fornitore.</p>':''}` +
+                    `${x.disponibilita?`<p>${esc(x.disponibilita)}</p>`:''}${x.daConfermare?'<p>Disponibilità da confermare.</p>':''}` +
+                    `${motivoScadenzaOfferta(x.proposta)?`<p>${esc(motivoScadenzaOfferta(x.proposta))}</p>`:''}</div>`).join('') + '</details>' : '') +
             (stock ? `<div class="acc-rf-stock">${esc(stock)} · assegnati a questa riga: ${r.quantita}</div>` : '') +
             (specifiche.length ? `<details class="acc-rf-rationale"><summary>Perché questo pezzo</summary>${specifiche.map(x => `<p>${esc(x)}</p>`).join('')}</details>` : '') +
-            (r.daApplicare ? `<div class="acc-rf-split">Proposta per ${r.pezzi.length} PC: da confermare nelle distinte. Esclusa da copia e bozze d’ordine fino alla conferma.</div>` : '') +
+            (r.daApplicare ? `<div class="acc-rf-split">${aggregata?`${pendenti} pezzi da confermare nelle distinte${bloccati?' · verifica anche le quantità bloccate':''}`:`Proposta per ${r.pezzi.length} PC: da confermare nelle distinte`}. ${aggregata?'Le proposte non confermate sono escluse':'Esclusa'} da copia e bozze d’ordine fino alla conferma.</div>` : '') +
             (r.daDecidere ? `<div class="acc-rf-avviso">Quantità ancora da coprire: ${r.quantita}. Non inclusa nelle bozze d’ordine.</div>` : '') +
             (r.poco != null ? `<div class="acc-rf-avviso">Stock verificato ${r.poco} / richiesti ${r.quantita}: riga bloccata. Ricalcola per vedere le altre assegnazioni disponibili.</div>` : '') +
             (r.verificaDisponibilita ? `<div class="acc-rf-avviso">${info ? 'ℹ' : '⚠'} ${esc(r.statoVisivo?.testo || r.verificaDisponibilita.testo)}</div>` :
@@ -3977,7 +4035,7 @@
                 `<span class="supplier-count">${f.pezzi} pz${mag ? ' a terra' : (f.costo ? ' · ' + eur(f.costo) : '')}</span></div><div class="supplier-items-list">` +
                 (mag ? '<div class="acc-nota">Già a terra: non si ordinano.</div>' : '') +
                 (f.nome === DA_SCEGLIERE ? '<div class="acc-nota">Pezzi fuori dai listini: si scelgono col budget scritto sotto (link Amazon per trovarli in fretta).</div>' : '') +
-                f.righe.map(x => htmlRigaDaOrdinare(x, col, mag, x.categoria)).join('') +
+                raggruppaReferenzeAcquisto(f.righe).map(x => htmlRigaDaOrdinare(x, col, mag, x.categoria)).join('') +
                 `</div><div class="supplier-card-footer">${mag ? '' : `<button type="button" class="acc-rf-copia" data-rf-forn="${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 ${f.nome === DA_SCEGLIERE ? 'Copia elenco' : `Copia ordine ${esc(f.nome)}`}</button>`}</div></div>`;
         }).join('');
     }
@@ -3993,7 +4051,7 @@
                 `<span class="supplier-count">${c.pezzi} pz${c.costo ? ' · ' + eur(c.costo) : ''}</span></div><div class="supplier-items-list">` +
                 c.fornitori.map(f => `<div class="acc-rf-forn">${badgeFornitore(f.nome)} <small>${f.pezzi} pz` +
                     `${f.nome === 'MAGAZZINO' ? ' · già a terra, non si ordinano' : (f.costo ? ' · ' + eur(f.costo) : '')}</small></div>` +
-                    f.righe.map(x => htmlRigaDaOrdinare(x, col, f.nome === 'MAGAZZINO')).join('')).join('') +
+                    raggruppaReferenzeAcquisto(f.righe,c.nome).map(x => htmlRigaDaOrdinare(x, col, f.nome === 'MAGAZZINO')).join('')).join('') +
                 `</div><div class="supplier-card-footer"><button type="button" class="acc-rf-copia" data-rf-cat="${esc(c.nome)}"${c.fornitori.some(f => f.righe.some(rigaOrdinabile)) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 Copia ${esc(c.nome)}</button></div></div>`;
         }).join('');
     }
@@ -4213,9 +4271,17 @@
             if (box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }));
         tutti('[data-rf-escludi]').forEach(b => b.addEventListener('click', () => modificaEsclusioneAcquisto(r.righe[Number(b.dataset.rfEscludi)], true).catch(e => avvisa(e.message,'error'))));
+        tutti('[data-rf-escludi-gruppo]').forEach(b => b.addEventListener('click', () => {
+            const gruppo=bersaglioReferenzaVista(r,b.dataset.rfEscludiGruppo);
+            if(gruppo)modificaEsclusioneAcquisto(gruppo,true).catch(e=>avvisa(e.message,'error'));
+        }));
         tutti('[data-rf-ripristina]').forEach(b => b.addEventListener('click', () => modificaEsclusioneAcquisto(r.esclusioni[Number(b.dataset.rfRipristina)], false).catch(e => avvisa(e.message,'error'))));
         tutti('[data-rf-applica]').forEach(b => b.addEventListener('click', () => confermaPropostaAcquisto(r.righe[Number(b.dataset.rfApplica)]).catch(e => avvisa(e.message,'error'))));
         tutti('[data-rf-cambia]').forEach(b => b.addEventListener('click', () => apriCambio(r.righe[parseInt(b.dataset.rfCambia, 10)])));
+        tutti('[data-rf-cambia-gruppo]').forEach(b => b.addEventListener('click', () => {
+            const gruppo=bersaglioReferenzaVista(r,b.dataset.rfCambiaGruppo);
+            if(gruppo)apriCambio(gruppo);
+        }));
         tutti('[data-rf-ricalcola]').forEach(b => b.addEventListener('click', () => renderRiepilogoAuto(true)));
         tutti('[data-rf-email]').forEach(b => b.addEventListener('click', () => apriEmailOrdine(b.dataset.rfEmail, riepilogo.ultimo)));
     }
@@ -4695,7 +4761,7 @@
         bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
-        htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
+        htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
         righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, rigaUpgradePagati, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,

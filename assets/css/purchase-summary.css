@@ -13,6 +13,13 @@ body.mg-ios #suppliers-container :is(.acc-rf-rationale,.acc-rf-split) { display:
 body.mg-ios #suppliers-container :is(.acc-rf-rationale,.acc-rf-excluded)>summary { cursor: pointer; font-weight: 650; }
 body.mg-ios #suppliers-container .acc-rf-rationale p { margin: 7px 0 0; }
 body.mg-ios #suppliers-container .acc-rf-azioni { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+body.mg-ios #suppliers-container .acc-rf-state-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+body.mg-ios #suppliers-container .acc-rf-state-summary span { padding: 5px 8px; border-radius: 7px; background: #edf2f8; color: #35445a; font-size: 12px; font-weight: 650; }
+body.mg-ios #suppliers-container .acc-rf-state-detail { margin: 9px 0; font-size: 12px; color: #40516a; line-height: 1.5; }
+body.mg-ios #suppliers-container .acc-rf-state-detail summary { cursor: pointer; font-weight: 650; }
+body.mg-ios #suppliers-container .acc-rf-state-detail div { padding: 8px 0; border-bottom: 1px solid #dce3ed; overflow-wrap: anywhere; }
+body.mg-ios #suppliers-container .acc-rf-state-detail small { display: block; color: #526078; }
+body.mg-ios #suppliers-container .acc-rf-state-detail p { color: #8b510d; margin: 4px 0 0; }
 body.mg-ios #suppliers-container .acc-rf-azione { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; line-height: 1.4; white-space: normal; }
 body.mg-ios #suppliers-container :is(.acc-rf-trash,[data-rf-escludi]) { color: #9a3039; background: #fff3f3; border: 1px solid #ebc9ce; }
 body.mg-ios #suppliers-container .acc-rf-excluded { background: #f5f7fa; border: 1px solid #dce3ed; border-radius: 10px; padding: 12px; opacity: 1; }

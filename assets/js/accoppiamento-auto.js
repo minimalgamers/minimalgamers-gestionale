@@ -33,7 +33,8 @@
         // 30/09: righe accessori della scheda (kit dei bundle, sedia, scrivania) = pezzi ACCESSORIO dell'automatico
         'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO'
     };
-    const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
+    const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti',
+        '_scelte_acquisto_gestionale', '_esclusioni_acquisto_gestionale', '_modifica_distinta_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
         'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'];
 
     const stato = { dati: null, errore: null, promessa: null, caricatoIl: 0, inCorso: false, upgradeAttesi: [] };
@@ -302,7 +303,7 @@
     function scelteCliente(tipoRiga, variants) {
         const out = [];
         for (const [k, v] of Object.entries(variants || {})) {
-            if (!v || CHIAVI_TECNICHE.includes(k)) continue;
+            if (!['string', 'number'].includes(typeof v) || !v || CHIAVI_TECNICHE.includes(k)) continue;
             if (typeof isGpoBaseNoComponentValue === 'function' && isGpoBaseNoComponentValue(v)) continue;
             const combinata = typeof splitRAMandSSD === 'function' ? splitRAMandSSD(v) : null;
             if (combinata && combinata.ram && combinata.ssd) {

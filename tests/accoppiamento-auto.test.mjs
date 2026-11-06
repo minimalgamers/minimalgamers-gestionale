@@ -741,7 +741,7 @@ const rEm = J(A.daOrdinare(datiEm, schedeEm, {}));
 const em = J(A.ordiniEmail(rEm, contattiProva));
 assert.deepEqual(em.invii.map(x => [x.id, x.pezzi]), [['T1_CPU', 1], ['INTER', 3], ['ABACO', 1]]);
 assert.deepEqual(em.invii[1].gruppi.map(g => g.nome).sort(), ['ACTION', 'TIER ONE']);   // TIER ONE senza CPU all'intermediario
-assert.deepEqual(em.senza, [{ nome: 'AMAZON', pezzi: 1, motivo: 'si compra sul sito' }]);  // magazzino escluso
+assert.deepEqual(em.senza, []); // acquisto Amazon non verificato e magazzino esclusi dalle bozze
 const tT1 = A.testoEmail(em.invii[0], contattiProva, '02/10/2026');
 assert.equal(tT1.a, 'uno@t1.example; due@t1.example');
 assert.equal(tT1.oggetto, 'Ordine Minimal Gamers del 02/10/2026');
@@ -763,7 +763,8 @@ assert.equal(A.urlOutlook('a@x.example', 'Ogg', 'x'.repeat(9000)).incolla, true)
 assert.ok(A.avvisiEmail(em.invii[2], { cambi: 2 }).some(t => /Contatto da confermare/.test(t)));
 assert.ok(A.avvisiEmail(em.invii[2], { cambi: 2 }).some(t => /2 pezzi sono diversi dalle schede/.test(t)));
 const latoEm = A.htmlLatoDaOrdinare(rEm, 3, '10:00', 'categorie', null, contattiProva);
-assert.match(latoEm, /data-rf-email="T1_CPU"[\s\S]*data-rf-email="INTER"[\s\S]*Senza email: AMAZON 1 pz/);
+assert.match(latoEm, /data-rf-email="T1_CPU"[\s\S]*data-rf-email="INTER"/);
+assert.doesNotMatch(latoEm, /Senza email: AMAZON/);
 assert.doesNotMatch(A.htmlLatoDaOrdinare(rEm, 3, '10:00'), /data-rf-email/);           // senza contatti nel file: niente pulsanti
 
 // --- 02/10: CPU sempre dirette (anche ACTION), email in inglese per i fornitori esteri ---

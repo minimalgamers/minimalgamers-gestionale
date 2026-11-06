@@ -2208,7 +2208,9 @@
     // servono attraverso i nostri fornitori con le regole che conosci, e CONFERMA ACQUISTO PEZZI, quando
     // abbiamo comprato i pezzi dei PC di quella scrivania: fino ad allora si aggiorna quante volte si vuole.»
     const URL_AGGIORNA_LISTINI = 'https://minimal-gamers-listini-scheduler.theminimalgamers.workers.dev/aggiorna-listini';
-    const ATTESA_LISTINI_MS = 9 * 60 * 1000;
+    // The full supplier acquisition may use the backend's 30-minute limit,
+    // followed by catalog publication. Do not fail a healthy run after 9 minutes.
+    const ATTESA_LISTINI_MS = 35 * 60 * 1000;
     const ultimiConti = {};                      // orderId -> conti dell'ultimo calcolo del riquadro
     const sezioniAperte = {};                    // orderId -> sezione aperta nel riquadro (conto, pezzi, opzioni, avvisi)
 
@@ -2851,15 +2853,23 @@
         if (esito?.stato === 'recente') return verificaListini(await leggi(), 5 * 60 * 1000, now());
         if (!['avviato', 'in_corso'].includes(esito?.stato)) throw new Error('aggiornamento dei fornitori non riuscito: riprova');
         const inizio = now();
-        while (now() - inizio < (opzioni.timeout ?? ATTESA_LISTINI_MS)) {
-            scrivi('Listini in aggiornamento dai fornitori: attendo la nuova pubblicazione…');
-            await pausa(20000);
+        const timeout = opzioni.timeout ?? ATTESA_LISTINI_MS;
+        const attesa = () => {
+            const secondi = Math.max(0, Math.floor((now() - inizio) / 1000));
+            return `${Math.floor(secondi / 60)}:${String(secondi % 60).padStart(2, '0')}`;
+        };
+        while (now() - inizio < timeout) {
+            scrivi(`Listini in aggiornamento dai fornitori · ${attesa()} trascorsi, attesa massima ${Math.ceil(timeout / 60000)} min. ` +
+                'La raccolta completa può richiedere 20–30 minuti: attendo la nuova pubblicazione…');
+            await pausa(Math.min(20000, timeout - (now() - inizio)));
+            if (now() - inizio >= timeout) break;
             let dati;
             try { dati = await leggi(); } catch (e) { continue; }
             if (Date.parse(dati?.listini || '') > Date.parse(prima?.listini || '') &&
                 Date.parse(dati?.generato || '') > Date.parse(prima?.generato || '')) return verificaListini(dati, 5 * 60 * 1000, now());
         }
-        throw new Error('i nuovi listini non sono ancora arrivati. Nessun cambio effettuato: riprova tra poco');
+        throw new Error(`i nuovi listini non sono ancora arrivati entro ${Math.ceil(timeout / 60000)} min. ` +
+            'Nessun cambio effettuato: verifica l’elaborazione in corso e riprova tra poco');
     }
 
     async function aggiornaScrivania(n, barra, soloOrdini = null) {

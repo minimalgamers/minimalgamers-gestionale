@@ -86,7 +86,27 @@ function appendShopifyAccessories(components, order, pcIndex = 0) {
 
 // Piano di sola lettura: nessun ordine storico viene riscritto durante il ricalcolo.
 function shopifyAccessoryRepairPlan(order, pcIndex, saved, verifiedExtras = null) {
-    const expected = verifiedExtras || shopifyAccessoryAssignments(order)[pcIndex] || [];
+    const assigned = shopifyAccessoryAssignments(order)[pcIndex] || [];
+    if (verifiedExtras !== null) {
+        // A published allocation cannot reclassify an actual Shopify line (e.g.
+        // a keyboard with its own display) or move its units to a different PC.
+        if (!Array.isArray(verifiedExtras)) return null;
+        const unused = [...assigned];
+        for (const extra of verifiedExtras) {
+            const matches = unused.map((c, i) => ({c, i})).filter(({c}) => extra.sourceLineId != null
+                ? String(c.sourceLineId) === String(extra.sourceLineId)
+                : String(c.ean) === String(extra.ean) || c.name === extra.name);
+            if (matches.length !== 1) return null;
+            const {c, i} = matches[0];
+            const source = (order?.line_items || []).find(li => String(li.id) === String(c.sourceLineId));
+            const codes = [c.ean, source?.sku].filter(Boolean).map(String);
+            if (!codes.includes(String(extra.ean))) return null;
+            if (i < 0 || unused[i].type !== extra.type || Number(unused[i].quantity) !== Number(extra.quantity)) return null;
+            unused.splice(i, 1);
+        }
+        if (unused.length) return null;
+    }
+    const expected = verifiedExtras || assigned;
     const hasAccessoryLines = (order?.line_items || []).some(item => shopifyAccessoryType(item));
     if ((!expected.length && !hasAccessoryLines) || saved.some(c => c.price != null && c.price !== '')) return null;
     const pcs = [];
@@ -176,7 +196,8 @@ function isMonitorLineItem(item) {
     const nonMonitorHints = [
         'DISSIPAT', 'COOLER', 'AIO', 'LIQUID', 'CPU', 'GPU', 'RAM', 'SSD', 'NVME',
         'M.2', 'M2', 'ALIMENTAT', 'PSU', 'SCHEDA MADRE', 'MOBO', 'CASE', 'VENTOLA',
-        'FAN', 'KIT', 'TASTIERA', 'MOUSE', 'CUFFIE'
+        'FAN', 'KIT', 'TASTIERA', 'KEYBOARD', 'MOUSE', 'CUFFIE', 'HEADSET', 'HEADPHONE',
+        'SEDIA', 'POLTRONA', 'CHAIR', 'SCRIVANIA', 'DESK'
     ];
     const hasNonMonitorHints = !hasExplicitMonitor && nonMonitorHints.some(hint => upperName.includes(hint));
 

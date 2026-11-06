@@ -142,6 +142,58 @@ test('already entered AK400 cost is recovered for existing, future and multiple-
  assert.equal(A.costoInseritoOrdine(78,'COOLER','OTHER','ACTION'),null);
 });
 
+test('explicit single-order costs, including zero and removal, never enter shared product or stock corrections',async()=>{
+ const {s,A}=env(),key='TASTIERA|M96|',part={tipo:'TASTIERA',ean:'M96',fornitore:'',ambito:'ordine'};
+ s.processedOrdersCache[4909]={components:[{type:'TASTIERA',ean:'M96',price:null}],customProperties:{}};
+ s.window.SupabaseDB={saveOrderCost:async(id,v)=>{
+  assert.equal(id,4909);assert.equal(v.ambito,'ordine');assert.equal(v.magazzino,undefined);
+  const cp=structuredClone(s.processedOrdersCache[id].customProperties),m=cp._costi_netti_gestionale ||= {};
+  if(v.unitario===null)delete m[v.chiave];else m[v.chiave]={unitario:v.unitario,ambito:v.ambito,il:new Date().toISOString()};
+  return cp;
+ }};
+ await A.salvaCostoInserito(4909,part,42.16);
+ assert.equal(A.costoInseritoOrdine(4909,'TASTIERA','M96',''),42.16);
+ assert.equal(A.costoInseritoOrdine(4910,'TASTIERA','M96',''),null);
+ assert.equal(A.costiProdotto()[key],undefined);assert.ok(A.stato.correzioniProdotto.every(m=>!m[key]));
+ assert.equal(A.magazzinoDellaRiga(4909,{tipo:'TASTIERA',ean:'M96',fornitore:''}),null);
+ await A.salvaCostoInserito(4909,part,0);assert.equal(A.costoInseritoOrdine(4909,'TASTIERA','M96',''),0);
+ await A.salvaCostoInserito(4909,part,null);assert.equal(A.costoInseritoOrdine(4909,'TASTIERA','M96',''),null);
+ assert.equal(s.processedOrdersCache[4909].components[0].price,null);
+ await assert.rejects(()=>A.salvaCostoInserito(4909,{...part,magazzino:{id:'G'}},42.16),/giacenza/);
+});
+
+test('cost dialog defaults to this order and only an explicit product scope enables inventory or sharing',async()=>{
+ for(const product of [false,true]){
+  const {s,A}=env(),events=new Map(),saved=[];let overlay;
+  const node=(key,value='')=>({value,checked:false,disabled:false,hidden:false,textContent:'',focus(){},
+   addEventListener:(type,fn)=>events.set(`${key}:${type}`,fn)});
+  const nodes={'[name=costo]':node('cost','42,16'),'[name=iva]':node('vat','netto'),
+   '[name=ambito]':node('scope','ordine'),'[name=magazzino]':node('stock'),
+   '[name=quantita]':node('qty','3'),'[data-giacenza]':node('quantityLabel'),
+   '[data-ambito]':node('scopeText'),'[data-netto]':node('preview'),'[data-errore]':node('error'),
+   '[data-auto]':node('auto'),'[data-annulla]':node('cancel'),'form':node('form')};
+  nodes['[name=magazzino]'].checked=true;
+  s.document={getElementById:id=>id==='accoppiamento-auto-style'?{}:null,body:{appendChild(){}},
+   createElement:()=>overlay={setAttribute(){},innerHTML:'',remove(){this.removed=true;},querySelectorAll:()=>[],
+    querySelector:q=>q==='input'?nodes['[name=costo]']:nodes[q]||null}};
+  s.processedOrdersCache[4909]={components:[{type:'TASTIERA',ean:'M96',price:null}],customProperties:{}};
+  s.window.SupabaseDB={saveOrderCost:async(id,v)=>{saved.push({id,...v});return {_costi_netti_gestionale:{[v.chiave]:{unitario:v.unitario,ambito:v.ambito}}};}};
+  A.apriCosto(4909,{tipo:'TASTIERA',ean:'M96',fornitore:'',quantita:1});
+  assert.match(overlay.innerHTML,/<option value="ordine" selected>Solo questo ordine/);
+  assert.equal(nodes['[name=magazzino]'].disabled,true);assert.equal(nodes['[name=quantita]'].disabled,true);
+  assert.equal(nodes['[data-giacenza]'].hidden,true);
+  if(product){
+   nodes['[name=ambito]'].value='prodotto';events.get('scope:change')();
+   assert.equal(nodes['[name=magazzino]'].disabled,false);assert.equal(nodes['[name=quantita]'].disabled,false);
+   nodes['[name=magazzino]'].checked=false;events.get('stock:change')();
+  }
+  events.get('form:submit')({preventDefault(){}});await new Promise(setImmediate);
+  assert.equal(saved.length,1);assert.equal(saved[0].id,4909);assert.equal(saved[0].unitario,42.16);
+  assert.equal(saved[0].ambito,product?'prodotto':'ordine');assert.equal(saved[0].magazzino,null);
+  assert.equal(overlay.removed,true);assert.equal(s.processedOrdersCache[4909].components[0].price,null);
+ }
+});
+
 test('product aliases share the latest correction; reset cannot resurrect an older cost',()=>{
  const {A}=env();const a='COOLER|EAN|ACTION',b='COOLER|SKU|ACTION';
  const old={unitario:20,il:'2026-10-26T10:00:00Z',alias:[b,'COOLER|SKU|OMEGA']};
@@ -176,19 +228,22 @@ test('profit uses the same unrounded formula as GPU Watch, including losses and 
  assert.notEqual(v.srl,A.utile(1591,1103.59).srl);
 });
 
-function dbMock({paid=false,race=false,locked=false}={}){
+function dbMock({paid=false,race=false,locked=false,pending=false,onComponentsRead=null}={}){
  const order={id:1,shopify_order_id:'77',stato:'elaborati',updated_at:'v1',custom_properties:{CASE:'BLACK'}};
  if(locked)order.custom_properties._acquisto_confermato_gestionale={righe:[{tipo:'CPU',ean:'C',costo:100}]};
+ if(pending)order.custom_properties._modifica_distinta_gestionale={token:'pending'};
  const parts=[{order_id:1,component_type:'CPU',ean:'C',supplier:'ACTION',quantity:1,price:paid?100:null}];
  const writes=[];
  class Q{
   constructor(table){this.table=table;this.filters=[];this.op='read';}
-  select(){return this;}eq(k,v){this.filters.push(r=>r[k]===v);return this;}is(k,v){return this.eq(k,v);}or(){return this;}order(){return this;}
+  select(){return this;}eq(k,v){this.filters.push(r=>(k.includes('->')?k.split(/->>?/).reduce((x,p)=>x?.[p],r):r[k])===v);return this;}
+  is(k,v){this.filters.push(r=>{const x=k.includes('->')?k.split(/->>?/).reduce((x,p)=>x?.[p],r):r[k];return v===null?x==null:x===v;});return this;}or(){return this;}order(){return this;}
   update(data){this.op='update';this.data=data;return this;}
   single(){return this.then(x=>({...x,data:x.data[0]}));}
   maybeSingle(){return this.single();}
   then(resolve,reject){
    if(race&&this.table==='processed_order_components'&&this.op==='read')order.updated_at='v2';
+   if(onComponentsRead&&this.table==='processed_order_components'&&this.op==='read')onComponentsRead(order,parts);
    const rows=(this.table==='processed_orders'?[order]:parts).filter(r=>this.filters.every(f=>f(r)));
    if(this.op==='update'&&rows.length){writes.push({table:this.table,data:this.data});rows.forEach(r=>Object.assign(r,this.data));}
    return Promise.resolve({data:JSON.parse(JSON.stringify(rows)),error:null}).then(resolve,reject);
@@ -212,6 +267,32 @@ test('costo e definizione scorta sono condivisi senza inventare quantità né to
  assert.equal(cp._costi_netti_gestionale['CPU|C|ACTION'].magazzino.codice,'MAG-PROD-C');
  assert.equal(cp.CASE,'BLACK');assert.equal(parts[0].price,null);assert.ok(writes.every(w=>w.table==='processed_orders'));
  assert.equal(cp._costi_netti_gestionale['CPU|C|ACTION'].magazzino.quantity,undefined);
+});
+
+test('database honors explicit scope, retains legacy product default and forces personal expenses to the order',async()=>{
+ const voce={tipo:'CPU',ean:'C',fornitore:'ACTION',chiave:'CPU|C|ACTION',unitario:0};
+ for(const ambito of ['ordine','prodotto',undefined]){
+  const f=dbMock();const cp=await f.s.dbSaveOrderCost('77',{...voce,ambito});
+  assert.equal(cp._costi_netti_gestionale[voce.chiave].ambito,ambito||'prodotto');
+  assert.equal(cp._costi_netti_gestionale[voce.chiave].unitario,0);assert.equal(f.parts[0].price,null);
+  await f.s.dbSaveOrderCost('77',{...voce,ambito,unitario:null});
+  const reset=f.order.custom_properties._costi_netti_gestionale[voce.chiave];
+  if(ambito==='ordine')assert.equal(reset,undefined);else assert.equal(reset.annullato,true);
+ }
+ const f=dbMock(),personal={...voce,tipo:'PERSONALIZZATO',extra:true,chiave:'PERSONALIZZATO|CUSTOM1|',ambito:'prodotto'};
+ assert.equal((await f.s.dbSaveOrderCost('77',personal))._costi_netti_gestionale[personal.chiave].ambito,'ordine');
+ for(const bad of [{ambito:'unknown'},{ambito:'ordine',magazzino:{id:'G'}}])
+  await assert.rejects(()=>dbMock().s.dbSaveOrderCost('77',{...voce,...bad}));
+});
+
+test('cost edits cannot overwrite paid snapshots, active intents or finalization even with unchanged parent timestamp',async()=>{
+ const voce={tipo:'CPU',ean:'C',fornitore:'ACTION',chiave:'CPU|C|ACTION',unitario:42.16,ambito:'ordine'};
+ for(const options of [{paid:true},{locked:true},{pending:true},
+  {onComponentsRead:o=>{o.custom_properties._acquisto_confermato_gestionale={righe:[{}]};}},
+  {onComponentsRead:o=>{o.custom_properties._modifica_distinta_gestionale={token:'other'};}},
+  {onComponentsRead:o=>{o.stato='finalizzati';}}]){
+  const f=dbMock(options);await assert.rejects(()=>f.s.dbSaveOrderCost('77',voce));assert.equal(f.writes.length,0);
+ }
 });
 test('sostituzione definitiva conserva proprietà e storico, con controllo di identità e concorrenza',async()=>{
  const rule={tipo:'CPU',da:{ean:'C',fornitore:'ACTION'},a:{codice:'NEW',fornitore:'ABACO',descrizione:'CPU nuova'}};
@@ -321,6 +402,8 @@ test('shared corrections reader includes saved corrections from other orders and
   assert.equal(table,'processed_orders');assert.equal(columns,'custom_properties');
   return [{custom_properties:{_costi_netti_gestionale:{'COOLER|R|ACTION':{unitario:20}}}},
    {custom_properties:JSON.stringify({_costi_netti_gestionale:{'RAM|S|ACTION':{unitario:0}}})},
+   {custom_properties:{_costi_netti_gestionale:{'TASTIERA|M96|':{unitario:42.16,ambito:'ordine',magazzino:{id:'bad'}}}}},
+   {custom_properties:{_costi_netti_gestionale:{'PERSONALIZZATO|CUSTOM1|':{unitario:10}}}},
    {custom_properties:null},{custom_properties:'broken'}];
  }};vm.createContext(s);const src=read('assets/js/supabase-config.js');
  vm.runInContext(src.slice(src.indexOf('async function dbGetProductCostCorrections('),src.indexOf('// Correzione del costo prodotto:')),s);

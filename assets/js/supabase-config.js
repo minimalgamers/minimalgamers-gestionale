@@ -347,7 +347,8 @@ async function dbGetProductCostCorrections() {
     return rows.map(r => {
         let cp = r.custom_properties;
         if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { return {}; } }
-        return cp?._costi_netti_gestionale || {};
+        return Object.fromEntries(Object.entries(cp?._costi_netti_gestionale || {})
+            .filter(([k,v]) => k.split('|')[0] !== 'PERSONALIZZATO' && v?.ambito !== 'ordine'));
     }).filter(m => Object.keys(m).length);
 }
 
@@ -362,6 +363,7 @@ async function dbSaveOrderCost(shopifyOrderId, voce) {
     if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
     const prot = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
     if (prot._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: i costi storici sono protetti');
+    if (prot._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa la modifica prima di salvare il costo');
     const { data: componenti, error: errC } = await supabase.from('processed_order_components')
         .select('component_type,ean,supplier,price').eq('order_id', order.id);
     if (errC) throw errC;
@@ -373,7 +375,9 @@ async function dbSaveOrderCost(shopifyOrderId, voce) {
     let cp = order.custom_properties || {};
     if (typeof cp === 'string') cp = JSON.parse(cp);
     cp = { ...cp, _costi_netti_gestionale: { ...(cp._costi_netti_gestionale || {}) } };
-    const ambito = voce.tipo === 'PERSONALIZZATO' ? 'ordine' : 'prodotto';
+    if (voce.ambito != null && !['ordine','prodotto'].includes(voce.ambito)) throw new Error('Ambito costo non valido');
+    const ambito = voce.tipo === 'PERSONALIZZATO' ? 'ordine' : (voce.ambito || 'prodotto');
+    if (ambito === 'ordine' && voce.magazzino) throw new Error('La giacenza richiede la conferma del costo per il prodotto');
     const [tipo, , forn] = voce.chiave.split('|');
     const alias = [...new Set([voce.chiave, ...(voce.alias || []).filter(k => typeof k === 'string' && k.split('|').length === 3 && k.split('|')[0] === tipo && k.split('|')[2] === forn && k.split('|')[1])])];
     if (voce.unitario === null && ambito === 'ordine') delete cp._costi_netti_gestionale[voce.chiave];
@@ -387,7 +391,10 @@ async function dbSaveOrderCost(shopifyOrderId, voce) {
             id: String(g.id).slice(0,180), codice: g.codice, tipo:g.tipo, descrizione:String(g.descrizione).slice(0,400)
         };
     }
-    let q = supabase.from('processed_orders').update({ custom_properties: cp, updated_at: new Date().toISOString() }).eq('id', order.id);
+    let q = supabase.from('processed_orders').update({ custom_properties: cp, updated_at: purchaseWriteTime(order.updated_at) }).eq('id', order.id)
+        .is('custom_properties->>_acquisto_confermato_gestionale',null)
+        .is('custom_properties->>_modifica_distinta_gestionale',null);
+    q = order.stato == null ? q.is('stato',null) : q.eq('stato',order.stato);
     q = order.updated_at == null ? q.is('updated_at', null) : q.eq('updated_at', order.updated_at);
     const result = await q.select('id');
     if (result.error) throw result.error;

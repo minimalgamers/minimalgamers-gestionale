@@ -173,12 +173,12 @@
     }
 
     const desks=new Map();
-    let currentDesk='', timer=null;
+    let currentDesk='', timer=null, scrollTracker=null, trackerDesk='', trackerCards=[];
     const setClass=(el,name,on)=>{if(el.classList.contains(name)!==on)el.classList.toggle(name,on);};
     const setHidden=(el,on)=>{if(el.hidden!==on)el.hidden=on;};
     const searchKey=v=>String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('it').trim();
     function deskState(key) {
-        if(!desks.has(key))desks.set(key,{active:'',showAll:false,query:'',scrollTop:0,scrollLeft:0});
+        if(!desks.has(key))desks.set(key,{active:'',query:'',scrollTop:0,scrollLeft:0,listTop:0});
         return desks.get(key);
     }
     function rendered(el) {
@@ -194,34 +194,128 @@
     }
     function navigationSelection(items,requested,query) {
         const q=searchKey(query),matches=items.filter(i=>!q || searchKey(i.text).includes(q));
-        return {ids:matches.map(i=>i.id),active:selection(matches.map(i=>i.id),requested)};
+        return {ids:matches.map(i=>i.id),active:selection(items.map(i=>i.id),requested)};
+    }
+    function headerOffset(doc) {
+        const win=doc.defaultView;
+        return Math.max(0,...['fixed-header','tabs-container'].map(id=>{
+            const el=doc.getElementById(id);
+            if(!el || !rendered(el))return 0;
+            const position=win.getComputedStyle(el).position;
+            return position==='fixed' || position==='sticky' ? Math.max(0,el.getBoundingClientRect().bottom) : 0;
+        }));
+    }
+    function readingLine(doc) {
+        const nav=doc.getElementById('mg-order-navigation'),win=doc.defaultView;
+        const bottom=nav && !nav.hidden && win.getComputedStyle(nav).position==='sticky' ? nav.getBoundingClientRect().bottom : 0;
+        return Math.max(headerOffset(doc),bottom)+16;
     }
     function scrollToOrder(id) {
         const c=document.getElementById('processed-container');
         const card=[...c.querySelectorAll(':scope > .order-card[data-order-id]')].find(c=>c.dataset.orderId===id);
         if(!card || !rendered(card))return;
         const win=c.ownerDocument.defaultView;
-        const top=Math.max(0,...['fixed-header','tabs-container'].map(id=>{
-            const el=document.getElementById(id);
-            return el && rendered(el) && win.getComputedStyle(el).position==='fixed' ? el.getBoundingClientRect().bottom : 0;
-        }));
-        win.scrollTo({top:Math.max(0,win.scrollY+card.getBoundingClientRect().top-top-16),behavior:'auto'});
+        win.scrollTo({top:Math.max(0,win.scrollY+card.getBoundingClientRect().top-readingLine(c.ownerDocument)),behavior:'auto'});
     }
     function select(id) {
         if(!currentDesk)return;
-        const state=deskState(currentDesk);state.active=id;state.showAll=false;sync();
-        document.getElementById('mg-order-navigation')?.querySelector('[aria-current="true"]')?.focus({preventScroll:true});
-        scrollToOrder(id);
+        deskState(currentDesk).active=id;
+        scrollToOrder(id);sync();
+        [...(document.getElementById('mg-order-navigation')?.querySelectorAll('[data-glass-order]') || [])].find(b=>b.dataset.glassOrder===id)?.focus({preventScroll:true});
     }
     function selection(ids,requested) {return ids.includes(requested)?requested:ids[0] || '';}
-    // A single displayed detail/search is presentation, not a selection of orders to buy for.
+    // Native desk/operator filters retain ownership of hidden/display. Navigation
+    // never hides an order, so the browser's Find sees the complete visible desk.
     function inPurchaseScope(card) {
         if (card.hidden || card.style.display === 'none') return false;
         const style=card.ownerDocument.defaultView.getComputedStyle(card);
-        return style.visibility !== 'hidden' && (style.display !== 'none' || card.classList.contains('mg-order-inactive'));
+        return style.visibility !== 'hidden' && style.display !== 'none';
     }
     function purchaseScopeCards() {
         return typeof document === 'undefined' ? [] : [...document.querySelectorAll('#processed-container .order-card[data-order-id]')].filter(inPurchaseScope);
+    }
+    function activeOrderAtLine(ranges,line) {
+        const usable=ranges.filter(r=>Number.isFinite(r.top) && Number.isFinite(r.bottom) && r.bottom>r.top);
+        if(!usable.length)return '';
+        const containing=usable.find(r=>r.top<=line && r.bottom>line);
+        if(containing)return containing.id;
+        const preceding=usable.filter(r=>r.top<=line);
+        return preceding.length ? preceding[preceding.length-1].id : usable[0].id;
+    }
+    function createOrderTracker({win,doc,container,cards,onActive,offset=()=>0}) {
+        let disposed=false,frame=null,active='';
+        const request=fn=>win.requestAnimationFrame ? win.requestAnimationFrame(fn) : win.setTimeout(fn,16);
+        const cancel=id=>win.cancelAnimationFrame ? win.cancelAnimationFrame(id) : win.clearTimeout(id);
+        const refresh=()=>{
+            if(disposed)return;
+            const ranges=cards.filter(inPurchaseScope).map(card=>{const rect=card.getBoundingClientRect();return {id:card.dataset.orderId,top:rect.top,bottom:rect.bottom};});
+            const id=activeOrderAtLine(ranges,offset());
+            if(id && id!==active){active=id;onActive(id);}
+        };
+        const schedule=()=>{
+            if(disposed || frame!==null)return;
+            frame=request(()=>{frame=null;refresh();});
+        };
+        const scrolled=e=>{
+            const target=e?.target;
+            if(!target || target===win || target===doc || target===doc.scrollingElement || target===container || container.contains(target))schedule();
+        };
+        win.addEventListener('scroll',scrolled,{passive:true});
+        win.addEventListener('resize',schedule,{passive:true});
+        doc.addEventListener('scroll',scrolled,{passive:true,capture:true});
+        const observer=typeof win.IntersectionObserver==='function' ? new win.IntersectionObserver(schedule,{threshold:[0,1]}) : null;
+        cards.forEach(card=>observer?.observe(card));
+        refresh();
+        return {refresh,schedule,dispose(){
+            if(disposed)return;disposed=true;
+            if(frame!==null)cancel(frame);
+            frame=null;observer?.disconnect();
+            win.removeEventListener('scroll',scrolled);
+            win.removeEventListener('resize',schedule);
+            doc.removeEventListener('scroll',scrolled,true);
+        }};
+    }
+    function stopTracking() {
+        scrollTracker?.dispose();scrollTracker=null;trackerDesk='';trackerCards=[];
+    }
+    function highlightActive(nav,id) {
+        let selected=null;
+        for(const button of nav.querySelectorAll('[data-glass-order]')){
+            const active=button.dataset.glassOrder===id;
+            if(active && !button.hidden)selected=button;
+            setClass(button,'active',active);
+            if(active){if(button.getAttribute('aria-current')!=='true')button.setAttribute('aria-current','true');}
+            else if(button.hasAttribute('aria-current'))button.removeAttribute('aria-current');
+        }
+        // Keep the active menu item in its own scroller without moving the document.
+        const list=nav.querySelector('.mg-order-list');
+        if(selected && list){
+            const item=selected.getBoundingClientRect(),bounds=list.getBoundingClientRect();
+            if(list.scrollWidth>list.clientWidth){
+                if(item.left<bounds.left)list.scrollLeft+=item.left-bounds.left;
+                else if(item.right>bounds.right)list.scrollLeft+=item.right-bounds.right;
+            }else{
+                if(item.top<bounds.top)list.scrollTop+=item.top-bounds.top;
+                else if(item.bottom>bounds.bottom)list.scrollTop+=item.bottom-bounds.bottom;
+            }
+            if(currentDesk){const state=deskState(currentDesk);state.listTop=list.scrollTop;state.scrollLeft=list.scrollLeft;}
+        }
+    }
+    function trackOrders(container,cards,key,nav) {
+        if(scrollTracker && trackerDesk===key && trackerCards.length===cards.length && trackerCards.every((c,i)=>c===cards[i])){
+            scrollTracker.refresh();return;
+        }
+        stopTracking();trackerDesk=key;trackerCards=cards;
+        scrollTracker=createOrderTracker({win:container.ownerDocument.defaultView,doc:container.ownerDocument,container,cards,
+            offset:()=>readingLine(container.ownerDocument),onActive:id=>{
+                if(currentDesk!==key || nav.hidden)return;
+                deskState(key).active=id;highlightActive(nav,id);
+            }});
+    }
+    function deskCards(container) {
+        const cards=[...container.querySelectorAll(':scope > .order-card[data-order-id]')];
+        cards.forEach(c=>setClass(c,'mg-order-inactive',false));
+        return cards.filter(inPurchaseScope);
     }
     function sync() {
         if (typeof document==='undefined')return;
@@ -229,57 +323,66 @@
         let nav=document.getElementById('mg-order-navigation');
         if(!nav){
             nav=document.createElement('nav');nav.id='mg-order-navigation';nav.hidden=true;nav.setAttribute('aria-label','Ordini della scrivania');
-            nav.innerHTML='<label class="mg-order-search">Cerca nella scrivania<input type="search" placeholder="Ordine, cliente o build" aria-label="Cerca nella scrivania"></label>' +
-                '<button type="button" class="mg-all-orders"></button><div class="mg-order-list"></div>';
+            nav.innerHTML='<label class="mg-order-search">Cerca nel menu ordini<input type="search" placeholder="Ordine, cliente o build" aria-label="Cerca nel menu ordini"></label>' +
+                '<p class="mg-order-count"></p><button type="button" class="mg-order-reset" data-glass-reset hidden>Tutti gli ordini nel menu</button>' +
+                '<p class="mg-order-nav-help">Tutte le schede restano visibili. Ctrl+F cerca i componenti.</p><div class="mg-order-list"></div>' +
+                '<p class="mg-order-empty" role="status" hidden>Nessun risultato nel menu. Le schede restano tutte visibili.</p>';
             container.before(nav);
             nav.addEventListener('click',e=>{
                 const button=e.target.closest('button');if(!button || !currentDesk)return;
                 if(button.dataset.glassOrder)select(button.dataset.glassOrder);
-                else if(button.classList.contains('mg-all-orders')){
-                    const state=deskState(currentDesk);state.showAll=!state.showAll;sync();scrollToOrder(nav.querySelector('[aria-current="true"]')?.dataset.glassOrder || state.active);
+                else if(button.hasAttribute('data-glass-reset')){
+                    deskState(currentDesk).query='';nav.querySelector('input').value='';sync();
                 }
             });
             nav.querySelector('input').oninput=e=>{if(currentDesk){deskState(currentDesk).query=e.target.value;sync();}};
             nav.addEventListener('scroll',()=>{if(currentDesk)deskState(currentDesk).scrollTop=nav.scrollTop;},{passive:true});
-            nav.querySelector('.mg-order-list').addEventListener('scroll',e=>{if(currentDesk)deskState(currentDesk).scrollLeft=e.target.scrollLeft;},{passive:true});
+            nav.querySelector('.mg-order-list').addEventListener('scroll',e=>{if(currentDesk){const state=deskState(currentDesk);state.scrollLeft=e.target.scrollLeft;state.listTop=e.target.scrollTop;}},{passive:true});
         }
-        const cards=[...container.querySelectorAll(':scope > .order-card[data-order-id]')];
+        const cards=deskCards(container);
         const tab=document.querySelector('.tab-button.active')?.dataset.tab;
         const blocked=['gpo-mapping-page','custom-components-page','standard-configs-page','settings-popup'].some(id=>{
             const page=document.getElementById(id);return page && rendered(page);
         });
         const visible=deskVisible(container,tab,blocked) && cards.length>0;
         setClass(document.body,'mg-glass-desk',visible);setHidden(nav,!visible);
-        if(!visible)return;
-        const key=tab || 'processed',changedDesk=key!==currentDesk;currentDesk=key;
+        if(!visible){stopTracking();return;}
+        const key=tab || 'processed',changedDesk=key!==currentDesk;
+        if(changedDesk)stopTracking();currentDesk=key;
         const state=deskState(key),input=nav.querySelector('input'),list=nav.querySelector('.mg-order-list');
         if(changedDesk)input.value=state.query;
         state.active=selection(cards.map(c=>c.dataset.orderId),state.active);
         const items=cards.map(c=>({id:c.dataset.orderId,text:[c.querySelector('.card-header h2')?.textContent,c.querySelector('.config-badge')?.textContent,c.dataset.glassCustomer].join(' ')}));
         const filtered=navigationSelection(items,state.active,state.query),matching=new Set(filtered.ids);
+        nav.style.setProperty('--mg-order-header',`${headerOffset(container.ownerDocument)}px`);
         const html=cards.map(c=>{
                 const id=c.dataset.orderId,title=c.querySelector('.card-header h2')?.textContent.trim() || id;
                 const build=c.querySelector('.config-badge')?.textContent.trim() || '',customer=c.dataset.glassCustomer || '';
-                setClass(c,'mg-order-inactive',!matching.has(id) || !state.showAll && id!==filtered.active);
                 const economic=c.dataset.glassState || 'unknown';
                 const label=c.dataset.glassLabel || {unknown:'Da verificare',negative:'In perdita',warning:'Sotto obiettivo',positive:'Positivo'}[economic];
-                return `<button type="button" class="mg-order-link${!state.showAll && id===filtered.active?' active':''}" data-economic="${esc(economic)}" data-glass-order="${esc(id)}"${!matching.has(id)?' hidden':''}${!state.showAll && id===filtered.active?' aria-current="true"':''}><b>${esc(title)}</b><strong>${esc(c.dataset.glassProfit || 'Calcolo…')}</strong><span>${esc(customer)}${label?' · '+label:''}</span><small>${esc(build)}</small></button>`;
+                return `<button type="button" class="mg-order-link${id===state.active?' active':''}" data-economic="${esc(economic)}" data-glass-order="${esc(id)}"${!matching.has(id)?' hidden':''}${id===state.active?' aria-current="true"':''}><b>${esc(title)}</b><strong>${esc(c.dataset.glassProfit || 'Calcolo…')}</strong><span>${esc(customer)}${label?' · '+label:''}</span><small>${esc(build)}</small></button>`;
             }).join('');
         const focusId=document.activeElement?.dataset.glassOrder;
         if(list.dataset.content!==html){
             list.innerHTML=html;list.dataset.content=html;
             if(focusId)[...list.querySelectorAll('[data-glass-order]')].find(b=>b.dataset.glassOrder===focusId && !b.hidden)?.focus({preventScroll:true});
         }
-        const all=nav.querySelector('.mg-all-orders');
-        all.textContent=state.showAll?'Scheda singola':'Tutti gli ordini';all.setAttribute('aria-pressed',String(state.showAll));
-        let empty=container.querySelector('.mg-order-empty');
-        if(!empty){empty=document.createElement('div');empty.className='mg-order-empty';empty.hidden=true;empty.setAttribute('role','status');empty.textContent='Nessun ordine corrisponde alla ricerca. Modifica o cancella il testo nel menu.';container.prepend(empty);}
-        setHidden(empty,filtered.ids.length>0);
-        nav.scrollTop=state.scrollTop;list.scrollLeft=state.scrollLeft;
+        const count=nav.querySelector('.mg-order-count');
+        const text=state.query ? `${filtered.ids.length} ${filtered.ids.length===1?'risultato':'risultati'} nel menu · ${cards.length} ${cards.length===1?'scheda visibile':'schede visibili'}` : `${cards.length} ${cards.length===1?'ordine':'ordini'} · elenco completo`;
+        if(count.textContent!==text)count.textContent=text;
+        setHidden(nav.querySelector('[data-glass-reset]'),!state.query);
+        setHidden(nav.querySelector('.mg-order-empty'),filtered.ids.length>0);
+        container.querySelector('.mg-order-empty')?.remove(); // obsolete single-detail empty state
+        nav.scrollTop=state.scrollTop;list.scrollLeft=state.scrollLeft;list.scrollTop=state.listTop;
+        highlightActive(nav,state.active);
+        trackOrders(container,cards,key,nav);
     }
     function init(){
         const c=document.getElementById('processed-container');if(!c)return;
         const schedule=()=>{clearTimeout(timer);timer=setTimeout(sync,50);};
+        window.addEventListener('mg:navigate',stopTracking);
+        window.addEventListener('pagehide',stopTracking);
+        window.addEventListener('pageshow',schedule);
         new MutationObserver(records=>{
             if(records.some(({target})=>!target.closest?.('#mg-order-navigation') &&
                 (target===document.body || c.contains(target) || target.contains?.(c) ||
@@ -287,7 +390,7 @@
         }).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class','hidden']});
         sync();
     }
-    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan,deskVisible,navigationSelection,inPurchaseScope,purchaseScopeCards};
+    const api={reference,budget,rows,render,mount,sync,selection,select,freshness,purchasePlan,deskVisible,navigationSelection,inPurchaseScope,purchaseScopeCards,deskCards,activeOrderAtLine,createOrderTracker,stopTracking};
     if(typeof window!=='undefined')window.MGOrderGlass=api;
     if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',init);
 })();

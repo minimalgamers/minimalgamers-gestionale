@@ -25,21 +25,21 @@ test('hidden ancestors and overlays hide the menu without discarding the desk co
  parent.style={visibility:'hidden'};assert.equal(G.deskVisible(pane,'processed'),false);
  parent.style={};assert.equal(G.deskVisible(pane,'processed'),true);
 });
-test('search, active detail, accents, empty results and removal of a selected order stay consistent',()=>{
+test('menu search preserves the actual active order and never turns into a detail filter',()=>{
  const items=[{id:'1',text:'#1 Nicolò PC GAMING REX'},{id:'2',text:'#2 Maria PC GAMING STRIKE'}],before=JSON.stringify(items);
- assert.equal(G.navigationSelection(items,'1','MARIA').active,'2');
+ assert.equal(G.navigationSelection(items,'1','MARIA').active,'1');
  assert.equal(G.navigationSelection(items,'1',' nicolo ').active,'1');
- assert.equal(G.navigationSelection(items,'2','REX').active,'1');
- assert.equal(G.navigationSelection(items,'2','missing').active,'');
+ assert.equal(G.navigationSelection(items,'2','REX').active,'2');
+ assert.equal(G.navigationSelection(items,'2','missing').active,'2');
  assert.equal(G.navigationSelection(items,'2','missing').ids.length,0);
  assert.equal(G.navigationSelection(items,'removed','').active,'1');
  assert.equal(JSON.stringify(items),before);
 });
-test('procurement includes cards hidden by the single-detail view, while preserving actual exclusion filters',()=>{
+test('procurement preserves only actual visible desk/operator scope without a single-detail exception',()=>{
  const card=element(['mg-order-inactive'],{display:'none'});
  // Inline display is an explicit legacy filter; computed display can be hidden by the Glass detail view.
  card.style={};card.ownerDocument.defaultView.getComputedStyle=()=>({display:'none',visibility:'visible'});
- assert.equal(G.inPurchaseScope(card),true);
+ assert.equal(G.inPurchaseScope(card),false);
  card.style.display='none';assert.equal(G.inPurchaseScope(card),false);
  card.style={};card.hidden=true;assert.equal(G.inPurchaseScope(card),false);
  card.hidden=false;card.classList.contains=()=>false;assert.equal(G.inPurchaseScope(card),false);

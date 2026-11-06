@@ -3803,10 +3803,31 @@
         }).join('\n');
     }
 
+    function condizioniEmail(x) {
+        const righe = (x.gruppi || []).flatMap(g => g.righe || []);
+        const noto = righe.length > 0 && righe.every(r => r.costo != null && Number.isFinite(Number(r.costo)) && Number(r.costo) >= 0);
+        const totale = noto ? tonda(righe.reduce((n, r) => n + Number(r.costo), 0)) : null;
+        const minimo = Number(x.minimo_ordine_eur) || 0;
+        const sottoMinimo = minimo > 0 && (totale == null || totale < minimo);
+        return { totale, minimo, sottoMinimo, richiesta: !!x.richiesta_quotazione || sottoMinimo };
+    }
+
     function testoEmail(x, contatti, oggi) {
         const c = contattiOrdini(contatti) || {};
         const data = oggi || new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' });
         const firma = c.firma || 'MINIMAL GAMERS S.R.L.';
+        const condizioni = condizioniEmail(x);
+        if (condizioni.richiesta) {
+            const inglese = x.lingua === 'en';
+            const minimo = condizioni.sottoMinimo
+                ? (inglese ? `\nThe listed items do not yet meet the stated minimum order of EUR ${condizioni.minimo}. Please confirm whether they can be combined with other items or quoted separately.\n`
+                    : `\nLe righe indicate non raggiungono ancora il minimo dichiarato di EUR ${condizioni.minimo}. Ci confermate se possono essere accorpate ad altri articoli o quotate separatamente?\n`) : '';
+            return { a: (x.a || []).join('; '),
+                oggetto: inglese ? `Availability and quotation request — Minimal Gamers — ${data}` : `Richiesta disponibilità e quotazione — Minimal Gamers — ${data}`,
+                corpo: inglese
+                    ? `Hello,\n\nplease confirm the current customer prices, available quantities and delivery time for:\n\n${x.gruppi.map(g => sezioneEmail(g, 'en')).join('\n')}\n${minimo}\nThis is a quotation request, not an order confirmation.\n\nThank you,\n${firma}`
+                    : `Buongiorno,\n\nci confermate prezzi cliente attuali, quantità disponibili e tempi di consegna per:\n\n${x.gruppi.map(g => sezioneEmail(g)).join('\n')}\n${minimo}\nQuesta è una richiesta di quotazione, non una conferma d’ordine.\n\nGrazie,\n${firma}` };
+        }
         if (x.lingua === 'en') {                           // 02/10: fornitori esteri (ACTION, OMEGA, CASEKING) in inglese
             return { a: (x.a || []).join('; '), oggetto: `Order Minimal Gamers — ${data}`,
                 corpo: `Hello,\n\nplease find below our order:\n\n${x.gruppi.map(g => sezioneEmail(g, 'en')).join('\n')}\n\n` +
@@ -3834,6 +3855,10 @@
     // Avvisi da vedere prima di ordinare: pezzi non allineati alle schede, pochi pezzi, contatto da confermare
     function avvisiEmail(x, r) {
         const out = [];
+        const condizioni = condizioniEmail(x);
+        if (condizioni.minimo) out.push(`Minimo fornitore: ${eur(condizioni.minimo)}${x.minimo_negoziabile ? ' (negoziabile)' : ''}. Totale netto righe: ${condizioni.totale == null ? 'da verificare' : eur(condizioni.totale)}.`);
+        if (condizioni.sottoMinimo) out.push('Minimo non raggiunto: viene preparata una richiesta di quotazione, non una conferma d’ordine.');
+        else if (condizioni.richiesta) out.push('Bozza di richiesta disponibilità e quotazione al referente commerciale; non è una conferma d’ordine.');
         if (x.da_confermare) out.push(`Contatto da confermare: ${(x.a || []).join(', ')}`);
         const diversi = r?.daApplicare || r?.cambi || 0;
         if (diversi) out.push(`${diversi === 1 ? '1 pezzo è diverso' : `${diversi} pezzi sono diversi`} dalle schede: le proposte non confermate ` +
@@ -3852,7 +3877,7 @@
         if (!em.invii.length && !em.senza.length) return '';
         return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Ordini via email: si apre la bozza in Outlook (info@), la controlli e premi Invia</div>` +
             em.invii.map(x => `<button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
-                `✉️ ${esc(x.nome)} · ${x.pezzi} pz${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
+                `✉️ ${condizioniEmail(x).richiesta ? 'Richiesta · ' : ''}${esc(x.nome)} · ${x.pezzi} pz${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
                 `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>`).join('') +
             (em.senza.length ? `<div class="acc-nota">Senza email: ${em.senza.map(z => `${esc(z.nome)} ${z.pezzi} pz (${esc(z.motivo)})`).join(' · ')}</div>` : '') +
             `</div>`;
@@ -3867,7 +3892,7 @@
         const avvisi = avvisiEmail(x, r);
         const ov = document.createElement('div');
         ov.className = 'acc-finestra';
-        ov.innerHTML = `<div class="acc-finestra-box"><h3>✉️ Ordine · ${esc(x.nome)} · ${x.pezzi} pz</h3><div class="acc-finestra-corpo">` +
+        ov.innerHTML = `<div class="acc-finestra-box"><h3>✉️ ${condizioniEmail(x).richiesta ? 'Richiesta di quotazione' : 'Bozza ordine'} · ${esc(x.nome)} · ${x.pezzi} pz</h3><div class="acc-finestra-corpo">` +
             (avvisi.length ? `<div class="acc-rf-avviso">${avvisi.map(esc).join('<br>')}</div>` : '') +
             `<label class="acc-nota">A</label><input data-em-a type="text" style="width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff">` +
             `<label class="acc-nota">Oggetto</label><input data-em-oggetto type="text" style="width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff">` +

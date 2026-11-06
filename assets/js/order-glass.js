@@ -106,7 +106,7 @@
                 (r.verificaDisponibilita ? `<small class="mg-ledger-alert">${esc(r.verificaDisponibilita.testo)}</small>` : '') +
                 (r.offertaAlternativa ? `<small>Prezzo ${esc(r.fornitore)} non disponibile. Stesso modello da ${esc(r.offertaAlternativa.fornitore)}: ${money(r.offertaAlternativa.costo_unitario)} netti/pezzo.</small>` +
                     `<button type="button" class="mg-quote-action" data-glass-quote="${list.indexOf(r)}">Valuta offerta ${esc(r.offertaAlternativa.fornitore)}</button>` : '') +
-                `</td><td data-label="Fornitore">${esc(r.fornitore || '—')}</td><td class="mg-num" data-label="Riferimento" title="${esc(r.ref ? r.ref.source+' '+date(r.ref.date) : 'Costo alla vendita non registrato')}">${r.ref ? money(r.ref.cost) : '—'}</td>` +
+                `</td><td data-label="Fornitore">${esc(r.fornitore || '—')}${r.fonte==='riferimento_excel' ? '<small>Origine del riferimento Excel; non è un’offerta attuale</small>' : ''}</td><td class="mg-num" data-label="Riferimento" title="${esc(r.ref ? r.ref.source+' '+date(r.ref.date) : 'Costo alla vendita non registrato')}">${r.ref ? money(r.ref.cost) : '—'}</td>` +
                 `<td class="mg-num" data-label="Oggi / pagato" title="${esc(costLabel)}"><b>${Number.isFinite(r.costo) ? (referenceCost(r)?'≈ ':'')+money(r.costo) : 'Manca costo'}</b></td>` +
                 `<td class="mg-num mg-delta" data-label="Scostamento">${Number.isFinite(r.delta) ? (r.delta>0?'+':'')+money(r.delta) : '—'}</td>` +
                 `<td data-label="Acquisto"><span class="mg-purchase-state${r.locked?' paid':''}">${esc(r.state)}</span></td>` +

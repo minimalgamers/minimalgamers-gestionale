@@ -2726,7 +2726,7 @@
             };
             const spunta = (i, si) => { const c = q(`input[data-prop="${i}"]`); if (c) c.checked = si; };
             const chiudi = (esito) => {
-                if (cambio.riga && cambio.riga.proposta) cambio.riga = null;
+                if (cambio.riga?.proposta === true) cambio.riga = null;
                 ov.remove();
                 resolve(esito);
             };
@@ -4483,7 +4483,10 @@
     async function applicaScelta(d) {
         const riga = cambio.riga;
         if (!riga) return;
-        if (riga.proposta) {                                   // finestra della scrivania: la riga prende l'offerta scelta
+        // Only the bulk-offer editor uses the boolean marker and a callback.
+        // Purchase-summary rows carry an allocation object in `proposta`.
+        if (riga.proposta === true) {
+            if (typeof riga.applica !== 'function') throw new Error('Finestra proposte non più disponibile: riapri il confronto');
             cambio.riga = null;
             return riga.applica(d);
         }

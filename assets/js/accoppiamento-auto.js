@@ -2236,8 +2236,7 @@
         if (!db || typeof db.setComponentPrices !== 'function') throw new Error('database non pronto');
         await db.setComponentPrices(orderId, prezzi);
         for (const p of prezzi) {                  // stessa cosa nella copia in memoria del gestionale
-            const c = componentiSalvati(orderId).find(x => x.type === p.type && chiave(x.ean) === chiave(p.ean))
-                || (componentiSalvati(orderId).filter(x => x.type === p.type).length === 1 ? componentiSalvati(orderId).find(x => x.type === p.type) : null);
+            const c = componentiSalvati(orderId).find(x => x.type === p.type && chiave(x.ean) === chiave(p.ean));
             if (c) c.price = p.price === null || p.price === undefined || p.price === '' ? null : Math.round(Number(p.price) * 100) / 100;
         }
     }

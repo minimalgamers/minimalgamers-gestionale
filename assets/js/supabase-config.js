@@ -556,6 +556,7 @@ async function dbAcquireLegacyPurchaseIntent(shopifyOrderId, order, cp, intent) 
         .is('custom_properties->>_modifica_distinta_gestionale',null)
         .is('custom_properties->>_acquisto_confermato_gestionale',null);
     q=order.updated_at==null?q.is('updated_at',null):q.eq('updated_at',order.updated_at);
+    q=order.stato==null?q.is('stato',null):q.eq('stato',order.stato);
     const saved=await q.select('id');
     if(saved.error)throw saved.error;
     if(saved.data?.length!==1)throw new Error('La scheda è cambiata o l’acquisto è stato confermato: ricarica prima di salvare');
@@ -678,7 +679,10 @@ async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
             expected:{...e},replacement:{ean:String(r.ean),supplier:String(r.supplier),name:String(r.name),quantity:Number(r.quantity||e.quantity||1)},
             source:plan.source||'buyer_desk',il:new Date().toISOString()};
         customProperties._modifica_distinta_gestionale=intent;
-        let metadata = supabase.from('processed_orders').update({custom_properties:customProperties,updated_at:new Date().toISOString()}).eq('id',order.id);
+        let metadata = supabase.from('processed_orders').update({custom_properties:customProperties,updated_at:purchaseWriteTime(order.updated_at)}).eq('id',order.id)
+            .is('custom_properties->>_modifica_distinta_gestionale',null)
+            .is('custom_properties->>_acquisto_confermato_gestionale',null);
+        metadata = order.stato==null?metadata.is('stato',null):metadata.eq('stato',order.stato);
         metadata = order.updated_at == null ? metadata.is('updated_at',null) : metadata.eq('updated_at',order.updated_at);
         const saved = await metadata.select('id');
         if (saved.error) throw saved.error;

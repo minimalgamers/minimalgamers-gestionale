@@ -119,3 +119,32 @@ test('identity changes during a price batch cannot receive an old paid price',as
   await assert.rejects(()=>calls.prices(f),/componente.*cambiato/);
   assert.equal(f.rows[0].price,null);
 });
+
+
+test('a finalization with an unchanged parent timestamp defeats legacy and exact intent acquisition',async()=>{
+  const operations=[...Object.values(calls),f=>f.s.dbReplacePurchaseComponent('77-2',{
+    expected:{id:10,type:'SSD',ean:'OLD',supplier:'ACTION',quantity:1},replacement:{ean:'NEW',name:'New SSD',supplier:'OMEGA',quantity:1}})];
+  for(const call of operations){
+    let f,entered=false;
+    f=scope.fixture({beforeWrite:async({table,value,order})=>{
+      if(table==='processed_orders'&&value.custom_properties?._modifica_distinta_gestionale&&!entered){entered=true;order.stato='finalizzati';}
+    }});f.rows.splice(1);
+    await assert.rejects(()=>call(f),/scheda è cambiata/);
+    assert.equal(f.rows[0].ean,'OLD');assert.equal(f.rows[0].price,null);
+    assert.equal(f.order.custom_properties._modifica_distinta_gestionale,undefined);
+    assert.equal(f.writes.filter(w=>w.table==='processed_order_components').length,0);
+  }
+});
+
+test('exact replacement also rejects a purchase snapshot acquired in the same millisecond',async()=>{
+  const fixed=Date.parse('2026-11-06T12:00:00.000Z');
+  class FrozenDate extends Date{constructor(...args){super(...(args.length?args:[fixed]));}static now(){return fixed;}}
+  let f,entered=false;
+  f=scope.fixture({beforeWrite:async({table,value})=>{
+    if(table==='processed_orders'&&value.custom_properties?._modifica_distinta_gestionale&&!entered){entered=true;await f.s.dbConfirmOrderPurchase('77-2',snapshot());}
+  }});f.rows.splice(1);f.order.updated_at=new FrozenDate().toISOString();f.s.Date=FrozenDate;
+  await assert.rejects(()=>f.s.dbReplacePurchaseComponent('77-2',{
+    expected:{id:10,type:'SSD',ean:'OLD',supplier:'ACTION',quantity:1},replacement:{ean:'NEW',name:'New SSD',supplier:'OMEGA',quantity:1}}),/scheda è cambiata/);
+  assert.equal(f.rows[0].ean,'OLD');assert.equal(f.rows[0].price,null);
+  assert.equal(f.order.custom_properties._acquisto_confermato_gestionale.righe[0].costo,40);
+});

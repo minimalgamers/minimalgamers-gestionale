@@ -59,7 +59,7 @@ assert.equal(noCatalog.righe[0].descrizione,'GPU — nome prodotto da verificare
 
 // Exclusion is keyed to an exact order/unit/component. It cannot leak to other units or desks.
 const target=ready.righe[0].pezzi[0],excludedCards=J(readyCards);
-excludedCards[0].esclusioni={[target.chiaveAcquisto]:{escluso:true,quantita:1,foglio:1}};
+excludedCards[0].esclusioni={[target.chiaveAcquisto]:{...target,escluso:true,quantita:1,foglio:1}};
 const excluded=J(A.daOrdinare(readyData,excludedCards,{}));
 assert.deepEqual([excluded.pezzi,excluded.totale,excluded.pronti,excluded.esclusioni.length],[1,50,1,1]);
 assert.equal(excluded.esclusioni[0].pezzi[0].id,'901');
@@ -74,8 +74,27 @@ assert.equal(A.daOrdinare(null,[unrelated],{}).esclusioni.length,0);
 // Moving the same physical PC to another desk retains its do-not-order flag; it does not become an acquisition.
 excludedCards[0].foglio=4;
 assert.equal(A.daOrdinare(readyData,[excludedCards[0]],{}).pezzi,0);
+// Recreated identical SKU or changed quantities do not inherit the old physical row's exclusion.
+const previousExclusion=J(excludedCards[0].esclusioni);
+excludedCards[0].salvati[0].id=999;
+assert.equal(A.daOrdinare(readyData,[excludedCards[0]],{}).esclusioni.length,0);
+excludedCards[0].salvati[0].id=20;excludedCards[0].salvati[0].quantity=2;
+assert.equal(A.daOrdinare(readyData,[excludedCards[0]],{}).esclusioni.length,0);
+excludedCards[0].salvati[0].quantity=1;
+assert.equal(A.daOrdinare(readyData,[excludedCards[0]],{}).esclusioni.length,1);
+excludedCards[0].esclusioni={[target.chiaveAcquisto]:{escluso:true}};
+assert.equal(A.daOrdinare(readyData,[excludedCards[0]],{}).esclusioni.length,0,'incomplete legacy flags cannot hide an unverified row');
 excludedCards[0].esclusioni={};
 assert.equal(A.daOrdinare(readyData,[excludedCards[0]],{}).pezzi,1);
+// Even without an order-wide snapshot, individually purchased rows never become new demand.
+const partiallyPaid=card('part-paid',[{...component(50,'CPU','CPU-PAID','ACTION'),price:100},component(51,'RAM','RAM-NEW','ACTION')]);
+const partiallyPaidBefore=J(partiallyPaid);
+const partialSummary=J(A.daOrdinare(null,[partiallyPaid],{}));
+assert.equal(partialSummary.pezzi,1);assert.equal(partialSummary.righe[0].codice,'RAM-NEW');
+assert.equal(partialSummary.giaAcquistati.length,1);assert.equal(partialSummary.giaAcquistati[0].tipo,'CPU');
+assert.deepEqual(J(partiallyPaid),partiallyPaidBefore);
+const paidOnly=card('paid-source',[component(52,'SSD','PAID-SSD','ACTION')]);paidOnly.righe[0].fonte='acquistato';
+assert.equal(A.daOrdinare(null,[paidOnly],{}).pezzi,0);
 
 // A whole-row kit replacement may change physical quantity, while the expected old row remains exact.
 const kit=offer('RAM-2X8','ACTION',80,20,2);
@@ -100,7 +119,7 @@ sandbox.window.SupabaseDB={
   async setProcurementExclusion(id,v){
     calls.push({op:'exclude',id,v:J(v)});
     const cp=J(sandbox.processedOrdersCache[id].customProperties||{}),entries=cp[A.K_ESCLUSIONI_ACQUISTO]||{};
-    if(v.excluded)entries[v.key]={escluso:true,quantita:v.quantita,foglio:v.foglio};else delete entries[v.key];
+    if(v.excluded)entries[v.key]={...v,escluso:true,quantita:v.quantita,foglio:v.foglio};else delete entries[v.key];
     return{...cp,[A.K_ESCLUSIONI_ACQUISTO]:entries};
   }
 };

@@ -23,10 +23,10 @@ const data={ordini:{
 }};
 let cards,result;
 function draw(){result=A.daOrdinare(data,cards,{});document.getElementById('suppliers-header').innerHTML=A.htmlLatoDaOrdinare(result,1,'10:30','fornitori');document.getElementById('riepilogo-auto').innerHTML=A.htmlFornitoriDaOrdinare(result);}
-function reset(){cards=structuredClone(base);const target=A.identitaAcquisto(cards[0],cards[0].righe[0],cards[0].salvati[0]);cards[0].esclusioni={[target.chiaveAcquisto]:{escluso:true}};draw();}
+function reset(){cards=structuredClone(base);const target=A.identitaAcquisto(cards[0],cards[0].righe[0],cards[0].salvati[0]);cards[0].esclusioni={[target.chiaveAcquisto]:{...target,escluso:true}};draw();}
 document.getElementById('reset').onclick=reset;
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
- if(b.dataset.rfEscludi!==undefined){for(const p of result.righe[Number(b.dataset.rfEscludi)].pezzi){const c=cards.find(x=>x.id===p.id);c.esclusioni={...c.esclusioni,[p.chiaveAcquisto]:{escluso:true}};}draw();document.getElementById('notice').textContent='Anteprima: escluso solo dagli acquisti. Distinta invariata.';}
+ if(b.dataset.rfEscludi!==undefined){for(const p of result.righe[Number(b.dataset.rfEscludi)].pezzi){const c=cards.find(x=>x.id===p.id);c.esclusioni={...c.esclusioni,[p.chiaveAcquisto]:{...p,escluso:true}};}draw();document.getElementById('notice').textContent='Anteprima: escluso solo dagli acquisti. Distinta invariata.';}
  if(b.dataset.rfRipristina!==undefined){for(const p of result.esclusioni[Number(b.dataset.rfRipristina)].pezzi)delete cards.find(x=>x.id===p.id).esclusioni[p.chiaveAcquisto];draw();document.getElementById('notice').textContent='Anteprima: reincluso negli acquisti.';}
  if(b.dataset.rfApplica!==undefined){const r=result.righe[Number(b.dataset.rfApplica)],d=r.proposta;for(const p of r.pezzi){const c=cards.find(x=>x.id===p.id),old=c.salvati.find(x=>x.id===p.componentId);Object.assign(old,{ean:d.codice,name:d.descrizione,supplier:d.fornitore,quantity:d.quantita});Object.assign(c.righe[0],{ean:d.codice,nome:d.descrizione,fornitore:d.fornitore,quantita:d.quantita,costo:d.costo});}draw();document.getElementById('notice').textContent='Anteprima: proposta applicata alla distinta simulata; riga ora pronta.';}
  if(b.dataset.rfCambia!==undefined)document.getElementById('notice').textContent='Anteprima: nel gestionale si apre il Buyer Desk, poi si confermano gli specifici PC.';

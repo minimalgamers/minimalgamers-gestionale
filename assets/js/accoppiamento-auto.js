@@ -3417,7 +3417,12 @@
     }
     function esclusioneAcquisto(p, mappa) {
         const v = mappa?.[p.chiaveAcquisto];
-        return !!v && v.excluded !== false && v.escluso !== false;
+        if (!v || !(v.excluded === true || v.escluso === true) || v.tipo !== p.tipo ||
+            chiave(v.ean) !== chiave(p.ean) || String(v.fornitore || '').toUpperCase().trim() !== String(p.fornitore || '').toUpperCase().trim() ||
+            Number(v.quantita) !== Number(p.quantita) || !!v.personalizzato !== !!p.personalizzato) return false;
+        // Stessa sigla non significa stessa riga: dopo reinserimenti o cambi di quantità la vecchia esclusione decade.
+        return p.personalizzato && v.componentId == null && p.componentId == null ||
+            v.componentId != null && p.componentId != null && String(v.componentId) === String(p.componentId);
     }
     function nomeAcquisto(codice, candidati, categoria) {
         const nome = (candidati || []).map(x => String(x || '').trim()).find(x => x && chiave(x) !== chiave(codice));
@@ -3443,7 +3448,7 @@
     // costo, fonte}] (le righe del riquadro dell'utile), salvati: componenti della scheda nel database, voci: voci
     // personalizzate [{name, value, supplier, ean}] }]. Ritorna le categorie con i loro fornitori e il totale per fornitore.
     function daOrdinare(dati, schede, salvatiFissi) {
-        const out = { pc: 0, esclusi: [], esclusioni: [], cambi: 0, senzaCosto: 0, totale: 0, prontoTotale: 0, pronti: 0, daApplicare: 0, pezzi: 0, categorie: [], fornitori: [], righe: [] };
+        const out = { pc: 0, esclusi: [], esclusioni: [], giaAcquistati: [], cambi: 0, senzaCosto: 0, totale: 0, prontoTotale: 0, pronti: 0, daApplicare: 0, pezzi: 0, categorie: [], fornitori: [], righe: [] };
         const cat = {};                                          // CATEGORIA -> FORNITORE -> codice -> riga
         const aggiungi = (categoria, x, ordine) => {
             const p = x.pezzo;
@@ -3505,6 +3510,10 @@
                 const salvatiUguali = salvati.filter(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean) && (!r.fornitore || String(x.supplier || '').toUpperCase() === String(r.fornitore).toUpperCase()));
                 const salvato = salvatiUguali.length === 1 ? salvatiUguali[0] : null;
                 const quantita = Math.max(1, parseInt(salvato?.quantity ?? r.quantita, 10) || 1);
+                if (r.fonte === 'acquistato' || salvato && salvato.price !== null && salvato.price !== undefined && salvato.price !== '') {
+                    out.giaAcquistati.push({id:s.id,nome:s.nome,tipo:r.tipo,ean:r.ean,quantita});
+                    continue;
+                }
                 const pezzo = identitaAcquisto(s, { ...r, ambigua: salvatiUguali.length > 1 }, salvato, indiceRiga);
                 pezzo.esclusioni = s.esclusioni || proprietaOrdine(s.id)[K_ESCLUSIONI_ACQUISTO] || {};
                 // il pezzo della scheda resta: nome e disponibilita' dai listini (pezzo dell'automatico con lo stesso
@@ -3873,6 +3882,7 @@
             (r.righe.some(x => x.verificaDisponibilita || x.nonDisponibile || x.poco != null) ?
                 `<div class="acc-nota">Il totale è il piano completo. Copia e bozze includono solo le righe pronte: le proposte non confermate e le quantità non disponibili restano bloccate.</div>` : '') +
             (r.esclusi.length ? `<div class="acc-nota">Non contati, acquisto già confermato: ${esc(r.esclusi.join(', '))}</div>` : '') +
+            (r.giaAcquistati?.length ? `<div class="acc-nota">Righe già acquistate, escluse dagli ordini ai fornitori: ${esc(r.giaAcquistati.map(x=>`${x.nome} ${x.tipo}`).join(', '))}</div>` : '') +
             htmlEsclusioniAcquisto(r) +
             `<div class="acc-nota" style="margin-top:6px">Clic sul fornitore: solo i suoi pezzi, pronti da ordinare</div>` +
             r.fornitori.map(f => `<div class="acc-rf-forn-riga${solo === f.nome ? ' scelto' : ''}">` +

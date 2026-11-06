@@ -1663,11 +1663,36 @@
         return p ? p.auto.costo : null;
     }
 
+    // A publication is immutable. Index its offer array once, then retain the original
+    // offer objects so price/stock corrections are still read at the time of use.
+    const indiciOfferte = new WeakMap();
+    const OFFERTE_VUOTE = [];
+    function indiceOfferte(dati) {
+        if (!dati || !Array.isArray(dati.offerte_ordinabili)) return null;
+        const lista=dati.offerte_ordinabili;
+        const precedente=indiciOfferte.get(dati);
+        if (precedente?.lista === lista && precedente.lunghezza === lista.length) return precedente;
+        const indice={lista,lunghezza:lista.length,perFornitore:new Map(),perAlias:new Map(),perMpn:new Map()};
+        const aggiungi=(m,k,a)=>{if(!k)return;const valori=m.get(k);if(valori)valori.push(a);else m.set(k,[a]);};
+        for (const a of lista) {
+            const forn=String(a.fornitore || '').toUpperCase();
+            for (const codice of new Set([a.codice,a.ean,a.mpn].map(chiave).filter(Boolean))) {
+                aggiungi(indice.perFornitore,`${forn}|${codice}`,a);
+                aggiungi(indice.perAlias,codice,a);
+            }
+            aggiungi(indice.perMpn,chiave(a.mpn),a);
+        }
+        indiciOfferte.set(dati,indice);
+        return indice;
+    }
+    function invalidaIndiceOfferte(dati) { if (dati) indiciOfferte.delete(dati); }
     function offertaDelPezzo(dati, codice, fornitore) {
         const k = chiave(codice);
         if (!k || !fornitore) return null;
-        return (dati?.offerte_ordinabili || []).filter(a => String(a.fornitore || '').toUpperCase() === String(fornitore).toUpperCase() &&
-            [a.codice, a.ean, a.mpn].some(c => chiave(c) === k)).sort((a,b) => a.costo_unitario - b.costo_unitario)[0] || null;
+        const lista=indiceOfferte(dati)?.perFornitore.get(`${String(fornitore).toUpperCase()}|${k}`) || OFFERTE_VUOTE;
+        // Sort only this product's small bucket. Stable ties and the original
+        // minimum-price rule remain unchanged; never sort the published array.
+        return lista.length ? [...lista].sort((a,b)=>a.costo_unitario-b.costo_unitario)[0] : null;
     }
 
     function mpnEsplicito(nome) {
@@ -1680,7 +1705,7 @@
         const scheda = costoScheda(dati, r.ean, r.fornitore);
         const mpn = mpnEsplicito(r.nome || r.descrizione);
         const fornitore = String(r.fornitore || '').trim().toUpperCase();
-        const perMpn = mpn ? (dati?.offerte_ordinabili || []).filter(a => chiave(a.mpn) === chiave(mpn)) : [];
+        const perMpn = mpn ? indiceOfferte(dati)?.perMpn.get(chiave(mpn)) || OFFERTE_VUOTE : OFFERTE_VUOTE;
         const proprio = diretto || perMpn.find(a => String(a.fornitore || '').trim().toUpperCase() === fornitore) || null;
         const altre = [...perMpn, ...(scheda?.fonte?.startsWith('listino ') ? [{...scheda, costo_unitario:scheda.costo}] : [])]
             .filter(a => a.fornitore && String(a.fornitore).trim().toUpperCase() !== fornitore &&
@@ -4549,7 +4574,7 @@
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ambitoConferma, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
-        offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
+        indiceOfferte, invalidaIndiceOfferte, offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo, prezzoConferma, ivaVendita,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,

@@ -87,6 +87,41 @@ test('refresh accepts a new matching publication and recent valid one',async()=>
  assert.equal((await A.attendiListini({stato:'recente'},fresh(),{leggi:async()=>fresh(),now:()=>NOW})).generato,fresh().generato);
 });
 
+test('an existing full supplier run can publish after twenty minutes without a second dispatch',async()=>{
+ const {A}=env();let ticks=NOW,reads=0;const progress=[];
+ const latest=fresh(NOW+22*60000),old=fresh(NOW-3600000);
+ const result=await A.attendiListini({stato:'in_corso'},old,{
+  leggi:async()=>{reads++;return ticks<NOW+22*60000?old:latest;},
+  now:()=>ticks,pausa:async ms=>{ticks+=ms;},scrivi:t=>progress.push(t)
+ });
+ assert.equal(result.generato,latest.generato);
+ assert.equal(ticks-NOW,22*60000);assert.equal(reads,66);
+ assert.ok(progress.some(t=>t.includes('9:00 trascorsi')));
+ assert.ok(progress.some(t=>t.includes('21:40 trascorsi')));
+ assert.ok(progress.every(t=>t.includes('attesa massima 35 min')));
+});
+
+test('publication wait remains bounded after thirty-five minutes without making old data fresh',async()=>{
+ const {A}=env();let ticks=NOW,reads=0;const old=fresh(NOW-3600000),progress=[];
+ await assert.rejects(()=>A.attendiListini({stato:'avviato'},old,{
+  leggi:async()=>{reads++;return old;},now:()=>ticks,pausa:async ms=>{ticks+=ms;},scrivi:t=>progress.push(t)
+ }),/non sono ancora arrivati entro 35 min.*Nessun cambio effettuato/);
+ assert.equal(ticks-NOW,35*60000);assert.equal(reads,104);
+ assert.match(progress.at(-1),/34:40 trascorsi/);
+ assert.equal(old.generato,new Date(NOW-3600000).toISOString());
+ assert.throws(()=>A.verificaListini(old,300000,ticks),/non sono aggiornati/);
+});
+
+test('transport failures do not restart acquisition and custom deadlines do not oversleep',async()=>{
+ const {A}=env();let ticks=NOW,reads=0;const sleeps=[];
+ await assert.rejects(()=>A.attendiListini({stato:'in_corso'},fresh(),{
+  leggi:async()=>{reads++;throw Error('temporary network failure');},now:()=>ticks,
+  pausa:async ms=>{sleeps.push(ms);ticks+=ms;},timeout:45000
+ }),/non sono ancora arrivati/);
+ assert.deepEqual(sleeps,[20000,20000,5000]);assert.equal(reads,2);
+ assert.equal(ticks-NOW,45000);
+});
+
 test('a fresh publication with missing Shopify orders or PC units cannot complete the refresh',()=>{
  const {A}=env();const d=fresh();
  assert.throws(()=>A.verificaListini(d,300000,NOW,['77']),/ordini incompleti/);

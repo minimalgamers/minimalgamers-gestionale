@@ -7824,22 +7824,15 @@ function calculateDaysRemaining() {
 
 function updateStatsBoxColor() {
     if (!processedStatsDiv) return;
-    
     const daysRemaining = calculateDaysRemaining();
-    
-    if (daysRemaining <= 3) {
-        
-        processedStatsDiv.style.background = 'rgba(231, 76, 60, 0.25)';
-        processedStatsDiv.style.borderColor = 'rgba(231, 76, 60, 0.4)';
-    } else if (daysRemaining <= 5) {
-        
-        processedStatsDiv.style.background = 'rgba(243, 156, 18, 0.25)';
-        processedStatsDiv.style.borderColor = 'rgba(243, 156, 18, 0.4)';
-    } else {
-        
-        processedStatsDiv.style.background = 'rgba(255, 255, 255, 0.15)';
-        processedStatsDiv.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-    }
+    const [background, borderColor] = daysRemaining <= 3
+        ? ['rgba(231, 76, 60, 0.25)', 'rgba(231, 76, 60, 0.4)']
+        : daysRemaining <= 5
+            ? ['rgba(243, 156, 18, 0.25)', 'rgba(243, 156, 18, 0.4)']
+            : ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.2)'];
+    // Avoid style mutations when the requested deadline state is already applied.
+    if (processedStatsDiv.style.background !== background) processedStatsDiv.style.background = background;
+    if (processedStatsDiv.style.borderColor !== borderColor) processedStatsDiv.style.borderColor = borderColor;
 }
 
 
@@ -7979,7 +7972,12 @@ if (processedStatsDiv) {
     
     const observer = new MutationObserver(() => {
         if (processedStatsDiv.style.display !== 'none') {
-            updateStatsBoxColor();
+            // A style assignment can emit a mutation even for the same CSS value.
+            // Stop observing our own synchronous colour writes; external updates
+            // remain observed after this callback completes.
+            observer.disconnect();
+            try { updateStatsBoxColor(); }
+            finally { observer.observe(processedStatsDiv, { attributes: true, attributeFilter: ['style'] }); }
         }
     });
     observer.observe(processedStatsDiv, { attributes: true, attributeFilter: ['style'] });

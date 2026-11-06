@@ -460,6 +460,24 @@
         if (typeof cp === 'string') { try { cp = JSON.parse(cp); } catch { cp = null; } }
         return cp || {};
     }
+    function sceltaEsplicitaAcquisto(orderId, r, salvati = componentiSalvati(orderId)) {
+        const stessi = (salvati || []).filter(c => c && !c.isCustom && c.type === r.tipo && chiave(c.ean) === chiave(r.ean) &&
+            String(c.supplier || '').toUpperCase().trim() === String(r.fornitore || '').toUpperCase().trim());
+        if (stessi.length !== 1) return null;
+        const c = stessi[0];
+        return Object.values(proprietaOrdine(orderId)._scelte_acquisto_gestionale || {}).find(x => x?.esplicita === true &&
+            String(x.componentId) === String(c.id) && x.tipo === c.type && chiave(x.ean) === chiave(c.ean) &&
+            String(x.fornitore || '').toUpperCase().trim() === String(c.supplier || '').toUpperCase().trim() &&
+            Number(x.quantita || 1) === Number(c.quantity || 1)) || null;
+    }
+    function pianoRispettaSceltaEsplicita(orderId, r, p, salvati) {
+        const scelta = sceltaEsplicitaAcquisto(orderId,r,salvati);
+        if (!scelta) return true;
+        const m=p?.manuale;
+        return p?.scelta_esplicita === true && String(p.componente_gestionale_id) === String(scelta.componentId) &&
+            chiave(m?.codice) === chiave(scelta.ean) && String(m?.fornitore || '').toUpperCase().trim() === String(scelta.fornitore || '').toUpperCase().trim() &&
+            Number(m?.quantita || 1) === Number(scelta.quantita || 1);
+    }
     const acquistoSnapshot = orderId => proprietaOrdine(orderId)._acquisto_confermato_gestionale || pcAutomatico(stato.dati,orderId)?.snapshot_acquisto || null;
     function chiaveCostoOrdine(tipo, ean, fornitore) {
         return `${TIPI[tipo] || tipo}|${chiave(ean)}|${String(fornitore || '').toUpperCase().trim()}`;
@@ -2413,6 +2431,7 @@
                 a = sostitutoDaVoce(dati, { configKey: ctx.configKey, variants }, c);
             }
             if (!a) continue;
+            if (orderId != null && !pianoRispettaSceltaEsplicita(orderId,{tipo:c.type,ean:c.ean,fornitore:c.supplier},autoGiusto?.pezzi?.find(p=>p.tipo === tipo),componenti)) continue;
             cambi.push({ tipo: c.type, da: { ean: c.ean, fornitore: c.supplier || '' },
                 a: { codice: a.codice, fornitore: a.fornitore, descrizione: a.descrizione || '' } });
             c.ean = a.codice;
@@ -2436,7 +2455,7 @@
             // nome salvato, non quello mostrato (la scheda aggiunge il colore del case a scheda video e madre)
             const p = sostitutoDaOrdine(auto, { tipo: r.tipo, ean: r.ean, fornitore: r.fornitore,
                 nome: salvato ? salvato.name : '', quantita: salvato ? salvato.quantity : 1 });
-            if (!p) continue;
+            if (!p || !pianoRispettaSceltaEsplicita(orderId,r,p)) continue;
             out.push({ orderId, ordine: (dati.ordini[String(orderId).split('.')[0]] || {}).nome || `#${orderId}`,
                 tipo: r.tipo, quantita: Math.max(1, Number(salvato?.quantity) || 1), da: { ean: r.ean, fornitore: r.fornitore, nome: r.nome, costo: r.costo, fonte: r.fonte },
                 a: { codice: p.auto.codice, fornitore: p.auto.fornitore, descrizione: p.auto.descrizione || p.auto.codice,
@@ -3505,9 +3524,11 @@
                 const fisso = pr && !pr.auto && pr.fisso ? pr.fisso : null;
                 const vago = fornitoreVago(r.fornitore);
                 const automatico = pezzoAutoDelTipo(auto, r.tipo);
+                const sceltaEsplicita = sceltaEsplicitaAcquisto(s.id,r,salvati);
+                const pianoSuperato = !!sceltaEsplicita && !pianoRispettaSceltaEsplicita(s.id,r,automatico,salvati);
                 const acquistato = salvato && salvato.price !== null && salvato.price !== undefined && salvato.price !== '';
                 // Il piano usa le allocazioni reali. Una diversa referenza resta una proposta fino alla conferma mirata.
-                const piano = !acquistato ? propostaAcquisto(automatico, r, quantita) : null;
+                const piano = !acquistato && !pianoSuperato ? propostaAcquisto(automatico, r, quantita) : null;
                 if (piano && !aTerra) {
                     if (piano.mancante) {
                         aggiungi(categoria, { fornitore: DA_SCEGLIERE, codice: r.ean, quantita, costo: null, daDecidere: true,
@@ -3533,14 +3554,14 @@
                     ean: (uguale && uguale.auto.ean) || (sch && sch.ean) || (/^\d{8,14}$/.test(String(r.ean || '').trim()) ? String(r.ean).trim() : ''),
                     mpn: (uguale && uguale.auto.mpn) || (sch && sch.mpn) || '',
                     descrizione: nomeAcquisto(r.ean,[(uguale && uguale.auto.descrizione),(listino && listino.descrizione),
-                        (vago && fisso && fisso.descrizione),salvato?.name,r.descrizione,r.nome,pr?.manuale?.descrizione,pr?.cliente,automatico?.requisito],categoria),
-                    prezzoListino: listino?.prezzo_listino ?? null, requisito: automatico?.requisito || '',
-                    politica: automatico?.regola_acquisto || '', motivo: aTerra ? 'Prelievo di magazzino già registrato.' : 'Referenza salvata nella distinta; nessuna sostituzione automatica applicata.',
+                        (vago && fisso && fisso.descrizione),salvato?.name,r.descrizione,r.nome,pr?.manuale?.descrizione,pr?.cliente,pianoSuperato ? sceltaEsplicita.descrizione : automatico?.requisito],categoria),
+                    prezzoListino: listino?.prezzo_listino ?? null, requisito: pianoSuperato ? sceltaEsplicita.descrizione || '' : automatico?.requisito || '',
+                    politica: automatico?.regola_acquisto || '', motivo: pianoSuperato ? 'Scelta manuale già salvata nella distinta. Il vecchio piano non può proporre il componente precedente: attesa della nuova allocazione delle quantità.' : aTerra ? 'Prelievo di magazzino già registrato.' : 'Referenza salvata nella distinta; nessuna sostituzione automatica applicata.',
                     quantita, costo: r.costo != null ? r.costo : null, stimato: r.fonte === 'stima' || r.fonte === 'altro',
                     disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
                     verificaDisponibilita: disponibilitaRiga(dati, auto, { ...r, quantita }),
                     statoVisivo: statoAvvisoComponente(r,disponibilitaRiga(dati, auto, { ...r, quantita })),
-                    daConfermare: !!(uguale && uguale.auto.da_confermare), pezzo }, s.nome);
+                    daConfermare: pianoSuperato || !!(uguale && uguale.auto.da_confermare), pezzo }, s.nome);
             }
             for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
                 if (x.personalizzata || x.costo === 0) continue;          // gia' tra le voci personalizzate o senza costo
@@ -3844,9 +3865,9 @@
     function htmlLatoDaOrdinare(r, n, quando, vista, solo, contatti) {
         const v = vista === 'fornitori' ? 'fornitori' : 'categorie';
         return `<div class="acc-rf-tot"><small>Scrivania E${n} · Piano acquisti · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
-            `<b>${eur(r.totale)}</b><small>${r.pezzi} pezzi per ${r.pc === 1 ? '1 PC' : `${r.pc} PC`}` +
+            `<b>${eur(r.totale)}</b><small>${r.pezzi === 1 ? '1 pezzo' : `${r.pezzi} pezzi`} per ${r.pc === 1 ? '1 PC' : `${r.pc} PC`}` +
             `${r.senzaCosto ? ` · ${r.senzaCosto === 1 ? '1 pezzo' : `${r.senzaCosto} pezzi`} senza costo` : ''}</small>` +
-            `<small>Pronti per la copia: ${r.pronti || 0} pezzi · ${eur(r.prontoTotale || 0)}${r.daApplicare ? ` · ${r.daApplicare} pezzi da confermare nelle distinte` : ''}</small></div>` +
+            `<small>Pronti per la copia: ${r.pronti === 1 ? '1 pezzo' : `${r.pronti || 0} pezzi`} · ${eur(r.prontoTotale || 0)}${r.daApplicare ? ` · ${r.daApplicare === 1 ? '1 pezzo da confermare' : `${r.daApplicare} pezzi da confermare`} nelle distinte` : ''}</small></div>` +
             `<div class="acc-rf-viste"><button type="button" data-rf-vista="categorie" class="${v === 'categorie' ? 'attivo' : ''}">📂 Per categoria</button>` +
             `<button type="button" data-rf-vista="fornitori" class="${v === 'fornitori' ? 'attivo' : ''}">🏷 Per fornitore</button></div>` +
             (r.righe.some(x => x.verificaDisponibilita || x.nonDisponibile || x.poco != null) ?
@@ -4528,7 +4549,7 @@
         acquistoSnapshot, salvaConfermaCompleta,
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
-        K_ESCLUSIONI_ACQUISTO, identitaAcquisto, esclusioneAcquisto, nomeAcquisto, rigaOrdinabile, propostaAcquisto,
+        K_ESCLUSIONI_ACQUISTO, sceltaEsplicitaAcquisto, pianoRispettaSceltaEsplicita, identitaAcquisto, esclusioneAcquisto, nomeAcquisto, rigaOrdinabile, propostaAcquisto,
         bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,

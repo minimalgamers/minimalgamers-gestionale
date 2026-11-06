@@ -131,4 +131,32 @@ assert.deepEqual(J(sandbox.processedOrdersCache['905.2'].customProperties[A.K_ES
 assert.deepEqual(J(sandbox.processedOrdersCache['905.2'].components),cacheBom);
 await A.sostituisciAcquisto(t,chosen,'allocation_plan');
 assert.equal(calls.at(-1).p.source,'allocation_plan','automatic allocation must not pin a manual choice');
+
+// A stale encrypted artifact cannot immediately undo the explicit Buyer Desk choice.
+const explicit={tipo:'GPU',ean:'ARC-B570',fornitore:'ACTION',componentId:32,quantita:1,
+  descrizione:'Intel Arc B570 10GB',esplicita:true,il:'2026-11-06T12:00:00Z'};
+sandbox.processedOrdersCache['905.2'].customProperties={_scelte_acquisto_gestionale:{test:explicit}};
+const chosenCard=card('905.2',sandbox.processedOrdersCache['905.2'].components);
+const stalePart={tipo:'GPU',manuale:{codice:'ARC-B580',fornitore:'ACTION',quantita:1},
+  requisito:'Intel Arc B580 12GB',auto:{...offer('ARC-B580','ACTION',200),descrizione:'Intel Arc B580 12GB'}};
+const oldArtifact={generato:'2026-11-06T11:00:00Z',ordini:{'905':{pc:[{quantita:2,pezzi:[stalePart]}]}}};
+const guarded=J(A.daOrdinare(oldArtifact,[chosenCard],{}));
+assert.equal(guarded.righe[0].codice,'ARC-B570');assert.equal(guarded.righe[0].daApplicare,false);
+assert.equal(guarded.righe[0].daConfermare,true);assert.equal(guarded.pronti,0);
+assert.match(guarded.righe[0].motivi.join(' '),/vecchio piano non può proporre il componente precedente/);
+assert.deepEqual(J(A.proposteOrdine(oldArtifact,'905.2',chosenCard.righe)),[]);
+// A recent timestamp alone does not prove that the artifact incorporated this specific intent.
+oldArtifact.generato='2026-11-06T13:00:00Z';
+assert.equal(A.pianoRispettaSceltaEsplicita('905.2',chosenCard.righe[0],stalePart),false);
+const currentPart={...stalePart,scelta_esplicita:true,componente_gestionale_id:32,
+  manuale:{codice:'ARC-B570',fornitore:'ACTION',quantita:1},
+  auto:{...offer('B570-OTHER-SKU','ABACO',185),descrizione:'Intel Arc B570 10GB'}};
+const newArtifact={ordini:{'905':{pc:[{quantita:2,pezzi:[currentPart]}]}}};
+assert.equal(A.pianoRispettaSceltaEsplicita('905.2',chosenCard.righe[0],currentPart),true);
+const cheaper=J(A.daOrdinare(newArtifact,[chosenCard],{}));
+assert.equal(cheaper.righe[0].codice,'B570-OTHER-SKU');assert.equal(cheaper.righe[0].daApplicare,true);
+assert.equal(cheaper.righe[0].pezzi[0].ean,'ARC-B570');
+// Metadata from an unsuccessful concurrent update is ignored unless it matches the actual saved row.
+sandbox.processedOrdersCache['905.2'].customProperties={_scelte_acquisto_gestionale:{test:{...explicit,ean:'OTHER'}}};
+assert.equal(A.sceltaEsplicitaAcquisto('905.2',chosenCard.righe[0]),null);
 console.log('purchase-summary: allocation, exact replacement, exclusions and order drafts passed');

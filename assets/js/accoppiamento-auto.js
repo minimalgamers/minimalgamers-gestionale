@@ -3429,7 +3429,7 @@
         return nome || `${categoria || 'Prodotto'} — nome prodotto da verificare`;
     }
     function rigaOrdinabile(r) {
-        return !r.esclusa && !r.daApplicare && !r.daDecidere && !r.nonDisponibile && r.poco == null &&
+        return !r.esclusa && !r.daApplicare && !r.daDecidere && !r.nonDisponibile && !r.daVerificare && r.poco == null &&
             !r.senzaCosto && !r.daConfermare && r.fornitore !== 'MAGAZZINO' && r.fornitore !== DA_SCEGLIERE;
     }
     function propostaAcquisto(p, r, quantita) {

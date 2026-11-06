@@ -32,6 +32,7 @@ assert.deepEqual(J(cards),before,'opening/recalculating must never replace assem
 assert.deepEqual(plan.fornitori.map(f=>[f.nome,f.pezzi,f.costo]),[['ABACO',1,55],['ACTION',1,50],['DA SCEGLIERE',1,0]]);
 assert.equal(plan.daApplicare,2);assert.equal(plan.pezzi,3);assert.equal(plan.totale,105);
 assert.equal(plan.pronti,0);assert.equal(plan.prontoTotale,0);
+assert.equal(A.rigaOrdinabile({quantita:1,costo:50,daVerificare:true}),false,'unverified supplier availability cannot enter an order');
 assert.equal(plan.righe.find(r=>r.daDecidere).quantita,1);
 assert.equal(plan.righe.find(r=>r.codice==='SSD-B').pezzi[0].id,'900.2');
 assert.equal(plan.righe.find(r=>r.codice==='SSD-A').pezzi[0].ean,'OLD');

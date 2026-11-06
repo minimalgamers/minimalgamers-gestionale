@@ -374,6 +374,7 @@
         setHidden(nav.querySelector('.mg-order-empty'),filtered.ids.length>0);
         container.querySelector('.mg-order-empty')?.remove(); // obsolete single-detail empty state
         nav.scrollTop=state.scrollTop;list.scrollLeft=state.scrollLeft;list.scrollTop=state.listTop;
+        highlightActive(nav,state.active);
         trackOrders(container,cards,key,nav);
     }
     function init(){

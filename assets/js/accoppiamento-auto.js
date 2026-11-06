@@ -567,6 +567,8 @@
         if (window.SupabaseDB?.getProductReplacements) stato.sostituzioniRemote = await window.SupabaseDB.getProductReplacements();
     }
     async function salvaSostituzioneDefinitiva(orderId,r,d) {
+        const scaduta = motivoScadenzaOfferta(d);
+        if (scaduta) throw new Error(scaduta);
         if (!window.SupabaseDB?.saveProductReplacement) throw new Error('Salvataggio sostituzioni non disponibile');
         if (((TIPI[r.tipo]||r.tipo) === 'CASE' || (TIPI[r.tipo]||r.tipo) === 'COOLER' && /LIQUID|\b(?:240|360|420)\s*MM/i.test(r.ean)) &&
             !coloreRispettato(`${r.ean} ${r.nome || ''}`,`${d.codice} ${d.descrizione || ''}`))
@@ -1751,6 +1753,8 @@
         const a = quotazioniDellaRiga(dati, r).proprio;
         const uguale = x => x && String(x.fornitore || '').toUpperCase().trim() === forn &&
             [x.codice, x.ean, x.mpn].filter(Boolean).map(chiave).includes(chiave(r.ean));
+        const scaduta = motivoScadenzaOfferta(a || (uguale(p?.auto) ? p.auto : null));
+        if (scaduta) return {stato:'non_ordinabile',testo:scaduta};
         if (p && uguale(p.manuale) && p.quantita_non_coperta > 0) {
             return { stato: 'quantita', testo: 'Quantità insufficiente dopo gli altri ordini: sostituisci o verifica il fornitore.' };
         }
@@ -2372,9 +2376,18 @@
     }
 
     function offertaOrdinabile(a) {
-        if (!a || a.ordinabile === false || a.da_confermare || /riservat|in arrivo|da confermare|non (?:ordinabile|disponibile)/i.test(a.disponibilita || '')) return false;
+        if (!a || motivoScadenzaOfferta(a) || a.ordinabile === false || a.da_confermare || /riservat|in arrivo|da confermare|non (?:ordinabile|disponibile)/i.test(a.disponibilita || '')) return false;
         const stock = a.stock ?? (/\b(\d+)\s*pz\b/i.exec(a.disponibilita || '') || [])[1];
         return Number(stock) >= Math.max(1, Number(a.quantita) || 1) && Number(a.costo) > 0;
+    }
+
+    function motivoScadenzaOfferta(a, now = Date.now()) {
+        for (const [campo, nome] of [['stock_valid_until','Disponibilità'],['price_valid_until','Quotazione']]) {
+            if (a?.[campo] == null) continue; // Legacy offers without a TTL keep their existing validation.
+            const fine = Date.parse(a[campo]);
+            if (!Number.isFinite(fine) || fine <= now) return `${nome} scaduta o non verificabile: aggiorna il confronto prima di ordinare.`;
+        }
+        return '';
     }
 
     // Pezzo dell'automatico di quest'ordine da mettere al posto della riga r {tipo, ean, fornitore, nome,
@@ -3487,7 +3500,8 @@
     }
     function rigaOrdinabile(r) {
         return !r.esclusa && !r.daApplicare && !r.daDecidere && !r.nonDisponibile && !r.daVerificare && r.poco == null &&
-            !r.senzaCosto && !r.daConfermare && r.fornitore !== 'MAGAZZINO' && r.fornitore !== DA_SCEGLIERE;
+            !r.senzaCosto && !r.daConfermare && r.fornitore !== 'MAGAZZINO' && r.fornitore !== DA_SCEGLIERE &&
+            !motivoScadenzaOfferta(r.proposta) && !(r.scadenze || []).some(x => motivoScadenzaOfferta(x));
     }
     function propostaAcquisto(p, r, quantita) {
         if (!p || p.fisso || r.fonte === 'acquistato' || r.fonte === 'magazzino') return null;
@@ -3519,9 +3533,10 @@
             const k = (chiave(x.codice) || `~${String(x.descrizione || '').toUpperCase().trim()}`) + (x.daApplicare ? '|proposta' : '') + (x.daDecidere ? '|mancante' : '');
             const r = f[k] || (f[k] = { codice: x.codice || '', ean: '', mpn: '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
-                fornitore: forn, daApplicare: !!x.daApplicare, daDecidere: !!x.daDecidere, proposta: x.proposta || null, motivi: [], requisiti: [], politiche: [], stock: [], listini: [],
+                fornitore: forn, daApplicare: !!x.daApplicare, daDecidere: !!x.daDecidere, proposta: x.proposta || null, scadenze: [], motivi: [], requisiti: [], politiche: [], stock: [], listini: [],
                 link: forn === 'AMAZON' || forn === DA_SCEGLIERE ? linkAmazon(x.codice, x.descrizione, categoria) : null });
             if (x.pezzo) r.pezzi.push(x.pezzo);
+            if (x.offerta) r.scadenze.push({stock_valid_until:x.offerta.stock_valid_until,price_valid_until:x.offerta.price_valid_until});
             for (const [campo, valore] of [['motivi',x.motivo],['requisiti',x.requisito],['politiche',x.politica]])
                 if (valore && !r[campo].includes(valore)) r[campo].push(valore);
             if (x.stock && !r.stock.some(z => JSON.stringify(z) === JSON.stringify(x.stock))) r.stock.push(x.stock);
@@ -3607,7 +3622,7 @@
                             quantita: piano.quantita, costo: Number.isFinite(piano.costo) ? piano.costo : null,
                             prezzoListino: piano.prezzo_listino ?? piano.listino ?? null,
                             disponibilita: piano.disponibilita || '', daConfermare: !!piano.da_confermare,
-                            daApplicare: piano.diversa, proposta: piano, requisito: piano.requisito, politica: piano.politica,
+                            daApplicare: piano.diversa, proposta: piano, offerta: piano, requisito: piano.requisito, politica: piano.politica,
                             motivo: piano.motivo || (piano.diversa ? 'Offerta allocata secondo le regole dei fornitori; distinta da confermare.' : 'Referenza della distinta confermata nel piano dei listini.'),
                             stock: { disponibile: piano.stock_libero_prima ?? piano.disponibili ?? pezziDisponibili(piano.disponibilita),
                                 allocati: piano.quantita, richiesti: piano.allocazione?.pc_richiesti ?? null,
@@ -3627,7 +3642,8 @@
                     disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
                     verificaDisponibilita: disponibilitaRiga(dati, auto, { ...r, quantita }),
                     statoVisivo: statoAvvisoComponente(r,disponibilitaRiga(dati, auto, { ...r, quantita })),
-                    daConfermare: pianoSuperato || !!(uguale && uguale.auto.da_confermare), pezzo }, s.nome);
+                    daConfermare: pianoSuperato || !!(uguale && uguale.auto.da_confermare),
+                    offerta: offertaDelPezzo(dati,r.ean,r.fornitore) || uguale?.auto || listino, pezzo }, s.nome);
             }
             for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
                 if (x.personalizzata || x.costo === 0) continue;          // gia' tra le voci personalizzate o senza costo
@@ -3841,8 +3857,13 @@
         const valori = () => ({ a: ov.querySelector('[data-em-a]').value.trim(), oggetto: ov.querySelector('[data-em-oggetto]').value,
             corpo: ov.querySelector('[data-em-corpo]').value });
         ov.querySelector('[data-no]').addEventListener('click', () => ov.remove());
-        ov.querySelector('[data-copia-em]').addEventListener('click', () => copia(valori().corpo));
+        const scadenza = () => x.gruppi.some(g => g.righe.some(r => motivoScadenzaOfferta(r.proposta) || (r.scadenze || []).some(a => motivoScadenzaOfferta(a))));
+        ov.querySelector('[data-copia-em]').addEventListener('click', () => {
+            if (scadenza()) return avvisa('Quotazione scaduta: chiudi e aggiorna il riepilogo prima di ordinare.','error');
+            copia(valori().corpo);
+        });
         ov.querySelector('[data-si]').addEventListener('click', () => {
+            if (scadenza()) return avvisa('Quotazione scaduta: chiudi e aggiorna il riepilogo prima di ordinare.','error');
             const v = valori();
             try { navigator.clipboard.writeText(v.corpo); } catch (e) { /* appunti non disponibili */ }
             const u = urlOutlook(v.a, v.oggetto, v.corpo);
@@ -4328,6 +4349,8 @@
     }
 
     async function sostituisciAcquisto(p, d, source = 'buyer_desk') {
+        const scaduta = motivoScadenzaOfferta(d);
+        if (scaduta) throw new Error(scaduta);
         if (!window.SupabaseDB?.replacePurchaseComponent) throw new Error('Salvataggio preciso non disponibile: ricarica il gestionale');
         if (p.personalizzato) throw new Error('Questa voce extra va modificata dalla relativa scheda');
         if (acquistoConfermato(p.id) || pezzoPreso(magazzinoDellaRiga(p.id,{tipo:p.tipo,ean:p.ean,fornitore:p.fornitore})))
@@ -4606,7 +4629,7 @@
         extraOrdine, righeExtra, contoOrdine, dettaglioPezzi, consigliato, costoMagazzino, prezzoAcquisto,
         acquistoConfermato, proposteOrdine, tabellaProposte, salvaPrezzi, barraScrivania, aggiornaScrivania,
         confermaScrivania, ambitoConferma, ultimiConti, URL_AGGIORNA_LISTINI, pulisciModificheLocali, pezziMigliori, sostitutoDaOrdine,
-        indiceOfferte, invalidaIndiceOfferte, offertaOrdinabile, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
+        indiceOfferte, invalidaIndiceOfferte, offertaOrdinabile, motivoScadenzaOfferta, verificaListini, attendiListini, validaScelte, proposteAccessori, richiediJson,
         chiaveCostoOrdine, costoInseritoOrdine, numeroCosto, salvaCostoInserito, apriCosto, pannelloCostiMancanti, costoRigaVerificato, offertaDelPezzo, prezzoConferma, ivaVendita,
         indiceCostiProdotto, costiProdotto, aliasCostoProdotto, aggiornaCorrezioniProdotto,
         nettoPagato, magazzinoDellaRiga, definizioneScorta, costoDelPrelievo, prelevaRiga,

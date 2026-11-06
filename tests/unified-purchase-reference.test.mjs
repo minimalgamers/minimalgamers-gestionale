@@ -29,7 +29,7 @@ test('34 pending plus one ready CPU render as one reference in both views withou
  assert.equal(r.righe.length,2);assert.equal(views.length,1);assert.equal(views[0].quantita,35);assert.equal(views[0].costo,4793.60);
  for(const html of [A.htmlFornitoriDaOrdinare(r),A.htmlCategorieDaOrdinare(r)]){
   assert.equal((html.match(/class="supplier-item(?: |")/g)||[]).length,1);
-  assert.match(html,/x35/);assert.match(html,/4793,60/);assert.match(html,/1 pronti per la copia/);assert.match(html,/34 da confermare/);
+  assert.match(html,/x35/);assert.match(html,/4793,60/);assert.match(html,/1 pronto per la copia/);assert.match(html,/34 da confermare/);
   assert.match(html,/data-rf-applica="0"/);assert.doesNotMatch(html,/data-rf-applica="1"/);
   assert.match(html,/data-rf-cambia-gruppo="0,1"/);assert.match(html,/Stock libero: 40 pezzi/);assert.doesNotMatch(html,/Stock libero: 46/);
  }
@@ -52,7 +52,7 @@ test('confirming the pending action uses only its 34 original BOM identities; gr
 test('blocked and excluded quantities stay distinct, while grouped trash never edits the assembly BOM',async()=>{
  const f=fixture();for(let i=0;i<34;i++)f.data.ordini[String(1000+i)].pc[0].pezzi[0].auto.disponibilita='5 pz';
  const r=f.plan(),pending=r.righe[0],ready=r.righe[1];assert.equal(pending.poco,5);
- const html=f.A.htmlFornitoriDaOrdinare(r);assert.match(html,/1 pronti per la copia/);assert.match(html,/0 da confermare/);assert.match(html,/34 bloccati/);
+ const html=f.A.htmlFornitoriDaOrdinare(r);assert.match(html,/1 pronto per la copia/);assert.match(html,/0 da confermare/);assert.match(html,/34 bloccati/);
  assert.match(html,/Stock verificato 5 \/ richiesti 34/);assert.match(html,/data-rf-applica="0" disabled/);
  assert.match(f.A.testoOrdineFornitore(r.fornitori[0]),/^x1 /);
  const bom=J(f.cache);await f.A.modificaEsclusioneAcquisto(f.A.bersaglioReferenzaVista(r,'0,1'),true);
@@ -77,5 +77,5 @@ test('different and missing source costs are shown individually, never as a manu
  const html=A.htmlFornitoriDaOrdinare(r);assert.match(html,/Prezzi netti unitari: <b>136,96 € \/ 139,00 €/);
  assert.match(html,/34 × 136,96 €/);assert.match(html,/1 × 139,00 €/);
  f.righe[1].costo=0;f.righe[1].senzaCosto=true;f.righe[1].costiVista=[{quantita:1,unitario:null}];
- assert.match(A.htmlFornitoriDaOrdinare(r),/Costo non disponibile/);assert.match(A.htmlFornitoriDaOrdinare(r),/1 pezzi senza costo/);
+ assert.match(A.htmlFornitoriDaOrdinare(r),/Costo non disponibile/);assert.match(A.htmlFornitoriDaOrdinare(r),/1 pezzo senza costo/);
 });

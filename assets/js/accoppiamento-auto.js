@@ -3977,12 +3977,12 @@
                 const k=JSON.stringify([p.unitario,!!p.stimato]);
                 const precedente=valori.get(k);valori.set(k,{...p,quantita:p.quantita+(precedente?.quantita||0)});
             }
-            return [...valori.values()].map(p=>p.unitario==null?`${p.quantita} pezzi senza costo`:`${p.quantita} × ${p.stimato?'≈ ':''}${eur(p.unitario)}`).join(' + ');
+            return [...valori.values()].map(p=>p.unitario==null?`${p.quantita} ${p.quantita===1?'pezzo':'pezzi'} senza costo`:`${p.quantita} × ${p.stimato?'≈ ':''}${eur(p.unitario)}`).join(' + ');
         };
         const modificabili = (r.pezzi || []).filter(p => !p.personalizzato);
         const azioni = [
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
-            membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${confermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} pezzi)`:''}</button>`).join(''),
+            membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${confermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join(''),
             modificabili.length && !magazzino ? `<button type="button" class="acc-rf-azione" ${aggregata?`data-rf-cambia-gruppo="${indici}"`:`data-rf-cambia="${r.n}"`} title="La sostituzione confermata si salva anche nella distinta di montaggio dei PC selezionati">🔁 Cambia dal Buyer Desk</button>` : '',
             r.pezzi?.length && !magazzino ? `<button type="button" class="acc-rf-azione acc-rf-trash" ${aggregata?`data-rf-escludi-gruppo="${indici}"`:`data-rf-escludi="${r.n}"`} title="Esclude questi ${r.quantita} pezzi solo dagli acquisti. La distinta di montaggio resta invariata.">🗑 Escludi dagli acquisti</button>` : ''
         ].filter(Boolean).join('');
@@ -3999,7 +3999,7 @@
             (!magazzino ? `<div class="acc-rf-unit">${prezzi.length>1?'Prezzi netti unitari':'Acquisto netto unitario'}: <b>${unitario}</b>` +
                 (r.listini?.length ? ` · listino originale fornitore: ${r.listini.map(eur).join(' / ')}` : '') + `</div>` : '') +
             `<div class="acc-nota">${esc((r.ordini || []).join(' '))}${disp ? ' · ' + esc(disp) : ''}</div>` +
-            (aggregata ? `<div class="acc-rf-state-summary"><span>${pronti} pronti per la copia</span><span>${pendenti} da confermare</span>${bloccati?`<span>${bloccati} bloccati</span>`:''}</div>` : '') +
+            (aggregata ? `<div class="acc-rf-state-summary"><span>${pronti} ${pronti===1?'pronto':'pronti'} per la copia</span><span>${pendenti} da confermare</span>${bloccati?`<span>${bloccati} bloccati</span>`:''}</div>` : '') +
             (aggregata || prezzi.length>1 || r.senzaCosto ? `<details class="acc-rf-state-detail"><summary>Dettaglio stati e costi</summary>` + membri.map(x=>`<div><b>${x.quantita} × ${esc(statoRiga(x))}</b> · ${x.senzaCosto&&!x.costo?'Costo non disponibile':`${x.stimato?'≈ ':''}${eur(x.costo)}${x.senzaCosto?' + costo mancante':''}`}` +
                     ` · ${dettaglioCosto(x)}<small>${esc((x.ordini || []).join(' '))}</small>` +
                     `${x.poco!=null?`<p>Stock verificato ${x.poco} / richiesti ${x.quantita}: quantità bloccata.</p>`:''}` +

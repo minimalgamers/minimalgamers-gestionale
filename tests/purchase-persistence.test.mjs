@@ -9,19 +9,32 @@ function fixture(options={}) {
  const rows=[{id:10,order_id:1,component_type:'SSD',ean:'OLD',product_name:'Original',supplier:'ACTION',quantity:1,price:null,is_custom:0},
   {id:11,order_id:1,component_type:'SSD',ean:'SECOND',product_name:'Second',supplier:'ACTION',quantity:1,price:null,is_custom:0}];
  const writes=[];let reads=0;
+ const field=(row,key)=>{
+  if(!key.includes('->'))return row[key];
+  const parts=key.split(/->>?/),text=key.includes('->>');let value=row[parts.shift()];
+  for(const part of parts)value=value!=null&&typeof value==='object'?value[part]:undefined;
+  return text&&value!=null?(typeof value==='object'?JSON.stringify(value):String(value)):value;
+ };
  class Q {
   constructor(table){this.table=table;this.filters=[];this.op='read';}
-  select(){return this;} eq(k,v){this.filters.push(r=>r[k]===v);return this;}
-  is(k,v){this.filters.push(r=>v===null?r[k]==null:r[k]===v);return this;}
+  select(){return this;} eq(k,v){this.filters.push(r=>field(r,k)===v);return this;}
+  is(k,v){this.filters.push(r=>v===null?field(r,k)==null:field(r,k)===v);return this;}
   or(){this.filters.push(r=>r.is_custom==null||r.is_custom===0);return this;}
   update(v){this.op='update';this.value=v;return this;}
+  insert(v){this.op='insert';this.value=v;return this;}
+  maybeSingle(){return this.then(r=>r.data.length>1?{data:null,error:Error('Componente ambiguo')}:{...r,data:r.data[0]||null});}
   single(){return this.then(r=>({...r,data:r.data[0]}));}
   then(resolve,reject){return Promise.resolve().then(async()=>{
    if(this.op==='read'&&this.table==='processed_order_components'&&options.onRead)options.onRead({order,rows});
    if(this.op==='read'&&this.table==='processed_orders'&&++reads===3&&options.onFresh)options.onFresh({order,rows});
-   if(this.op==='update'&&options.beforeWrite)await options.beforeWrite({order,rows,table:this.table});
-   const found=(this.table==='processed_orders'?[order]:rows).filter(r=>this.filters.every(f=>f(r)));
+   if(['update','insert'].includes(this.op)&&options.beforeWrite)await options.beforeWrite({order,rows,table:this.table,op:this.op,value:this.value});
+   let found=(this.table==='processed_orders'?[order]:rows).filter(r=>this.filters.every(f=>f(r)));
    if(this.op==='update'){writes.push({table:this.table,ids:found.map(r=>r.id),value:this.value});found.forEach(r=>Object.assign(r,this.value));}
+   if(this.op==='insert'){
+    found=(Array.isArray(this.value)?this.value:[this.value]).map(v=>({...v,id:Math.max(0,...rows.map(r=>r.id))+1,price:v.price??null}));
+    rows.push(...found);writes.push({table:this.table,ids:found.map(r=>r.id),value:this.value});
+   }
+   if(['update','insert'].includes(this.op)&&options.afterWrite)await options.afterWrite({order,rows,table:this.table,op:this.op,value:this.value});
    return {data:JSON.parse(JSON.stringify(found)),error:null};
   }).then(resolve,reject);}
  }

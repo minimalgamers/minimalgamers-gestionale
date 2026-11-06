@@ -1,0 +1,34 @@
+<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Riepilogo acquisti — dati dimostrativi locali</title>
+<link rel="stylesheet" href="../../assets/css/style.css"><link rel="stylesheet" href="../../assets/css/style_mobile.css">
+<link rel="stylesheet" href="../../assets/css/ios-foundation.css"><link rel="stylesheet" href="../../assets/css/ios-orders.css"><link rel="stylesheet" href="../../assets/css/ios-desks.css"><link rel="stylesheet" href="../../assets/css/ios-overview.css"><link rel="stylesheet" href="../../assets/css/ios-dialogs.css"><link rel="stylesheet" href="../../assets/css/ios-secondary.css"><link rel="stylesheet" href="../../assets/css/ios-responsive.css"><link rel="stylesheet" href="../../assets/css/order-glass.css"><link rel="stylesheet" href="../../assets/css/purchase-summary.css">
+<style>body{background:#d9e5e9;padding:20px;color:#202632}#preview{padding:12px;border:1px solid #8594a9;border-radius:10px;background:white;margin-bottom:18px}#preview button{padding:10px}#suppliers-container{display:block}#suppliers-header{width:300px;max-width:100%}#layout{display:flex;gap:18px;align-items:flex-start}.suppliers-grid{flex:1;min-width:0}#notice{min-height:24px}@media(max-width:750px){body{padding:10px}#layout{display:block}#suppliers-header{width:auto}.suppliers-grid{display:block}}</style>
+</head><body class="mg-ios orders-loaded"><div id="preview"><b>ANTEPRIMA LOCALE · nessun ordine reale</b><p>Stati pronti, proposte a scalare, quantità mancanti, esclusioni e costi unitari. I pulsanti operano soltanto su questi dati dimostrativi.</p><button id="reset">Ripristina anteprima</button><div id="notice" role="status"></div></div>
+<main id="suppliers-container"><div id="layout"><aside id="suppliers-header"></aside><section id="riepilogo-auto" class="suppliers-grid"></section></div></main>
+<script src="../../assets/js/accoppiamento-auto.js"></script><script>
+const A=window.AccoppiamentoAuto;A.stile();
+const component=(id,type,ean,supplier)=>({id,type,ean,name:ean,supplier,price:null,quantity:1});
+const base=[
+ {id:'demo1',nome:'#DEMO-1',foglio:1,salvati:[component(1,'SSD','SSD-A','ACTION')],righe:[{tipo:'SSD',ean:'SSD-A',nome:'SSD 500GB NVMe',fornitore:'ACTION',quantita:1,costo:45,fonte:'listino'}]},
+ {id:'demo2',nome:'#DEMO-2',foglio:1,salvati:[component(2,'SSD','SSD-OLD','CASEKING')],righe:[{tipo:'SSD',ean:'SSD-OLD',nome:'SSD 500GB NVMe',fornitore:'CASEKING',quantita:1,costo:55,fonte:'listino'}]},
+ {id:'demo3',nome:'#DEMO-3',foglio:1,salvati:[component(3,'MOBO','MBAR-339','CASEKING')],righe:[{tipo:'MOBO',ean:'MBAR-339',nome:'ASRock B550M Pro4',fornitore:'CASEKING',quantita:1,costo:69.91,fonte:'listino'}]},
+ {id:'demo4',nome:'#DEMO-4',foglio:1,salvati:[component(4,'RAM','RAM-OLD','ACTION')],righe:[{tipo:'RAM',ean:'RAM-OLD',nome:'32GB DDR5',fornitore:'ACTION',quantita:1,costo:190,fonte:'listino'}]}
+];
+const off=(code,supplier,description,cost,stock)=>({codice:code,fornitore:supplier,descrizione:description,costo:cost,quantita:1,prezzo_listino:cost,disponibilita:`${stock} pz`,stock_libero_prima:stock});
+const data={ordini:{
+ demo1:{pc:[{quantita:1,pezzi:[{tipo:'SSD',requisito:'SSD NVMe 500GB o superiore',regola_acquisto:'Primari: ACTION, OMEGA, TIER ONE',auto:off('SSD-A','ACTION','Goodram SSD 512GB NVMe',45,30)}]}]},
+ demo2:{pc:[{quantita:1,pezzi:[{tipo:'SSD',requisito:'SSD NVMe 500GB o superiore',regola_acquisto:'Primari: ACTION, OMEGA, TIER ONE',auto:off('SSD-B','ABACO','SSD NVMe 512GB — seconda offerta disponibile',48,20),nota:'Prima referenza esaurita sulle altre unità; seconda offerta ordinabile.'}]}]},
+ demo3:{pc:[{quantita:1,pezzi:[{tipo:'MOBO',requisito:'B550 AM4 DDR4, formato compatibile',regola_acquisto:'Primari: ACTION, OMEGA, TIER ONE',auto:off('ASROCK-B550-HDV','ACTION','ASRock B550M-HDV Socket AM4',54.69,110)}]}]},
+ demo4:{pc:[{quantita:1,pezzi:[{tipo:'RAM',requisito:'32GB DDR5 6000MHz o superiore',auto:null,allocazione:{pc_richiesti:1,pc_coperti:0,pc_mancanti:1}}]}]}
+}};
+let cards,result;
+function draw(){result=A.daOrdinare(data,cards,{});document.getElementById('suppliers-header').innerHTML=A.htmlLatoDaOrdinare(result,1,'10:30','fornitori');document.getElementById('riepilogo-auto').innerHTML=A.htmlFornitoriDaOrdinare(result);}
+function reset(){cards=structuredClone(base);const target=A.identitaAcquisto(cards[0],cards[0].righe[0],cards[0].salvati[0]);cards[0].esclusioni={[target.chiaveAcquisto]:{...target,escluso:true}};draw();}
+document.getElementById('reset').onclick=reset;
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.rfEscludi!==undefined){for(const p of result.righe[Number(b.dataset.rfEscludi)].pezzi){const c=cards.find(x=>x.id===p.id);c.esclusioni={...c.esclusioni,[p.chiaveAcquisto]:{...p,escluso:true}};}draw();document.getElementById('notice').textContent='Anteprima: escluso solo dagli acquisti. Distinta invariata.';}
+ if(b.dataset.rfRipristina!==undefined){for(const p of result.esclusioni[Number(b.dataset.rfRipristina)].pezzi)delete cards.find(x=>x.id===p.id).esclusioni[p.chiaveAcquisto];draw();document.getElementById('notice').textContent='Anteprima: reincluso negli acquisti.';}
+ if(b.dataset.rfApplica!==undefined){const r=result.righe[Number(b.dataset.rfApplica)],d=r.proposta;for(const p of r.pezzi){const c=cards.find(x=>x.id===p.id),old=c.salvati.find(x=>x.id===p.componentId);Object.assign(old,{ean:d.codice,name:d.descrizione,supplier:d.fornitore,quantity:d.quantita});Object.assign(c.righe[0],{ean:d.codice,nome:d.descrizione,fornitore:d.fornitore,quantita:d.quantita,costo:d.costo});}draw();document.getElementById('notice').textContent='Anteprima: proposta applicata alla distinta simulata; riga ora pronta.';}
+ if(b.dataset.rfCambia!==undefined)document.getElementById('notice').textContent='Anteprima: nel gestionale si apre il Buyer Desk, poi si confermano gli specifici PC.';
+});reset();
+</script></body></html>

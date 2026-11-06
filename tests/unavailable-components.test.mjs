@@ -24,7 +24,7 @@ test('prezzo noto e alternativa disponibile non rendono disponibile il prodotto 
   assert.equal(old.costo,200);
 });
 test('riga assente dal catalogo rimane riconoscibile anche con costo sconosciuto',()=>{
-  const d=dati();d.per_codice={};
+  const d=dati();d.per_codice={};d.ordini['100'].pc[0].pezzi[0].auto=null;
   const r={...old,costo:null};
   assert.equal(A.disponibilitaRiga(d,A.pcAutomatico(d,'100'),r).stato,'assente');
   const result=J(A.daOrdinare(d,[scheda(r)],{}));
@@ -32,24 +32,26 @@ test('riga assente dal catalogo rimane riconoscibile anche con costo sconosciuto
   assert.equal(result.fornitori[0].nome,'ACTION');assert.equal(result.righe[0].codice,'OLD');
   assert.equal(result.righe[0].nonDisponibile,true);
 });
-test('finché non si conferma un cambio, totale e fornitore restano quelli della scheda',()=>{
+test('il piano mostra l’alternativa allocata ma non altera la distinta e non la copia prima della conferma',()=>{
   const d=dati(),prima=JSON.stringify(d);
   for(let i=0;i<2;i++){
     const r=J(A.daOrdinare(d,[scheda(old)],{}));
-    assert.equal(r.cambi,0);assert.equal(r.totale,200);assert.equal(r.pezzi,2);
-    assert.deepEqual(r.fornitori.map(f=>f.nome),['ACTION']);
-    assert.equal(r.righe[0].codice,'OLD');assert.equal(r.righe[0].quantita,2);
-    assert.match(A.htmlRigaDaOrdinare(r.righe[0],'#f00',false),/acc-rf-indisponibile/);
+    assert.equal(r.cambi,0);assert.equal(r.totale,80);assert.equal(r.pezzi,1);
+    assert.deepEqual(r.fornitori.map(f=>f.nome),['ABACO']);
+    assert.equal(r.righe[0].codice,'NEW');assert.equal(r.righe[0].quantita,1);
+    assert.equal(r.righe[0].pezzi[0].ean,'OLD');assert.equal(r.righe[0].pezzi[0].quantita,2);
+    assert.equal(r.righe[0].daApplicare,true);
+    assert.match(A.htmlRigaDaOrdinare(r.righe[0],'#f00',false),/Applica proposta alle schede/);
     assert.match(A.htmlRigaDaOrdinare(r.righe[0],'#f00',false),/Cambia dal Buyer Desk/);
-    assert.match(A.testoOrdineFornitore(r.fornitori[0]),/x2 \| OLD/);
+    assert.equal(A.testoOrdineFornitore(r.fornitori[0]),'');
   }
   assert.equal(JSON.stringify(d),prima);
 });
 test('dopo una sostituzione confermata, il riepilogo conta solo il pezzo nuovo',()=>{
-  const r=J(A.daOrdinare(dati(),[scheda({...old,ean:'NEW',fornitore:'ABACO',nome:'Nuova',costo:160})],{}));
+  const r=J(A.daOrdinare(dati(),[scheda({...old,ean:'NEW',fornitore:'ABACO',nome:'Nuova',costo:80,quantita:1})],{}));
   assert.deepEqual(r.fornitori.map(f=>f.nome),['ABACO']);
-  assert.equal(r.totale,160);assert.equal(r.righe[0].codice,'NEW');
-  assert.equal(r.righe[0].quantita,2);assert.equal(r.righe[0].verificaDisponibilita,undefined);
+  assert.equal(r.totale,80);assert.equal(r.righe[0].codice,'NEW');
+  assert.equal(r.righe[0].quantita,1);assert.equal(r.righe[0].verificaDisponibilita,undefined);
 });
 test('altro fornitore con lo stesso codice non fa apparire disponibile il fornitore originale',()=>{
   const d=dati();d.offerte_ordinabili=[{...offer,codice:'OLD'}];

@@ -1,21 +1,23 @@
-/* Selected Liquid Glass order desk. Original controls and accounting stay in place. */
+/* Continuous Liquid Glass order desk. Original controls and accounting stay in place. */
 body.mg-glass-desk { --glass-ink:#15233c; --glass-muted:#536780; }
 body.mg-ios.mg-glass-desk::before {background:rgba(232,240,247,.77);backdrop-filter:blur(6px);}
-body.mg-glass-desk #mg-order-navigation {position:fixed;left:24px;top:188px;bottom:24px;width:236px;z-index:2;box-sizing:border-box;padding:14px;overflow-y:auto;border:1px solid rgba(255,255,255,.9);border-radius:24px;background:rgba(247,251,255,.66);backdrop-filter:blur(24px);box-shadow:0 8px 28px rgba(23,54,83,.08),inset 0 1px 0 white;}
+body.mg-glass-desk #mg-order-navigation {position:fixed;left:24px;top:188px;bottom:24px;width:236px;z-index:2;box-sizing:border-box;padding:14px;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.9);border-radius:24px;background:rgba(247,251,255,.66);backdrop-filter:blur(24px);box-shadow:0 8px 28px rgba(23,54,83,.08),inset 0 1px 0 white;}
 body.mg-glass-desk #processed-container {margin-left:280px!important;margin-right:24px!important;width:calc(100% - 304px)!important;max-width:none;grid-template-columns:minmax(0,1fr)!important;gap:18px;}
 #processed-container.tab-content:not(.active) {display:none!important;}
-#mg-order-navigation[hidden],#mg-order-navigation button[hidden],#processed-container .mg-order-inactive {display:none!important;}
+#mg-order-navigation[hidden],#mg-order-navigation button[hidden] {display:none!important;}
 .mg-order-empty {padding:24px;border:1px solid #b7cadb;border-radius:18px;background:#f4f8fc;color:#243c5c;}
 .mg-order-empty[hidden] {display:none!important;}
 .mg-order-search {display:block;font-size:11px;font-weight:600;color:#4e637e;}
 .mg-order-search input {box-sizing:border-box;width:100%;min-width:0;margin:7px 0 10px;padding:10px;border:1px solid rgba(171,191,211,.6);border-radius:12px;background:rgba(255,255,255,.6);font:inherit;font-size:13px;color:#182d49;}
-.mg-all-orders {width:100%;border:0;background:transparent;padding:7px;text-align:left;color:#335a85;font-size:12px;cursor:pointer;}
+.mg-order-count,.mg-order-nav-help {margin:3px 0 10px;color:#526981;font-size:11px;line-height:1.45;}
+.mg-order-count {font-weight:650;color:#243e60;}
+.mg-order-reset {width:100%;margin-bottom:8px;min-height:36px;border:1px solid #bed0e0;border-radius:9px;background:rgba(255,255,255,.65);padding:7px;text-align:left;color:#335a85;font-size:12px;cursor:pointer;}
 .mg-order-link {display:grid;grid-template-columns:1fr auto;gap:4px 8px;width:100%;padding:15px 10px;border:1px solid transparent;border-bottom-color:rgba(95,128,157,.13);border-radius:12px;background:transparent;text-align:left;cursor:pointer;color:#22334f;font:inherit;font-size:14px;}
 .mg-order-link.active {background:rgba(255,255,255,.62);border-color:#88b7ff;box-shadow:inset 0 1px 0 white;}
 .mg-order-link strong {font-size:12px;font-variant-numeric:tabular-nums;color:#346343;}
 .mg-order-link[data-economic=negative] strong {color:#a51d35;}.mg-order-link[data-economic=warning] strong {color:#a44708;}.mg-order-link[data-economic=unknown] strong {color:#536780;}
 .mg-order-link span,.mg-order-link small {grid-column:1/-1;color:#536780;font-size:12px;}
-.mg-order-list{scrollbar-width:thin;scrollbar-color:#9db5cb transparent;}.mg-order-list::-webkit-scrollbar{height:5px;width:5px;}.mg-order-list::-webkit-scrollbar-thumb{background:#9db5cb;border-radius:5px;}.mg-order-list::-webkit-scrollbar-track{background:transparent;}
+.mg-order-list{min-height:0;flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#9db5cb transparent;}.mg-order-list::-webkit-scrollbar{height:5px;width:5px;}.mg-order-list::-webkit-scrollbar-thumb{background:#9db5cb;border-radius:5px;}.mg-order-list::-webkit-scrollbar-track{background:transparent;}
 body.mg-ios #processed-container .mg-glass-order {background:rgba(245,250,255,.73)!important;border:1px solid rgba(255,255,255,.94)!important;border-radius:26px;box-shadow:0 10px 35px rgba(34,67,97,.11),inset 0 1px 0 #fff!important;backdrop-filter:blur(24px);overflow:visible;color:var(--glass-ink);}
 body.mg-ios #processed-container .mg-glass-order .card-header {background:transparent!important;color:#162642!important;border-bottom:1px solid rgba(255,255,255,.8);padding:14px 24px 8px;}
 body.mg-ios #processed-container .mg-glass-order .card-header :is(h2,.config-badge,.operator-selector) {color:#182d49!important;}
@@ -85,4 +87,17 @@ body.mg-ios #processed-container .mg-glass-order .card-footer {background:transp
 @media(max-width:800px){.mg-glass-identity>div:first-child,.mg-glass-identity>div:last-child{display:grid;gap:3px;}}
 @media(min-width:801px) and (max-width:1190px){body.mg-glass-desk #mg-order-navigation{position:relative;inset:auto;width:auto;margin:12px 14px;max-height:220px;}body.mg-glass-desk #processed-container{margin:0 14px!important;width:calc(100% - 28px)!important;}.mg-order-list{display:flex;overflow-x:auto;gap:6px;}.mg-order-link{flex:0 0 190px;}.mg-order-search{display:inline-block;width:65%;}.mg-all-orders{width:30%;}.mg-ledger th:nth-child(3),.mg-ledger td:nth-child(3){display:table-cell;}}
 @media(min-width:1600px){body.mg-ios #processed-container .mg-ledger th,body.mg-ios #processed-container .mg-ledger td{font-size:14px;}}
-@media print{#mg-order-navigation{display:none!important;}body.mg-glass-desk #processed-container{margin:0!important;width:100%!important;}#processed-container .mg-order-inactive{display:block!important;}.mg-ledger-actions,.mg-glass-actions{display:none!important;}}
+@media print{#mg-order-navigation{display:none!important;}body.mg-glass-desk #processed-container{margin:0!important;width:100%!important;}.mg-ledger-actions,.mg-glass-actions{display:none!important;}}
+
+/* Every order remains in document flow; native Find can reach every ledger. */
+body.mg-glass-desk #processed-container > .order-card {scroll-margin-top:220px;min-width:0;}
+#mg-order-navigation .mg-order-empty {margin-top:10px;padding:10px;font-size:12px;line-height:1.5;}
+@media(max-width:1190px){
+ body.mg-glass-desk #mg-order-navigation {position:sticky;top:calc(var(--mg-order-header,0px) + 8px);inset-inline:auto;bottom:auto;z-index:4;max-height:245px;overflow:hidden;}
+ .mg-order-search {display:block;width:100%;}
+ .mg-order-list {flex:0 1 auto;max-height:118px;overflow-x:auto;overflow-y:hidden;}
+ .mg-order-count {display:inline-block;margin-right:10px;margin-bottom:5px;}
+ .mg-order-nav-help {margin:0 0 7px;font-size:10px;}
+ .mg-order-reset {width:auto;min-height:30px;padding:4px 7px;margin-bottom:5px;}
+ body.mg-glass-desk #processed-container > .order-card {scroll-margin-top:360px;}
+}

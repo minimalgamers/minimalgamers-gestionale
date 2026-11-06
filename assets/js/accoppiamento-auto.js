@@ -618,17 +618,22 @@
     async function salvaCostoInserito(orderId, voce, unitario) {
         if (unitario !== null && (!Number.isFinite(unitario) || unitario < 0)) throw new Error('Inserisci un costo netto valido');
         if (!window.SupabaseDB?.saveOrderCost) throw new Error('Salvataggio costi non disponibile');
+        const ambito = voce.tipo === 'PERSONALIZZATO' ? 'ordine' : (voce.ambito || 'prodotto');
+        if (!['ordine','prodotto'].includes(ambito)) throw new Error('Ambito costo non valido');
+        if (ambito === 'ordine' && voce.magazzino) throw new Error('La giacenza richiede la conferma del costo per il prodotto');
         const cp = await window.SupabaseDB.saveOrderCost(orderId, {
             tipo: voce.tipo, ean: voce.ean, fornitore: voce.fornitore || '', unitario,
             chiave: chiaveCostoOrdine(voce.tipo, voce.ean, voce.fornitore), extra: !!voce.extra,
-            ambito: voce.tipo === 'PERSONALIZZATO' ? 'ordine' : 'prodotto', alias: aliasCostoProdotto(voce), magazzino:voce.magazzino
+            ambito, alias: aliasCostoProdotto(voce), magazzino:voce.magazzino
         });
         if (typeof processedOrdersCache !== 'undefined' && processedOrdersCache[orderId]) {
             processedOrdersCache[orderId].customProperties = cp;
             processedOrdersCache[orderId].custom_properties = cp;
         }
         cacheIndiceCosti = null;
-        stato.correzioniProdotto = [...(stato.correzioniProdotto || []), cp[K_COSTI_ORDINE] || {}];
+        const condivisi = Object.fromEntries(Object.entries(cp[K_COSTI_ORDINE] || {})
+            .filter(([k,v]) => k.split('|')[0] !== 'PERSONALIZZATO' && v?.ambito !== 'ordine'));
+        stato.correzioniProdotto = [...(stato.correzioniProdotto || []), condivisi];
         if (stato.dati) annota(stato.dati);
         await ridisegnaContiAperti();
         return cp;
@@ -705,23 +710,27 @@
         const q = Math.max(1, Number(voce.quantita) || 1);
         const g = definizioneScorta(orderId,voce), mag = magazzinoDellaRiga(orderId,voce);
         const correzione = costiProdotto()[chiaveCostoOrdine(voce.tipo,voce.ean,voce.fornitore)];
-        const attuale = costoInizialeEditor(voce, correzione);
+        const locale = proprietaOrdine(orderId)?.[K_COSTI_ORDINE]?.[chiaveCostoOrdine(voce.tipo,voce.ean,voce.fornitore)];
+        const attuale = costoInizialeEditor(voce, locale?.ambito === 'ordine' ? locale : correzione);
         ov.innerHTML = `<form class="acc-finestra-box"><h3>Costo di ${esc(voce.tipo)}</h3><div class="acc-finestra-corpo">` +
             `<p><b>${esc(voce.descrizione || voce.nome || voce.ean)}</b><br>${esc(voce.fornitore || '')} · ${esc(voce.ean)} · quantità ${q}</p>` +
             `<label>Costo per un pezzo<input name="costo" inputmode="decimal" required value="${attuale}"></label>` +
             `<label>Importo inserito<select name="iva"><option value="netto">IVA esclusa</option><option value="inclusa">IVA inclusa</option></select></label>` +
+            (voce.tipo === 'PERSONALIZZATO' ? '' : '<label>Applica questo costo<select name="ambito"><option value="ordine" selected>Solo questo ordine</option><option value="prodotto">Stesso prodotto negli altri ordini e futuri</option></select></label>') +
             `<p data-netto>Il conto usa il costo netto, IVA esclusa.</p>` +
             (voce.tipo === 'PERSONALIZZATO' ? '' : `<label><input type="checkbox" name="magazzino"${mag ? ' checked' : ''}> Abbiamo questo prodotto in magazzino</label>` +
                 `<label data-giacenza${mag ? '' : ' hidden'}>Pezzi ancora a magazzino<input name="quantita" type="number" min="0" step="1" value="${quantitaMagazzino(g) ?? ''}" placeholder="Da contare"></label>`) +
-            `<p>${voce.tipo === 'PERSONALIZZATO' ? 'Vale per questa voce di questo ordine.' : 'Il costo fisso vale per lo stesso prodotto e fornitore in tutti gli ordini non ancora acquistati, anche futuri e sugli altri dispositivi. I prezzi già confermati restano invariati.'} La quantità, se inserita, aggiorna la giacenza. Non conferma acquisti o prelievi.</p><p role="status" data-errore></p></div>` +
+            '<p data-ambito>Vale solo per questo ordine. Non conferma acquisti o prelievi e non aggiorna la giacenza.</p><p role="status" data-errore></p></div>' +
             `<div class="acc-finestra-bottoni"><button type="button" data-annulla>Annulla</button><button type="button" data-auto>Usa costo automatico</button><button type="submit">Salva costo</button></div></form>`;
         document.body.appendChild(ov);
         const salva = async (unitario,scorta=false) => {
             const bottoni = ov.querySelectorAll('button'); bottoni.forEach(b => b.disabled = true);
             try {
+                const ambito = ov.querySelector('[name=ambito]')?.value || 'ordine';
+                if (scorta && ambito !== 'prodotto') throw new Error('La giacenza richiede la conferma del costo per il prodotto');
                 const qt = ov.querySelector('[name=quantita]')?.value.trim() || '';
                 if (scorta && qt && (!/^\d+$/.test(qt) || !Number.isSafeInteger(Number(qt)))) throw new Error('Inserisci una quantità intera valida');
-                await salvaCostoInserito(orderId, {...voce,magazzino:scorta ? g : null}, unitario);
+                await salvaCostoInserito(orderId, {...voce,ambito,magazzino:scorta ? g : null}, unitario);
                 if (scorta && qt) {
                     try { await impostaQuantita(g,Number(qt)); }
                     catch { throw new Error('Costo salvato. Quantità non salvata: controlla la giacenza e riprova.'); }
@@ -734,11 +743,24 @@
         ov.querySelector('form').addEventListener('submit', e => {
             e.preventDefault(); const n = nettoPagato(ov.querySelector('[name=costo]').value,ov.querySelector('[name=iva]').value === 'inclusa');
             if (n === null) { ov.querySelector('[data-errore]').textContent = 'Inserisci un importo valido, per esempio 28,69'; return; }
-            salva(n,!!ov.querySelector('[name=magazzino]')?.checked);
+            salva(n,ov.querySelector('[name=ambito]')?.value === 'prodotto' && !!ov.querySelector('[name=magazzino]')?.checked);
         });
         ov.querySelector('[data-auto]').addEventListener('click', () => salva(null));
         ov.querySelector('[data-annulla]').addEventListener('click', () => ov.remove());
-        ov.querySelector('[name=magazzino]')?.addEventListener('change',e => { ov.querySelector('[data-giacenza]').hidden = !e.target.checked; });
+        const aggiornaAmbito = () => {
+            const prodotto = ov.querySelector('[name=ambito]')?.value === 'prodotto';
+            const checkbox = ov.querySelector('[name=magazzino]'),quantita = ov.querySelector('[name=quantita]');
+            if (checkbox) checkbox.disabled = !prodotto;
+            if (quantita) quantita.disabled = !prodotto || !checkbox?.checked;
+            const giacenza = ov.querySelector('[data-giacenza]');
+            if (giacenza) giacenza.hidden = !prodotto || !checkbox?.checked;
+            ov.querySelector('[data-ambito]').textContent = prodotto
+                ? 'Vale per lo stesso prodotto e fornitore negli ordini non acquistati, anche futuri e sugli altri dispositivi. I prezzi già confermati restano invariati. La quantità, se inserita, aggiorna la giacenza; non conferma acquisti o prelievi.'
+                : 'Vale solo per questo ordine. Non conferma acquisti o prelievi e non aggiorna la giacenza.';
+        };
+        ov.querySelector('[name=ambito]')?.addEventListener('change',aggiornaAmbito);
+        ov.querySelector('[name=magazzino]')?.addEventListener('change',aggiornaAmbito);
+        aggiornaAmbito();
         const anteprima = () => {
             const n = nettoPagato(ov.querySelector('[name=costo]').value,ov.querySelector('[name=iva]').value === 'inclusa');
             ov.querySelector('[data-netto]').textContent = n == null ? 'Inserisci il costo reale pagato.' : `Costo netto usato nel conto: ${eur(n)} per pezzo.`;

@@ -65,13 +65,37 @@
     }
 
     async function decifra(p, pwd, sottile) {
+        const versione = p.v ?? 1;
+        const aad = versione === 1 ? (p.aad || '') : 'accoppiamento-v2-gzip';
+        if (![1, 2].includes(versione) || (versione === 2 && p.aad !== aad)) throw new Error('formato cifrato non supportato');
         const s = sottile || (globalThis.crypto && globalThis.crypto.subtle);
         const enc = new TextEncoder();
         const base = await s.importKey('raw', enc.encode(pwd), 'PBKDF2', false, ['deriveKey']);
         const key = await s.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: b64(p.salt), iterations: p.iter },
             base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
-        const chiaro = await s.decrypt({ name: 'AES-GCM', iv: b64(p.iv), additionalData: enc.encode(p.aad || '') },
+        let chiaro = await s.decrypt({ name: 'AES-GCM', iv: b64(p.iv), additionalData: enc.encode(aad) },
             key, b64(p.dati));
+        const maxChiaro = 128 * 1024 * 1024;
+        if (versione === 2) {
+            if (typeof DecompressionStream !== 'function') throw new Error('aggiorna il browser per leggere i dati automatici');
+            const lettore = new Blob([chiaro]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+            const blocchi = [];
+            let totale = 0;
+            try {
+                while (true) {
+                    const { done, value } = await lettore.read();
+                    if (done) break;
+                    totale += value.byteLength;
+                    if (totale > maxChiaro) throw new Error('dati automatici troppo grandi');
+                    blocchi.push(value);
+                }
+            } finally { await lettore.cancel(); }
+            const unito = new Uint8Array(totale);
+            let posizione = 0;
+            for (const blocco of blocchi) { unito.set(blocco, posizione); posizione += blocco.byteLength; }
+            chiaro = unito;
+        }
+        if (chiaro.byteLength > maxChiaro) throw new Error('dati automatici troppo grandi');
         return JSON.parse(new TextDecoder().decode(chiaro));
     }
 

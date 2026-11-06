@@ -694,11 +694,12 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     // Trovo l'id interno dell'ordine
     const { data: orderRow, error: errOrd } = await supabase
         .from('processed_orders')
-        .select('id,custom_properties')
+        .select('id,custom_properties,stato')
         .eq('shopify_order_id', String(shopifyOrderId))
         .maybeSingle();
     if (errOrd) throw errOrd;
     if (!orderRow) throw new Error('Ordine non trovato');
+    if (orderRow.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
     const cp = typeof orderRow.custom_properties === 'string' ? JSON.parse(orderRow.custom_properties) : orderRow.custom_properties;
     if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
     if (cp?._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica');
@@ -707,7 +708,7 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     // Cerco se esiste già un componente per questo type
     const { data: existing, error: errEx } = await supabase
         .from('processed_order_components')
-        .select('id, ean, price')
+        .select('id, ean, supplier, quantity, price')
         .eq('order_id', internalId)
         .eq('component_type', componentType)
         .or('is_custom.is.null,is_custom.eq.0')
@@ -723,11 +724,15 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
         };
         // pezzo cambiato: il prezzo pagato (conferma acquisto, 30/09) era del pezzo di prima
         if (String(existing.ean || '') !== String(ean || '')) campi.price = null;
-        const { error } = await supabase
+        let update = supabase
             .from('processed_order_components')
             .update(campi)
-            .eq('id', existing.id);
-        if (error) throw error;
+            .eq('id', existing.id).eq('order_id',internalId).eq('component_type',componentType).is('price',null);
+        for (const field of ['ean','supplier','quantity'])
+            update = existing[field] == null ? update.is(field,null) : update.eq(field,existing[field]);
+        const written=await update.select('id');
+        if (written.error) throw written.error;
+        if (written.data?.length !== 1) throw new Error('Il componente è cambiato: ricarica prima di salvare');
         return 'update';
     } else {
         const { error } = await supabase
@@ -752,11 +757,14 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
 // sola, quella. Ritorna quante righe sono state scritte.
 async function dbSetComponentPrices(shopifyOrderId, prezzi) {
     const { data: orderRow, error: errOrd } = await supabase
-        .from('processed_orders').select('id,custom_properties')
+        .from('processed_orders').select('id,custom_properties,stato')
         .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
     if (errOrd) throw errOrd;
     if (!orderRow) throw new Error('Ordine non trovato');
-    if (purchaseProperties(orderRow.custom_properties)._modifica_distinta_gestionale)
+    const cp=purchaseProperties(orderRow.custom_properties);
+    if (orderRow.stato==='finalizzati' || cp._acquisto_confermato_gestionale)
+        throw new Error('Acquisto o ordine finalizzato: storico protetto');
+    if (cp._modifica_distinta_gestionale)
         throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di confermare i prezzi');
     let scritte = 0;
     for (const p of prezzi || []) {
@@ -764,21 +772,26 @@ async function dbSetComponentPrices(shopifyOrderId, prezzi) {
         const valore = p.price === null || p.price === undefined || p.price === '' ? null
             : Math.round(Number(p.price) * 100) / 100;
         if (valore !== null && !isFinite(valore)) continue;
-        let q = supabase.from('processed_order_components').update({ price: valore })
+        let read = supabase.from('processed_order_components').select('id,ean,supplier,quantity,price')
             .eq('order_id', orderRow.id).eq('component_type', p.type)
             .or('is_custom.is.null,is_custom.eq.0');
-        if (p.ean) q = q.eq('ean', p.ean);
-        const { data, error } = await q.select('id');
-        if (error) throw error;
-        if (data && data.length) { scritte += data.length; continue; }
-        const { data: stessoTipo, error: errT } = await supabase.from('processed_order_components').select('id')
-            .eq('order_id', orderRow.id).eq('component_type', p.type).or('is_custom.is.null,is_custom.eq.0');
-        if (errT) throw errT;
-        if (stessoTipo && stessoTipo.length === 1) {
-            const { error: errU } = await supabase.from('processed_order_components')
-                .update({ price: valore }).eq('id', stessoTipo[0].id);
-            if (errU) throw errU;
-            scritte += 1;
+        if (p.ean) read=read.eq('ean',p.ean);
+        const rows=await read;
+        if(rows.error)throw rows.error;
+        if(!rows.data?.length || !p.ean && rows.data.length!==1)
+            throw new Error('Il componente del costo è cambiato o ambiguo: ricarica la scheda');
+        for(const row of rows.data){
+            let update=supabase.from('processed_order_components').update({price:valore})
+                .eq('id',row.id).eq('order_id',orderRow.id).eq('component_type',p.type)
+                .or('is_custom.is.null,is_custom.eq.0');
+            // Mai trasferire il costo di OLD al nuovo pezzo soltanto perché è
+            // rimasta una sola riga della categoria. Tutta l'identità letta è CAS.
+            for(const field of ['ean','supplier','quantity','price'])
+                update=row[field]==null?update.is(field,null):update.eq(field,row[field]);
+            const written=await update.select('id');
+            if(written.error)throw written.error;
+            if(written.data?.length!==1)throw new Error('Il componente o il prezzo è cambiato: ricarica prima di confermare il costo');
+            scritte++;
         }
     }
     return scritte;

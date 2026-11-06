@@ -132,7 +132,7 @@ async function dbGetProcessedOrders() {
     while (true) {
         const { data: page, error: errComps } = await supabase
             .from('processed_order_components')
-            .select('order_id, component_type, ean, product_name, supplier, price, quantity, is_custom')
+            .select('id, order_id, component_type, ean, product_name, supplier, price, quantity, is_custom')
             .range(offset, offset + PAGE_SIZE - 1);
         if (errComps) throw errComps;
         if (!page || page.length === 0) break;
@@ -147,6 +147,7 @@ async function dbGetProcessedOrders() {
     components.forEach(c => {
         if (!compsByOrderId[c.order_id]) compsByOrderId[c.order_id] = [];
         compsByOrderId[c.order_id].push({
+            id: c.id,
             type: c.component_type,
             ean: c.ean || '',
             name: c.product_name || '',
@@ -227,10 +228,11 @@ async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
         const cp = typeof old?.custom_properties === 'string' ? JSON.parse(old.custom_properties) : old?.custom_properties;
         if (old && !componentsArray) return dbUpdateProcessedOrder(shopifyOrderId, clean);
         if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+        if (cp?._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di risalvare la distinta');
         if (old && clean.custom_properties !== undefined) {
             const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
             clean.custom_properties = {...nuove};
-            for (const k of ['_costi_netti_gestionale', '_iva_vendita_gestionale','_sostituzioni_componenti'])
+            for (const k of ['_costi_netti_gestionale', '_iva_vendita_gestionale','_sostituzioni_componenti', '_esclusioni_acquisto_gestionale', '_scelte_acquisto_gestionale', '_modifica_distinta_gestionale'])
                 if (cp?.[k] !== undefined) clean.custom_properties[k] = cp[k];
         }
         if (old) {
@@ -301,6 +303,7 @@ async function dbReconcileOrderAccessories(shopifyOrderId, plan) {
     if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
     const prot = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
     if (prot._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: i costi storici sono protetti');
+    if (prot._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica');
     const { data: rows, error: readError } = await supabase.from('processed_order_components')
         .select('id,component_type,ean,product_name,supplier,quantity,price').eq('order_id', order.id)
         .or('is_custom.is.null,is_custom.eq.0');
@@ -442,12 +445,14 @@ async function dbConfirmOrderPurchase(shopifyOrderId, piano) {
         !piano.spese || ['servizi','opzioni','montaggio'].some(k => !Array.isArray(piano.spese[k]) || piano.spese[k].some(x => !Number.isFinite(x.costo) || x.costo < 0)) ||
         !Number.isFinite(piano.spese.personalizzati) || piano.spese.personalizzati < 0)
         throw new Error('Completa tutti i costi prima di confermare l’acquisto');
+    await dbRecoverCompletedPurchaseIntent(shopifyOrderId);
     const { data: order, error } = await supabase.from('processed_orders').select('id,stato,custom_properties,updated_at')
         .eq('shopify_order_id', String(shopifyOrderId)).single();
     if (error) throw error;
     if (order.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
     const cp = typeof order.custom_properties === 'string' ? JSON.parse(order.custom_properties) : order.custom_properties || {};
     if (cp._acquisto_confermato_gestionale) throw new Error('Acquisto già confermato');
+    if (cp._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di confermare l’acquisto');
     const { data: righe, error: errR } = await supabase.from('processed_order_components')
         .select('component_type,ean,supplier,quantity,price').eq('order_id', order.id).or('is_custom.is.null,is_custom.eq.0');
     if (errR) throw errR;
@@ -481,17 +486,20 @@ async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
     const clean = sanitizeProcessedOrderFields(f);
     if (Object.keys(clean).length === 0) return;
     let precedente;
-    if (clean.custom_properties !== undefined) {
+    if (clean.custom_properties !== undefined || clean.stato === 'finalizzati') {
         const letto = await supabase.from('processed_orders').select('custom_properties,updated_at')
             .eq('shopify_order_id', String(shopifyOrderId)).single();
         if (letto.error) throw letto.error;
         precedente = letto.data;
         const cp = typeof precedente.custom_properties === 'string' ? JSON.parse(precedente.custom_properties) : precedente.custom_properties || {};
+        if (clean.stato === 'finalizzati' && cp._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa la modifica prima di finalizzare');
+        if (clean.custom_properties !== undefined) {
         const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
         clean.custom_properties = { ...nuove };
-        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti']) {
+        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_esclusioni_acquisto_gestionale', '_scelte_acquisto_gestionale', '_modifica_distinta_gestionale']) {
             if (cp[k] !== undefined) clean.custom_properties[k] = cp[k];
             else delete clean.custom_properties[k];
+        }
         }
     }
     let richiesta = supabase
@@ -509,6 +517,177 @@ async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
     }
 }
 
+// Le azioni del riepilogo acquisti identificano la riga, non solo la categoria.
+// Una scheda può contenere più SSD/RAM: il codice atteso resta nel filtro UPDATE
+// e un prezzo pagato sopraggiunto impedisce la sostituzione.
+function purchaseProperties(value) {
+    const cp = typeof value === 'string' ? JSON.parse(value) : value;
+    if (cp != null && (typeof cp !== 'object' || Array.isArray(cp))) throw new Error('Proprietà ordine non valide');
+    return cp || {};
+}
+
+function purchaseSameComponent(row, expected) {
+    return (expected.id == null || String(row.id) === String(expected.id)) &&
+        row.component_type === expected.type && String(row.ean || '') === String(expected.ean || '') &&
+        String(row.supplier || '') === String(expected.supplier || '') &&
+        Number(row.quantity || 1) === Number(expected.quantity || 1);
+}
+
+async function dbPurchaseOrder(shopifyOrderId) {
+    const { data, error } = await supabase.from('processed_orders')
+        .select('id,stato,custom_properties,updated_at,foglio_di_lavoro').eq('shopify_order_id', String(shopifyOrderId)).single();
+    if (error) throw error;
+    if (!data || data.stato === 'finalizzati') throw new Error('Ordine finalizzato o non trovato: storico protetto');
+    return { order: data, cp: purchaseProperties(data.custom_properties) };
+}
+
+async function dbReleasePurchaseIntent(shopifyOrderId, token) {
+    const {order,cp}=await dbPurchaseOrder(shopifyOrderId);
+    if (cp._modifica_distinta_gestionale?.token !== token) throw new Error('Stato sostituzione cambiato: ricarica la scheda');
+    const next={...cp};delete next._modifica_distinta_gestionale;
+    let q=supabase.from('processed_orders').update({custom_properties:next,updated_at:new Date().toISOString()}).eq('id',order.id);
+    q=order.updated_at==null?q.is('updated_at',null):q.eq('updated_at',order.updated_at);
+    const saved=await q.select('id');
+    if(saved.error)throw saved.error;
+    if(saved.data?.length!==1)throw new Error('Sostituzione salvata: riprova la stessa modifica per completare la conferma');
+    return next;
+}
+
+async function dbRecoverCompletedPurchaseIntent(shopifyOrderId) {
+    const {order,cp}=await dbPurchaseOrder(shopifyOrderId);
+    const intent=cp._modifica_distinta_gestionale;
+    if(!intent)return;
+    const r=intent.replacement;
+    if(!r)return; // Un vecchio intento incompleto resta protetto, non indovinato.
+    const read=await supabase.from('processed_order_components').select('id,component_type,ean,supplier,quantity,product_name,price')
+        .eq('order_id',order.id).eq('id',intent.componentId).or('is_custom.is.null,is_custom.eq.0');
+    if(read.error)throw read.error;
+    const row=read.data?.[0];
+    if(row&&row.component_type===intent.expected.type&&row.ean===r.ean&&row.supplier===r.supplier&&
+        Number(row.quantity||1)===Number(r.quantity)&&row.product_name===r.name&&row.price==null){
+        const properties=await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+        return {key:intent.key,component:{id:row.id,type:row.component_type,ean:row.ean,name:row.product_name,
+            supplier:row.supplier,quantity:row.quantity||1,price:row.price},customProperties:properties};
+    }
+}
+
+async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
+    const e = plan?.expected, r = plan?.replacement;
+    if (!e?.type || !e.ean || !r?.ean || !r.name || !r.supplier ||
+        !Number.isInteger(Number(e.quantity || 1)) || Number(e.quantity || 1) < 1 ||
+        !Number.isInteger(Number(r.quantity || e.quantity || 1)) || Number(r.quantity || e.quantity || 1) < 1)
+        throw new Error('Sostituzione non valida: controlla componente e quantità');
+    const intentKey=JSON.stringify([e.id??null,e.type,e.ean,e.supplier||'',Number(e.quantity||1),r.ean,r.supplier,Number(r.quantity||e.quantity||1),r.name,plan.source||'buyer_desk']);
+    const recovered=await dbRecoverCompletedPurchaseIntent(shopifyOrderId);
+    if(recovered?.key===intentKey)return {component:recovered.component,customProperties:recovered.customProperties};
+    const { order, cp } = await dbPurchaseOrder(shopifyOrderId);
+    if (cp._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+    let intent=cp._modifica_distinta_gestionale;
+    if(intent&&intent.key!==intentKey)throw new Error('Altra sostituzione in corso: completa o riprova prima la modifica precedente');
+    const read = await supabase.from('processed_order_components')
+        .select('id,component_type,ean,product_name,supplier,quantity,price').eq('order_id', order.id)
+        .eq('component_type', e.type).or('is_custom.is.null,is_custom.eq.0');
+    if (read.error) throw read.error;
+    const matches = (read.data || []).filter(row => purchaseSameComponent(row, e));
+    // Una richiesta interrotta può essere ripresa con la stessa identità. Non
+    // scade automaticamente: una risposta lenta non può scrivere sotto uno
+    // snapshot d'acquisto confermato nel frattempo.
+    if(intent){
+        const already=(read.data||[]).find(c=>String(c.id)===String(intent.componentId)&&c.component_type===e.type&&
+            c.ean===String(r.ean)&&c.supplier===String(r.supplier)&&Number(c.quantity||1)===Number(r.quantity||e.quantity||1)&&c.price==null);
+        if(already){
+            const properties=await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+            return {component:{id:already.id,type:already.component_type,ean:already.ean,name:already.product_name,supplier:already.supplier,quantity:already.quantity||1,price:already.price},customProperties:properties};
+        }
+    }
+    if (matches.length !== 1) throw new Error('Il componente è cambiato o ambiguo: ricarica prima di sostituire');
+    const old = matches[0];
+    if (old.price != null) throw new Error('Prezzo pagato confermato: componente protetto');
+    // Secondo controllo dopo la lettura dei componenti: non usare una scheda
+    // diventata finalizzata o confermata mentre il Buyer Desk era aperto.
+    const fresh = await dbPurchaseOrder(shopifyOrderId);
+    if (fresh.cp._acquisto_confermato_gestionale || fresh.order.updated_at !== order.updated_at)
+        throw new Error('La scheda è cambiata: ricarica prima di sostituire');
+    // La scelta intenzionale sopravvive ai ricalcoli basati sulle proprietà
+    // Shopify originali. È valida soltanto se coincide con la riga effettiva:
+    // se il successivo UPDATE perde il confronto, il backend ignora l'intento.
+    let customProperties={...cp};
+    if (plan.source !== 'allocation_plan') {
+        const key = JSON.stringify([old.id,String(r.ean),String(r.supplier),Number(r.quantity || e.quantity || 1)]);
+        customProperties = { ...cp, _scelte_acquisto_gestionale: { ...(cp._scelte_acquisto_gestionale || {}), [key]: {
+            tipo:e.type, ean:String(r.ean), fornitore:String(r.supplier), componentId:old.id,
+            quantita:Number(r.quantity || e.quantity || 1), descrizione:String(r.name), esplicita:true, il:new Date().toISOString()
+        } } };
+    }
+    if(!intent){
+        intent={key:intentKey,token:`${Date.now()}-${Math.random().toString(36).slice(2)}`,componentId:old.id,
+            expected:{...e},replacement:{ean:String(r.ean),supplier:String(r.supplier),name:String(r.name),quantity:Number(r.quantity||e.quantity||1)},
+            source:plan.source||'buyer_desk',il:new Date().toISOString()};
+        customProperties._modifica_distinta_gestionale=intent;
+        let metadata = supabase.from('processed_orders').update({custom_properties:customProperties,updated_at:new Date().toISOString()}).eq('id',order.id);
+        metadata = order.updated_at == null ? metadata.is('updated_at',null) : metadata.eq('updated_at',order.updated_at);
+        const saved = await metadata.select('id');
+        if (saved.error) throw saved.error;
+        if (saved.data?.length !== 1) throw new Error('La scheda è cambiata: ricarica prima di sostituire');
+    }
+    let update = supabase.from('processed_order_components').update({ ean: String(r.ean),
+        product_name: String(r.name), supplier: String(r.supplier), quantity: Number(r.quantity || e.quantity || 1) })
+        .eq('id', old.id).eq('order_id', order.id).eq('component_type', old.component_type).is('price', null)
+        .or('is_custom.is.null,is_custom.eq.0');
+    for (const field of ['ean','supplier','quantity'])
+        update = old[field] == null ? update.is(field, null) : update.eq(field, old[field]);
+    const written = await update.select('id,component_type,ean,product_name,supplier,quantity,price');
+    if (written.error) throw written.error;
+    if (written.data?.length !== 1) {
+        await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+        throw new Error('Componente cambiato durante la conferma: ricarica');
+    }
+    const c = written.data[0];
+    customProperties=await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+    return { component: { id:c.id, type:c.component_type, ean:c.ean, name:c.product_name,
+        supplier:c.supplier, quantity:Number(c.quantity || 1), price:c.price }, customProperties };
+}
+
+// Esclusione reversibile dalla lista DA ORDINARE. Non scrive mai sui componenti,
+// sui prezzi pagati o sul magazzino. CAS delle proprietà evita di perdere altre
+// esclusioni o aggiornamenti salvati contemporaneamente da un altro operatore.
+async function dbSetProcurementExclusion(shopifyOrderId, voce) {
+    if (!voce?.key || typeof voce.key !== 'string' || voce.key.length > 1000 ||
+        !voce.tipo || !voce.ean || typeof voce.excluded !== 'boolean' ||
+        !Number.isInteger(Number(voce.quantita)) || Number(voce.quantita) < 1 ||
+        !Number.isInteger(Number(voce.foglio)) || Number(voce.foglio) < 1 || Number(voce.foglio) > 4)
+        throw new Error('Esclusione acquisto non valida');
+    const { order, cp } = await dbPurchaseOrder(shopifyOrderId);
+    if (Number(order.foglio_di_lavoro || 1) !== Number(voce.foglio))
+        throw new Error('La scheda è stata spostata: ricarica il riepilogo');
+    const entries = { ...(cp._esclusioni_acquisto_gestionale || {}) };
+    if (voce.excluded && !voce.personalizzato) {
+        const read = await supabase.from('processed_order_components')
+            .select('id,component_type,ean,supplier,quantity').eq('order_id', order.id)
+            .eq('component_type', voce.tipo).or('is_custom.is.null,is_custom.eq.0');
+        if (read.error) throw read.error;
+        const matches = (read.data || []).filter(row => purchaseSameComponent(row, {
+            id:voce.componentId, type:voce.tipo, ean:voce.ean, supplier:voce.fornitore, quantity:voce.quantita }));
+        if (matches.length !== 1) throw new Error('Il componente è cambiato o ambiguo: ricarica il riepilogo');
+        voce = {...voce,componentId:matches[0].id};
+    }
+    if (voce.excluded) {
+        entries[voce.key] = { tipo:voce.tipo, ean:voce.ean, fornitore:voce.fornitore || '',
+            componentId:voce.componentId ?? null, quantita:Number(voce.quantita), foglio:Number(voce.foglio),
+            ...(voce.personalizzato ? {personalizzato:true} : {}), escluso:true, il:new Date().toISOString() };
+    } else {
+        if (!Object.hasOwn(entries, voce.key)) throw new Error('Esclusione già cambiata: ricarica il riepilogo');
+        delete entries[voce.key];
+    }
+    const next = { ...cp, _esclusioni_acquisto_gestionale: entries };
+    let update = supabase.from('processed_orders').update({custom_properties:next, updated_at:new Date().toISOString()}).eq('id', order.id);
+    update = order.updated_at == null ? update.is('updated_at', null) : update.eq('updated_at', order.updated_at);
+    const written = await update.select('id');
+    if (written.error) throw written.error;
+    if (written.data?.length !== 1) throw new Error('La scheda è cambiata: ricarica prima di aggiornare la lista acquisti');
+    return next;
+}
+
 // PATCH: aggiorna o inserisce UN singolo componente (per type)
 // Replica del PATCH del PHP api-processed-orders.php
 async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, productName, supplier) {
@@ -522,6 +701,7 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
     if (!orderRow) throw new Error('Ordine non trovato');
     const cp = typeof orderRow.custom_properties === 'string' ? JSON.parse(orderRow.custom_properties) : orderRow.custom_properties;
     if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+    if (cp?._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica');
     const internalId = orderRow.id;
 
     // Cerco se esiste già un componente per questo type
@@ -572,10 +752,12 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
 // sola, quella. Ritorna quante righe sono state scritte.
 async function dbSetComponentPrices(shopifyOrderId, prezzi) {
     const { data: orderRow, error: errOrd } = await supabase
-        .from('processed_orders').select('id')
+        .from('processed_orders').select('id,custom_properties')
         .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
     if (errOrd) throw errOrd;
     if (!orderRow) throw new Error('Ordine non trovato');
+    if (purchaseProperties(orderRow.custom_properties)._modifica_distinta_gestionale)
+        throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di confermare i prezzi');
     let scritte = 0;
     for (const p of prezzi || []) {
         if (!p || !p.type) continue;
@@ -1120,6 +1302,8 @@ window.SupabaseDB = {
     updateProcessedOrder: dbUpdateProcessedOrder,
     deleteProcessedOrder: dbDeleteProcessedOrder,
     upsertSingleComponent: dbUpsertSingleComponent,
+    replacePurchaseComponent: dbReplacePurchaseComponent,
+    setProcurementExclusion: dbSetProcurementExclusion,
     reconcileOrderAccessories: dbReconcileOrderAccessories,
     saveOrderCost: dbSaveOrderCost,
     getProductCostCorrections: dbGetProductCostCorrections,

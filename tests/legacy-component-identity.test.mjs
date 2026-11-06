@@ -13,16 +13,16 @@ const plan={expected:{id:10,type:'SSD',ean:'OLD',supplier:'ACTION',quantity:1},r
 
 test('legacy save begun before a Buyer Desk replacement cannot overwrite the confirmed new component',async()=>{
  let f,entered=false;
- f=scope.fixture({beforeWrite:async({table})=>{if(table==='processed_order_components'&&!entered){entered=true;await f.s.dbReplacePurchaseComponent('77-2',plan);}}});
+ f=scope.fixture({beforeWrite:async({table,value})=>{if(table==='processed_orders'&&value?.custom_properties?._modifica_distinta_gestionale?.kind&&!entered){entered=true;await f.s.dbReplacePurchaseComponent('77-2',plan);}}});
  f.rows.splice(1);
- await assert.rejects(()=>f.s.dbUpsertSingleComponent('77-2','SSD','LEGACY','Legacy SSD','ACTION'),/componente è cambiato/);
+ await assert.rejects(()=>f.s.dbUpsertSingleComponent('77-2','SSD','LEGACY','Legacy SSD','ACTION'),/scheda è cambiata|componente è cambiato/);
  assert.equal(f.rows[0].ean,'NEW');assert.equal(f.rows[0].supplier,'OMEGA');assert.equal(f.rows[0].price,null);
 });
 test('old price cannot transfer to a replacement through the category-only fallback',async()=>{
  let f,entered=false;
- f=scope.fixture({beforeWrite:async({table})=>{if(table==='processed_order_components'&&!entered){entered=true;await f.s.dbReplacePurchaseComponent('77-2',plan);}}});
+ f=scope.fixture({beforeWrite:async({table,value})=>{if(table==='processed_orders'&&value?.custom_properties?._modifica_distinta_gestionale?.kind&&!entered){entered=true;await f.s.dbReplacePurchaseComponent('77-2',plan);}}});
  f.rows.splice(1);
- await assert.rejects(()=>f.s.dbSetComponentPrices('77-2',[{type:'SSD',ean:'OLD',price:50}]),/componente o il prezzo è cambiato/);
+ await assert.rejects(()=>f.s.dbSetComponentPrices('77-2',[{type:'SSD',ean:'OLD',price:50}]),/scheda è cambiata|componente o il prezzo è cambiato/);
  assert.equal(f.rows[0].ean,'NEW');assert.equal(f.rows[0].price,null);
  const already=scope.fixture();already.rows[0].ean='NEW';already.rows.splice(1);
  await assert.rejects(()=>already.s.dbSetComponentPrices('77-2',[{type:'SSD',ean:'OLD',price:50}]),/cambiato o ambiguo/);

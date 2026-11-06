@@ -541,11 +541,58 @@ async function dbPurchaseOrder(shopifyOrderId) {
     return { order: data, cp: purchaseProperties(data.custom_properties) };
 }
 
+// The parent intent serializes cooperating component writers with purchase snapshots.
+// It persists across an uncertain response; elapsed time never unlocks a stalled write.
+function purchaseWriteTime(previous) {
+    const parsed=Date.parse(previous || '');
+    return new Date(Math.max(Date.now(),Number.isFinite(parsed)?parsed+1:0)).toISOString();
+}
+async function dbAcquireLegacyPurchaseIntent(shopifyOrderId, order, cp, intent) {
+    if(cp._acquisto_confermato_gestionale || order.stato==='finalizzati')
+        throw new Error('Acquisto o ordine finalizzato: storico protetto');
+    if(cp._modifica_distinta_gestionale)throw new Error('Altra modifica in corso: riprova la stessa operazione');
+    const next={...cp,_modifica_distinta_gestionale:intent};
+    let q=supabase.from('processed_orders').update({custom_properties:next,updated_at:purchaseWriteTime(order.updated_at)}).eq('id',order.id)
+        .is('custom_properties->>_modifica_distinta_gestionale',null)
+        .is('custom_properties->>_acquisto_confermato_gestionale',null);
+    q=order.updated_at==null?q.is('updated_at',null):q.eq('updated_at',order.updated_at);
+    q=order.stato==null?q.is('stato',null):q.eq('stato',order.stato);
+    const saved=await q.select('id');
+    if(saved.error)throw saved.error;
+    if(saved.data?.length!==1)throw new Error('La scheda è cambiata o l’acquisto è stato confermato: ricarica prima di salvare');
+    return intent;
+}
+function legacyPriceEqual(a,b) {return a==null || a==='' ? b==null || b==='' : b!=null && Number(a)===Number(b);}
+function legacyIntentIdentity(row,e) {
+    return !!row && String(row.id)===String(e.id) && row.component_type===e.type &&
+        String(row.ean || '')===String(e.ean || '') && String(row.supplier || '')===String(e.supplier || '') &&
+        Number(row.quantity || 1)===Number(e.quantity || 1);
+}
+async function dbInspectLegacyPurchaseIntent(order,intent) {
+    const result=await supabase.from('processed_order_components')
+        .select('id,component_type,ean,product_name,supplier,quantity,price').eq('order_id',order.id).or('is_custom.is.null,is_custom.eq.0');
+    if(result.error)throw result.error;
+    const rows=result.data || [];
+    if(intent.kind==='legacy_prices'){
+        const complete=(intent.entries || []).length>0 && intent.entries.every(e=>{
+            const row=rows.find(r=>String(r.id)===String(e.expected.id));
+            return legacyIntentIdentity(row,e.expected) && legacyPriceEqual(row.price,e.price);
+        });
+        return {complete,rows,result:(intent.entries || []).length};
+    }
+    const d=intent.desired;
+    const matching=rows.filter(row=>row.component_type===intent.type &&
+        (intent.operation==='insert' || String(row.id)===String(intent.expected?.id)) &&
+        String(row.ean || '')===String(d?.ean || '') && String(row.supplier || '')===String(d?.supplier || '') &&
+        Number(row.quantity || 1)===Number(d?.quantity || 1) && String(row.product_name || '')===String(d?.name || '') && row.price==null);
+    return {complete:matching.length===1,rows,result:intent.operation};
+}
 async function dbReleasePurchaseIntent(shopifyOrderId, token) {
     const {order,cp}=await dbPurchaseOrder(shopifyOrderId);
     if (cp._modifica_distinta_gestionale?.token !== token) throw new Error('Stato sostituzione cambiato: ricarica la scheda');
     const next={...cp};delete next._modifica_distinta_gestionale;
-    let q=supabase.from('processed_orders').update({custom_properties:next,updated_at:new Date().toISOString()}).eq('id',order.id);
+    let q=supabase.from('processed_orders').update({custom_properties:next,updated_at:purchaseWriteTime(order.updated_at)}).eq('id',order.id)
+        .eq('custom_properties->_modifica_distinta_gestionale->>token',token);
     q=order.updated_at==null?q.is('updated_at',null):q.eq('updated_at',order.updated_at);
     const saved=await q.select('id');
     if(saved.error)throw saved.error;
@@ -557,6 +604,14 @@ async function dbRecoverCompletedPurchaseIntent(shopifyOrderId) {
     const {order,cp}=await dbPurchaseOrder(shopifyOrderId);
     const intent=cp._modifica_distinta_gestionale;
     if(!intent)return;
+    if(['legacy_component','legacy_prices'].includes(intent.kind)){
+        const checked=await dbInspectLegacyPurchaseIntent(order,intent);
+        if(checked.complete){
+            const properties=await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+            return {key:intent.key,legacyResult:checked.result,customProperties:properties};
+        }
+        return;
+    }
     const r=intent.replacement;
     if(!r)return; // Un vecchio intento incompleto resta protetto, non indovinato.
     const read=await supabase.from('processed_order_components').select('id,component_type,ean,supplier,quantity,product_name,price')
@@ -624,7 +679,10 @@ async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
             expected:{...e},replacement:{ean:String(r.ean),supplier:String(r.supplier),name:String(r.name),quantity:Number(r.quantity||e.quantity||1)},
             source:plan.source||'buyer_desk',il:new Date().toISOString()};
         customProperties._modifica_distinta_gestionale=intent;
-        let metadata = supabase.from('processed_orders').update({custom_properties:customProperties,updated_at:new Date().toISOString()}).eq('id',order.id);
+        let metadata = supabase.from('processed_orders').update({custom_properties:customProperties,updated_at:purchaseWriteTime(order.updated_at)}).eq('id',order.id)
+            .is('custom_properties->>_modifica_distinta_gestionale',null)
+            .is('custom_properties->>_acquisto_confermato_gestionale',null);
+        metadata = order.stato==null?metadata.is('stato',null):metadata.eq('stato',order.stato);
         metadata = order.updated_at == null ? metadata.is('updated_at',null) : metadata.eq('updated_at',order.updated_at);
         const saved = await metadata.select('id');
         if (saved.error) throw saved.error;
@@ -691,110 +749,103 @@ async function dbSetProcurementExclusion(shopifyOrderId, voce) {
 // PATCH: aggiorna o inserisce UN singolo componente (per type)
 // Replica del PATCH del PHP api-processed-orders.php
 async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, productName, supplier) {
-    // Trovo l'id interno dell'ordine
-    const { data: orderRow, error: errOrd } = await supabase
-        .from('processed_orders')
-        .select('id,custom_properties,stato')
-        .eq('shopify_order_id', String(shopifyOrderId))
-        .maybeSingle();
-    if (errOrd) throw errOrd;
-    if (!orderRow) throw new Error('Ordine non trovato');
-    if (orderRow.stato === 'finalizzati') throw new Error('Ordine finalizzato: storico protetto');
-    const cp = typeof orderRow.custom_properties === 'string' ? JSON.parse(orderRow.custom_properties) : orderRow.custom_properties;
-    if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
-    if (cp?._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica');
-    const internalId = orderRow.id;
-
-    // Cerco se esiste già un componente per questo type
-    const { data: existing, error: errEx } = await supabase
-        .from('processed_order_components')
-        .select('id, ean, supplier, quantity, price')
-        .eq('order_id', internalId)
-        .eq('component_type', componentType)
-        .or('is_custom.is.null,is_custom.eq.0')
-        .maybeSingle();
-    if (errEx) throw errEx;
-
-    if (existing) {
-        if (existing.price != null) throw new Error('Prezzo pagato confermato: componente protetto');
-        const campi = {
-            ean: ean || null,
-            product_name: productName || null,
-            supplier: supplier || null
-        };
-        // pezzo cambiato: il prezzo pagato (conferma acquisto, 30/09) era del pezzo di prima
-        if (String(existing.ean || '') !== String(ean || '')) campi.price = null;
-        let update = supabase
-            .from('processed_order_components')
-            .update(campi)
-            .eq('id', existing.id).eq('order_id',internalId).eq('component_type',componentType).is('price',null);
-        for (const field of ['ean','supplier','quantity'])
-            update = existing[field] == null ? update.is(field,null) : update.eq(field,existing[field]);
-        const written=await update.select('id');
-        if (written.error) throw written.error;
-        if (written.data?.length !== 1) throw new Error('Il componente è cambiato: ricarica prima di salvare');
-        return 'update';
-    } else {
-        const { error } = await supabase
-            .from('processed_order_components')
-            .insert({
-                order_id: internalId,
-                component_type: componentType,
-                ean: ean || null,
-                product_name: productName || null,
-                supplier: supplier || null,
-                quantity: 1,
-                is_custom: 0
-            });
-        if (error) throw error;
-        return 'insert';
+    const desired={ean:ean || null,name:productName || null,supplier:supplier || null};
+    const key=JSON.stringify(['legacy_component',componentType,desired.ean,desired.name,desired.supplier]);
+    const recovered=await dbRecoverCompletedPurchaseIntent(shopifyOrderId);
+    if(recovered?.key===key)return recovered.legacyResult;
+    const {order,cp}=await dbPurchaseOrder(shopifyOrderId);
+    if(cp._acquisto_confermato_gestionale)throw new Error('Acquisto confermato: distinta e costi protetti');
+    let intent=cp._modifica_distinta_gestionale;
+    if(intent && (intent.key!==key || intent.kind!=='legacy_component'))throw new Error('Altra modifica in corso: completa o riprova la stessa operazione');
+    const resumed=!!intent;
+    if(!intent){
+        const read=await supabase.from('processed_order_components').select('id,ean,product_name,supplier,quantity,price')
+            .eq('order_id',order.id).eq('component_type',componentType).or('is_custom.is.null,is_custom.eq.0').maybeSingle();
+        if(read.error)throw read.error;
+        const old=read.data;
+        if(old?.price!=null)throw new Error('Prezzo pagato confermato: componente protetto');
+        intent={kind:'legacy_component',key,token:`${Date.now()}-${Math.random().toString(36).slice(2)}`,type:componentType,
+            operation:old?'update':'insert',desired:{...desired,quantity:old?.quantity || 1},
+            expected:old?{id:old.id,type:componentType,ean:old.ean,supplier:old.supplier,quantity:old.quantity,price:old.price}:null,
+            il:new Date().toISOString()};
+        await dbAcquireLegacyPurchaseIntent(shopifyOrderId,order,cp,intent);
     }
-}
-
-// Antonio 30/09, «CONFERMA ACQUISTO PEZZI»: il prezzo pagato (netto) di ogni pezzo della scheda va nella
-// colonna price, finora sempre vuota. prezzi: [{ type, ean, price }]; price null toglie la conferma.
-// Si aggiorna la riga con quel tipo e quel codice; se il codice non combacia e di quel tipo ce n'e' una
-// sola, quella. Ritorna quante righe sono state scritte.
-async function dbSetComponentPrices(shopifyOrderId, prezzi) {
-    const { data: orderRow, error: errOrd } = await supabase
-        .from('processed_orders').select('id,custom_properties,stato')
-        .eq('shopify_order_id', String(shopifyOrderId)).maybeSingle();
-    if (errOrd) throw errOrd;
-    if (!orderRow) throw new Error('Ordine non trovato');
-    const cp=purchaseProperties(orderRow.custom_properties);
-    if (orderRow.stato==='finalizzati' || cp._acquisto_confermato_gestionale)
-        throw new Error('Acquisto o ordine finalizzato: storico protetto');
-    if (cp._modifica_distinta_gestionale)
-        throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di confermare i prezzi');
-    let scritte = 0;
-    for (const p of prezzi || []) {
-        if (!p || !p.type) continue;
-        const valore = p.price === null || p.price === undefined || p.price === '' ? null
-            : Math.round(Number(p.price) * 100) / 100;
-        if (valore !== null && !isFinite(valore)) continue;
-        let read = supabase.from('processed_order_components').select('id,ean,supplier,quantity,price')
-            .eq('order_id', orderRow.id).eq('component_type', p.type)
+    if(intent.operation==='insert'){
+        // Never issue a second INSERT while the first response is uncertain.
+        // A later retry first recovers a completed insert by its exact identity.
+        if(resumed)throw new Error('Inserimento in verifica: riprova la stessa operazione per controllarne il completamento');
+        const result=await supabase.from('processed_order_components').insert({order_id:order.id,component_type:intent.type,
+            ean:intent.desired.ean,product_name:intent.desired.name,supplier:intent.desired.supplier,quantity:intent.desired.quantity,is_custom:0})
+            .select('id');
+        if(result.error)throw result.error;
+        if(result.data?.length!==1)throw new Error('Inserimento non verificato: riprova la stessa operazione');
+    }else{
+        const e=intent.expected;
+        let update=supabase.from('processed_order_components').update({ean:intent.desired.ean,product_name:intent.desired.name,
+            supplier:intent.desired.supplier}).eq('id',e.id).eq('order_id',order.id).eq('component_type',e.type).is('price',null)
             .or('is_custom.is.null,is_custom.eq.0');
-        if (p.ean) read=read.eq('ean',p.ean);
-        const rows=await read;
-        if(rows.error)throw rows.error;
-        if(!rows.data?.length || !p.ean && rows.data.length!==1)
-            throw new Error('Il componente del costo è cambiato o ambiguo: ricarica la scheda');
-        for(const row of rows.data){
-            let update=supabase.from('processed_order_components').update({price:valore})
-                .eq('id',row.id).eq('order_id',orderRow.id).eq('component_type',p.type)
-                .or('is_custom.is.null,is_custom.eq.0');
-            // Mai trasferire il costo di OLD al nuovo pezzo soltanto perché è
-            // rimasta una sola riga della categoria. Tutta l'identità letta è CAS.
-            for(const field of ['ean','supplier','quantity','price'])
-                update=row[field]==null?update.is(field,null):update.eq(field,row[field]);
-            const written=await update.select('id');
-            if(written.error)throw written.error;
-            if(written.data?.length!==1)throw new Error('Il componente o il prezzo è cambiato: ricarica prima di confermare il costo');
-            scritte++;
+        for(const field of ['ean','supplier','quantity'])update=e[field]==null?update.is(field,null):update.eq(field,e[field]);
+        const written=await update.select('id');
+        if(written.error)throw written.error;
+        if(written.data?.length!==1){
+            const completed=await dbRecoverCompletedPurchaseIntent(shopifyOrderId);
+            if(completed?.key===key)return completed.legacyResult;
+            await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+            throw new Error('Il componente è cambiato: ricarica prima di salvare');
         }
     }
-    return scritte;
+    const checked=await dbInspectLegacyPurchaseIntent(order,intent);
+    if(!checked.complete)throw new Error('Salvataggio da verificare: riprova la stessa operazione');
+    await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
+    return intent.operation;
+}
+
+// Legacy prices retain exact row identity and hold the parent intent throughout
+// the entire batch. A retry may finish a partial batch; it cannot change a newly
+// substituted component or write underneath a confirmed purchase snapshot.
+async function dbSetComponentPrices(shopifyOrderId, prezzi) {
+    const requested=(prezzi || []).filter(p=>p?.type).map(p=>({type:p.type,ean:p.ean || '',price:p.price===null || p.price===undefined || p.price==='' ? null : Math.round(Number(p.price)*100)/100}))
+        .filter(p=>p.price===null || Number.isFinite(p.price));
+    const key=JSON.stringify(['legacy_prices',requested.map(p=>[p.type,p.ean,p.price]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))]);
+    const recovered=await dbRecoverCompletedPurchaseIntent(shopifyOrderId);
+    if(recovered?.key===key)return recovered.legacyResult;
+    const {order,cp}=await dbPurchaseOrder(shopifyOrderId);
+    if(cp._acquisto_confermato_gestionale)throw new Error('Acquisto o ordine finalizzato: storico protetto');
+    let intent=cp._modifica_distinta_gestionale;
+    if(intent && (intent.key!==key || intent.kind!=='legacy_prices'))throw new Error('Altra modifica in corso: completa o riprova la stessa operazione prima di confermare i prezzi');
+    if(!intent){
+        const read=await supabase.from('processed_order_components').select('id,component_type,ean,supplier,quantity,price')
+            .eq('order_id',order.id).or('is_custom.is.null,is_custom.eq.0');
+        if(read.error)throw read.error;
+        const selected=new Map();
+        for(const p of requested){
+            const rows=(read.data || []).filter(c=>c.component_type===p.type && (!p.ean || String(c.ean)===String(p.ean)));
+            if(!rows.length || !p.ean && rows.length!==1)throw new Error('Il componente del costo è cambiato o ambiguo: ricarica la scheda');
+            for(const row of rows){
+                const prior=selected.get(row.id);
+                if(prior && !legacyPriceEqual(prior.price,p.price))throw new Error('Prezzi discordanti per lo stesso componente: correggi la richiesta');
+                selected.set(row.id,{expected:{id:row.id,type:row.component_type,ean:row.ean,supplier:row.supplier,quantity:row.quantity,price:row.price},price:p.price});
+            }
+        }
+        if(!selected.size)return 0;
+        intent={kind:'legacy_prices',key,token:`${Date.now()}-${Math.random().toString(36).slice(2)}`,entries:[...selected.values()],il:new Date().toISOString()};
+        await dbAcquireLegacyPurchaseIntent(shopifyOrderId,order,cp,intent);
+    }
+    const checked=await dbInspectLegacyPurchaseIntent(order,intent);
+    for(const item of intent.entries){
+        const e=item.expected,row=checked.rows.find(c=>String(c.id)===String(e.id));
+        if(!legacyIntentIdentity(row,e))throw new Error('Il componente del costo è cambiato: ricarica e verifica la scheda');
+        if(legacyPriceEqual(row.price,item.price))continue;
+        let update=supabase.from('processed_order_components').update({price:item.price}).eq('id',e.id).eq('order_id',order.id)
+            .eq('component_type',e.type).or('is_custom.is.null,is_custom.eq.0');
+        for(const field of ['ean','supplier','quantity','price'])update=e[field]==null?update.is(field,null):update.eq(field,e[field]);
+        const written=await update.select('id');
+        if(written.error)throw written.error;
+        if(written.data?.length!==1)throw new Error('Il componente o il prezzo è cambiato: ricarica prima di confermare il costo');
+    }
+    const completed=await dbRecoverCompletedPurchaseIntent(shopifyOrderId);
+    if(completed?.key!==key)throw new Error('Conferma dei prezzi da verificare: riprova la stessa operazione');
+    return intent.entries.length;
 }
 
 async function dbDeleteProcessedOrder(shopifyOrderId) {

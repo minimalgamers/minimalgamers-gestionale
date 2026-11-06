@@ -3029,7 +3029,7 @@ function renderOrders(ordersMap, containerId, showPrices) {
             let customPropsHtml = '';
             if (item.customProperties && Object.keys(item.customProperties).length > 0) {
                 const propsEntries = Object.entries(item.customProperties)
-                    .filter(([key]) => !['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name', 'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'].includes(key))
+                    .filter(([key, value]) => ['string', 'number', 'boolean'].includes(typeof value) && !['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_scelte_acquisto_gestionale', '_esclusioni_acquisto_gestionale', '_modifica_distinta_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name', 'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'].includes(key))
                     .map(([key, value]) => {
                         
                         const displayKey = key.replace(/^_/, '').replace(/_/g, ' ').toUpperCase();
@@ -3289,7 +3289,7 @@ async function renderProcessedOrders(ordersMap) {
             let customPropsHtml = '';
             if (item.customProperties && Object.keys(item.customProperties).length > 0) {
                 const propsEntries = Object.entries(item.customProperties)
-                    .filter(([key]) => !['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name', 'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'].includes(key))
+                    .filter(([key, value]) => ['string', 'number', 'boolean'].includes(typeof value) && !['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_scelte_acquisto_gestionale', '_esclusioni_acquisto_gestionale', '_modifica_distinta_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name', 'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'].includes(key))
                     .map(([key, value]) => {
                         const displayKey = key.replace(/^_/, '').replace(/_/g, ' ').toUpperCase();
                         return `<div class="custom-prop"><strong>${displayKey}:</strong> ${value}</div>`;
@@ -3501,6 +3501,8 @@ function updateOrdersCounter() {
 
 
 function splitRAMandSSD(value) {
+    // Management metadata is structured data, never a customer RAM/SSD option.
+    if (typeof value !== 'string') return { ram: null, ssd: null, original: value };
     const upperValue = value.toUpperCase();
     
     

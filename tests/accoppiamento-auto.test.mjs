@@ -626,9 +626,9 @@ assert.deepEqual([cpuRf.nome, cpuRf.pezzi, cpuRf.costo, cpuRf.righe[0].descrizio
   ['CCC', 3, 300, 'CPU prova', '5 pz']);
 assert.deepEqual([...cpuRf.righe[0].ordini], ['#9910', '#9920']);
 const ssdRf = catRf('SSD').fornitori;
-assert.deepEqual(ssdRf.map(f => [f.nome, f.pezzi, f.costo]), [['AAA', 3, 150]]);
+assert.deepEqual(ssdRf.map(f => [f.nome, f.pezzi, f.costo]), [['AAA', 2, 100], ['BBB', 1, 55]]);
 assert.equal(ssdRf[0].righe[0].poco, 1);                            // AAA ne ha 1: l'SSD del #9920 va preso altrove
-assert.equal(ssdRf.some(f => f.nome === 'BBB'), false);           // SSD-B rimane una proposta separata
+assert.equal(ssdRf.find(f => f.nome === 'BBB').righe[0].daApplicare, true); // assegnazione reale ma distinta da confermare
 const gpuRf = catRf('GPU').fornitori[0].righe[0];
 assert.deepEqual([gpuRf.codice, gpuRf.descrizione, gpuRf.stimato, gpuRf.nonDisponibile], ['GPUX', 'GPU prova X', true, true]);
 assert.deepEqual(catRf('PSU').fornitori.map(f => [f.nome, f.pezzi]), [['MAGAZZINO', 1]]);
@@ -636,12 +636,13 @@ assert.equal(catRf('PSU').pezzi, 0);                                // a terra: 
 const wifiRf = catRf('WI-FI').fornitori;
 assert.deepEqual(wifiRf.map(f => [f.nome, f.pezzi, f.costo]), [['AMAZON', 1, 0], ['DDD', 1, 20]]);
 assert.equal(wifiRf[0].righe[0].senzaCosto, true);                  // voce personalizzata senza prezzo
-assert.equal(rf.totale, 770);
+assert.equal(rf.totale, 775);
+assert.equal(rf.daApplicare, 1);
 assert.equal(rf.pezzi, 9);
 assert.equal(rf.senzaCosto, 1);
-assert.deepEqual(rf.fornitori.map(f => f.nome), ['CCC', 'EEE', 'AAA', 'DDD', 'AMAZON', 'MAGAZZINO']);
+assert.deepEqual(rf.fornitori.map(f => f.nome), ['CCC', 'EEE', 'AAA', 'BBB', 'DDD', 'AMAZON', 'MAGAZZINO']);
 assert.equal(A.testoOrdineFornitore(rf.fornitori[0]), 'x3 | CPU-1 - CPU prova');
-assert.equal(A.testoCategoria(catRf('SSD')).split('\n').length, 1);
+assert.equal(A.testoCategoria(catRf('SSD')), ''); // stock insufficiente o proposta non confermata: nessun ordine copiabile
 assert.equal(A.categoriaScheda('SSD AGGIUNTIVO'), 'SSD ADDON');
 assert.equal(A.categoriaVoce({ name: 'OFFICE', value: 'Office prova' }), 'SOFTWARE');
 const htmlRf = A.htmlCategorieDaOrdinare(rf);
@@ -674,7 +675,7 @@ assert.deepEqual([rUnito.fornitori[0].righe[0].quantita, rUnito.fornitori[0].rig
 assert.equal(rFissi.fornitori.at(-1).nome, 'DA SCEGLIERE');                         // in fondo
 const hdd = fornFissi.AMAZON.righe.find(x => x.codice === 'HDD 1TB AGGIUNTIVO');
 assert.match(hdd.link.url, /amazon\.it\/s\?k=hard%20disk%202%2C5%20pollici%201TB.*&s=price-asc-rank/);  // dal prezzo piu' basso
-assert.deepEqual(J(hdd.pezzi), [{ id: '940', tipo: 'SSD ADDON', ean: 'HDD 1TB AGGIUNTIVO', fornitore: 'AMAZON', nome: 'HDD 1TB AGGIUNTIVO', ordine: '#9940' }]);
+assert.deepEqual(J(hdd.pezzi).map(({id,tipo,ean,fornitore,nome,ordine})=>({id,tipo,ean,fornitore,nome,ordine})), [{ id: '940', tipo: 'SSD ADDON', ean: 'HDD 1TB AGGIUNTIVO', fornitore: 'AMAZON', nome: 'HDD 1TB AGGIUNTIVO', ordine: '#9940' }]);
 assert.equal(A.linkAmazon('ASIN B0G39F6MQH (nero)', '', 'COOLER').url, 'https://www.amazon.it/dp/B0G39F6MQH');
 assert.match(A.linkAmazon('CASE ATX WHITE', '', 'CASE').url, /case%20ATX%204%20ventole%20ARGB%20vetro%20temperato%20bianco$/);
 assert.match(A.linkAmazon("MONITOR 27'' 180HZ - 2K", '', 'MONITOR').url, /monitor%20gaming%2027%20pollici%20180Hz%20QHD/);

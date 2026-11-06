@@ -20,7 +20,7 @@ function env(orders=[]){
    getPreferredCustomerPhone:()=>null,normalizePhoneForStorage:()=>null,showNotification(){},setTimeout,clearTimeout};
  s.globalThis=s;vm.createContext(s);
  vm.runInContext(read('assets/js/multi-order-handler.js'),s);
- vm.runInContext(read('assets/js/accoppiamento-auto.js'),s);
+ vm.runInContext(read('assets/js/accoppiamento-auto.js').replace('    const contesti = {};', '    const contesti = globalThis.contesti = {};'),s);
  return {s,A:s.window.AccoppiamentoAuto,storage,captures,build};
 }
 const pc={id:1,name:'PC GAMING TEST',quantity:1,custom_properties:{}};
@@ -197,4 +197,39 @@ test('confirmed repair touches only accessory rows, rejects paid or concurrently
  const paid=mock([{...rows[0],price:50}]);await assert.rejects(()=>paid.context.dbReconcileOrderAccessories('77',plan),/confermato/);assert.equal(paid.writes.length,0);
  const changed=mock([{id:2,order_id:1,component_type:'KIT GAMING',ean:'OTHER',quantity:2,price:null}]);
  await assert.rejects(()=>changed.context.dbReconcileOrderAccessories('77',plan),/sono cambiati/);assert.equal(changed.writes.length,0);
+});
+
+
+test('whole worksheet refresh reuses a just-published valid plan without dispatching or writing purchases',async()=>{
+ const {s,A,storage}=env();let reads=0,dispatches=0;
+ const d=fresh(Date.now());d.ordini[77]={pc:[{quantita:1,pezzi:[]}]};
+ storage.set('shopify_session',JSON.stringify({apiKey:'test'}));
+ s.document={querySelectorAll:q=>q.includes('.order-card')?[{dataset:{orderId:'77'}}]:[],getElementById:id=>id==='accoppiamento-auto-style'?{}:null};
+ vm.runInContext("contesti['77']={};",s); // private context below is exposed only in this isolated test sandbox
+ const status={textContent:''},button={disabled:false},bar={querySelector:()=>status,querySelectorAll:()=>[button]};
+ s.fetch=async(url)=>{if(url===A.URL_AGGIORNA_LISTINI){dispatches++;throw Error('unexpected dispatch');}reads++;return {ok:true,json:async()=>encrypted(d)};};
+ await A.aggiornaScrivania(1,bar);
+ assert.equal(dispatches,0);assert.equal(reads,1);assert.equal(button.disabled,false);
+ assert.match(status.textContent,/confronto aggiornato/);
+});
+
+
+test('worksheet button asks for new data when stale, rejects invalid publication, and protects paid PCs',async()=>{
+ for(const invalid of [false,true]){
+  const {s,A,storage}=env();let reads=0,dispatches=0;
+  const old=fresh(Date.now()-3600000),latest=fresh(Date.now());
+  old.ordini[77]={pc:[{quantita:1,pezzi:[]}]};latest.ordini=old.ordini;
+  if(invalid)latest.regole_acquisto='old-engine';
+  storage.set('shopify_session',JSON.stringify({apiKey:'test'}));
+  s.document={querySelectorAll:q=>q.includes('.order-card')?[{dataset:{orderId:'77'}}]:[],getElementById:id=>id==='accoppiamento-auto-style'?{}:null};
+  s.contesti[77]={};const status={textContent:''},button={disabled:false},bar={querySelector:()=>status,querySelectorAll:()=>[button]};
+  s.fetch=async(url)=>{if(url===A.URL_AGGIORNA_LISTINI){dispatches++;return {ok:true,json:async()=>({stato:'recente'})};}
+    return {ok:true,json:async()=>encrypted(reads++===0?old:latest)};};
+  await A.aggiornaScrivania(1,bar);
+  assert.equal(dispatches,1);assert.equal(reads,2);assert.equal(button.disabled,false);
+  assert.match(status.textContent,invalid?/aggiornamento non riuscito/:/confronto aggiornato/);
+  s.processedOrdersCache[77]={components:[{type:'CPU',ean:'PAID',price:80}]};
+  await A.aggiornaScrivania(1,bar);assert.equal(dispatches,1);assert.equal(reads,2);
+  assert.match(status.textContent,/già i pezzi acquistati/);
+ }
 });

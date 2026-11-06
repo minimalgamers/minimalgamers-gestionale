@@ -2872,10 +2872,10 @@
             if (!ids.length) { scrivi(`E${n}: i PC di questa scrivania hanno già i pezzi acquistati.`); return; }
             const prima = await carica(true);
             let dati = null;
-            if (soloOrdini) { try { dati=verificaListini(prima,5*60*1000,Date.now(),ids); } catch { /* richiedi dati recenti */ } }
+            try { dati=verificaListini(prima,5*60*1000,Date.now(),ids); } catch { /* richiedi dati recenti o ordini mancanti */ }
             // 1) listini dei fornitori di adesso (lo stesso aggiornamento che parte da solo ogni mezz'ora)
             if (!dati) {
-            scrivi(`E${n}: chiedo ai fornitori i listini di adesso…`);
+            scrivi(`E${n}: richiedo un confronto aggiornato al Buyer Desk…`);
             let esito = null;
             try {
                 esito = await richiediJson(URL_AGGIORNA_LISTINI, { method: 'POST', headers: { 'Content-Type': 'application/json' },

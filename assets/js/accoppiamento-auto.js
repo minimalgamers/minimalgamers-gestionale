@@ -3910,6 +3910,13 @@
         return { totale, minimo, sottoMinimo, richiesta: !!x.richiesta_quotazione || sottoMinimo };
     }
 
+    function oggettoEmailFornitore(x, oggetto = '') {
+        const referente = String(x.attenzione || '').trim();
+        if (!referente) return oggetto;
+        const attenzione = x.lingua === 'en' ? `Attn: ${referente}` : `All’attenzione di ${referente}`;
+        return oggetto ? `${attenzione} — ${oggetto}` : attenzione;
+    }
+
     function testoEmail(x, contatti, oggi) {
         const c = contattiOrdini(contatti) || {};
         const data = oggi || new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' });
@@ -3921,13 +3928,13 @@
                 ? (inglese ? `\nThe listed items do not yet meet the stated minimum order of EUR ${condizioni.minimo}. Please confirm whether they can be combined with other items or quoted separately.\n`
                     : `\nLe righe indicate non raggiungono ancora il minimo dichiarato di EUR ${condizioni.minimo}. Ci confermate se possono essere accorpate ad altri articoli o quotate separatamente?\n`) : '';
             return { a: (x.a || []).join('; '),
-                oggetto: inglese ? `Availability and quotation request — Minimal Gamers — ${data}` : `Richiesta disponibilità e quotazione — Minimal Gamers — ${data}`,
+                oggetto: oggettoEmailFornitore(x, inglese ? `Availability and quotation request — Minimal Gamers — ${data}` : `Richiesta disponibilità e quotazione — Minimal Gamers — ${data}`),
                 corpo: inglese
                     ? `Hello,\n\nplease confirm the current customer prices, available quantities and delivery time for:\n\n${x.gruppi.map(g => sezioneEmail(g, 'en')).join('\n')}\n${minimo}\nThis is a quotation request, not an order confirmation.\n\nThank you,\n${firma}`
                     : `Buongiorno,\n\nci confermate prezzi cliente attuali, quantità disponibili e tempi di consegna per:\n\n${x.gruppi.map(g => sezioneEmail(g)).join('\n')}\n${minimo}\nQuesta è una richiesta di quotazione, non una conferma d’ordine.\n\nGrazie,\n${firma}` };
         }
         if (x.lingua === 'en') {                           // 02/10: fornitori esteri (ACTION, OMEGA, CASEKING) in inglese
-            return { a: (x.a || []).join('; '), oggetto: `Order Minimal Gamers — ${data}`,
+            return { a: (x.a || []).join('; '), oggetto: oggettoEmailFornitore(x, `Order Minimal Gamers — ${data}`),
                 corpo: `Hello,\n\nplease find below our order:\n\n${x.gruppi.map(g => sezioneEmail(g, 'en')).join('\n')}\n\n` +
                     `Total: ${x.pezzi === 1 ? '1 pc' : `${x.pezzi} pcs`}.\n\nCould you please confirm availability and delivery time ` +
                     `and send us the proforma invoice?\n\nThank you,\n${firma}` };
@@ -3940,7 +3947,7 @@
                 `\n\n${tot}\n\nCi confermate disponibilità e tempi di consegna?\n\nGrazie,\n${firma}`
             : `Buongiorno,\n\nvi inviamo il nostro ordine:\n\n${x.gruppi.map(sezioneEmail).join('\n')}\n\n${tot}\n\n` +
                 `Ci confermate disponibilità e tempi di consegna?\n\nGrazie,\n${firma}`;
-        return { a: (x.a || []).join('; '), oggetto, corpo };
+        return { a: (x.a || []).join('; '), oggetto: oggettoEmailFornitore(x, oggetto), corpo };
     }
 
     function urlOutlook(a, oggetto, corpo) {
@@ -3959,7 +3966,7 @@
             .filter(x => x.email);
         const recapiti = rotte.map(x => {
             const nome = x.nome || f.nome;
-            const link = urlOutlook(x.email, '', '').url;
+            const link = urlOutlook(x.email, oggettoEmailFornitore(x), '').url;
             return `<p><strong>${esc(nome)}${x.intermediario ? ' · altro hardware' : ''}</strong><br>${esc(x.email)}` +
                 `${x.da_confermare ? '<br><strong>Contatto da confermare</strong>' : ''}` +
                 `${x.richiesta_quotazione ? '<br>Per richieste di quotazione' : ''}<br>` +

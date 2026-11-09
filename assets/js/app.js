@@ -525,7 +525,7 @@ function getMonitorDisplayValue(monitorItem) {
 // ----------------------------------------------------------------------------
 // Scatta SOLO se il cliente sceglie MINIMAL CASE. Colore dalla scelta.
 //   - Config TOP                -> CASE ATX (sempre): tutte le build tranne le economiche
-//   - Config ECONOMICHE         -> NOUA VITRA se mobo di serie, CASE ATX se il cliente la cambia
+//   - Config ECONOMICHE         -> NOUA FLOW se mobo di serie, CASE ATX se il cliente la cambia
 //                                  (VOLT, SETUP VOLT, CRIMSON, BUNDLE CRIMSON, VORTEX, VEGA, STRIKE, STREAM)
 //   - Config non classificate (MSI, DEEPCOOL, ammiraglie con case XL, CUSTOM) -> NON toccate
 // ============================================================================
@@ -547,7 +547,7 @@ const CASE_ECONOMY_CONFIGS = new Set([
 ]);
 
 // mobo "maggiorata" (fa scattare CASE ATX sulle economiche).
-// Antonio 26/09: se il cliente cambia la scheda madre serve il CASE ATX (la NOUA Vitra e' M-ATX):
+// Antonio 26/09: se il cliente cambia la scheda madre serve il CASE ATX (il NOUA Flow e' M-ATX):
 // vale qualunque scelta diversa da quella di serie, che e' la multimarca «... [ASROCK - GIGABYTE - MSI]».
 function isUpgradedMobo(moboChoice) {
     const u = String(moboChoice || '').toUpperCase().trim();
@@ -557,37 +557,33 @@ function isUpgradedMobo(moboChoice) {
            /TOMAHAWK/.test(u) || /Z790/.test(u);
 }
 
-function applyVitraCaseOverride(finalComponents, configKey, pcItem) {
-    if (!Array.isArray(finalComponents) || !configKey) return;
-    if (/CUSTOM/i.test(configKey) || configKey === 'PC GAMING MIRAGE') return; // custom protette: mai toccare
-
-    const isTop = CASE_TOP_CONFIGS.has(configKey);
-    const isEco = CASE_ECONOMY_CONFIGS.has(configKey);
-    if (!isTop && !isEco) return; // config non classificata (es. MSI) -> non tocco
-
-    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
-    const caseChoice = String(props.CASE || props.case || '').toUpperCase();
-    if (!/MINIMAL\s*CASE/i.test(caseChoice)) return; // solo se sceglie MINIMAL CASE
-
-    let color = '';
-    if (/\bWHITE\b|\bBIANCO\b/.test(caseChoice)) color = 'WHITE';
-    else if (/\bBLACK\b|\bNERO\b/.test(caseChoice)) color = 'BLACK';
-    if (!color) return;
-
-    let target;
-    if (isTop) {
-        target = `CASE ATX ${color}`;
-    } else {
-        const moboChoice = props['SCHEDA MADRE'] || props.MOBO || props.mobo || '';
-        target = isUpgradedMobo(moboChoice) ? `CASE ATX ${color}` : `NOUA VITRA ${color}`;
+function caseMinimalTarget(configKey, props, baseCase = '', baseCooler = '') {
+    const top = CASE_TOP_CONFIGS.has(configKey), economy = CASE_ECONOMY_CONFIGS.has(configKey);
+    if (!top && !economy) return '';
+    let scelta = String(props.CASE || props.case || '').trim().toUpperCase();
+    if (scelta && !/\bMINIMAL\s*CASE\b/.test(scelta)) return '';
+    if (!scelta) {
+        const base = String(baseCase || '').trim().toUpperCase();
+        scelta = { '8053323506997': 'NOUA VISION WHITE', '8053323507000': 'NOUA VISION BLACK' }[base] || base;
+        if (!/^(?:MINIMAL CASE|CASE ATX|NOUA (?:VITRA|VISION|FLOW))\b/.test(scelta)) return '';
     }
+    const color = /\b(?:WHITE|BIANCO)\b/.test(scelta) ? 'WHITE' : /\b(?:BLACK|NERO)\b/.test(scelta) ? 'BLACK' : '';
+    if (!color) return '';
+    const mobo = props['SCHEDA MADRE'] || props.MOBO || props.mobo || '';
+    const cooler = props.DISSIPATORE || props.COOLER || baseCooler;
+    return `${top || isUpgradedMobo(mobo) || /\b(?:360|420)\s*MM\b/i.test(cooler) ? 'CASE ATX' : 'NOUA FLOW'} ${color}`;
+}
 
-    const caseIdx = finalComponents.findIndex(c => String(c.type || '').toUpperCase() === 'CASE');
-    if (caseIdx === -1) return;
-    const oldValue = finalComponents[caseIdx].value;
-    console.log(`📦 [CASE v36] "${configKey}" (${isTop ? 'TOP' : 'ECO'}) + "${caseChoice}" → "${oldValue}" → "${target}"`);
-    finalComponents[caseIdx].value = target;
-    finalComponents[caseIdx].supplier = target.startsWith('NOUA') ? 'NOUA' : 'ALTRO';
+function applyMinimalCaseOverride(finalComponents, configKey, pcItem) {
+    if (!Array.isArray(finalComponents)) return;
+    const component = finalComponents.find(c => String(c.type || '').toUpperCase() === 'CASE');
+    if (!component) return;
+    const props = pcItem?.custom_properties || pcItem?.customProperties || {};
+    const cooler = finalComponents.find(c => /^(?:COOLER|DISSIPATORE)$/i.test(c.type));
+    const target = caseMinimalTarget(configKey, props, component.value, cooler?.value);
+    if (!target) return;
+    component.value = target;
+    component.supplier = target.startsWith('NOUA') ? 'NOUA' : 'ALTRO';
 }
 
 // v29/v32: regole MOBO → PSU. Dichiarato su window per garantire la registrazione.
@@ -644,7 +640,7 @@ window.applyMoboPsuRules = function(finalComponents, pcItem, fullOrder) {
             finalComponents[psuIdx].value = rule.psuValue;
             finalComponents[psuIdx].supplier = rule.psuSupplier;
         }
-        // 2) CASE: ora gestito centralmente da applyVitraCaseOverride (CASE v36).
+        // 2) CASE: ora gestito centralmente da applyMinimalCaseOverride (CASE v36).
         // Blocco disattivato per evitare doppie scritture in conflitto.
         // (la logica mobo-maggiorata->ATX è dentro la funzione CASE v36)
         return;
@@ -696,7 +692,7 @@ window.applyConfigPsuOverride = function(finalComponents, configKey, pcItem) {
     // 2) v32: per le 10 GOLD, se cliente sceglie MINIMAL CASE → CASE ATX (premium build)
     if (pcItem) {
         const props = pcItem.custom_properties || pcItem.customProperties || {};
-        // CASE: ora gestito centralmente da applyVitraCaseOverride (CASE v36).
+        // CASE: ora gestito centralmente da applyMinimalCaseOverride (CASE v36).
         // Blocco disattivato per evitare doppie scritture in conflitto.
     }
 };
@@ -1389,7 +1385,7 @@ async function saveProcessedOrderToDB(shopifyOrderId, orderData) {
         // v36: riallineo SEMPRE il colore del KIT GAMING al case, come ultimo
         // step prima di salvare. Copre tutti i percorsi (config normali, bundle,
         // manuali) indipendentemente dall'ordine in cui i componenti sono stati
-        // aggiunti. Il case qui è già risolto (CASE ATX/NOUA VITRA + colore).
+        // aggiunti. Il case qui è già risolto (CASE ATX/NOUA FLOW + colore).
         try {
             const comps = orderData.components || [];
             const caseComp = comps.find(c => String(c.component_type || c.type || '').toUpperCase() === 'CASE');
@@ -3571,12 +3567,14 @@ function splitRAMandSSD(value) {
 
 
 
+function caseRitirato(componente) {
+    return [componente.nome, componente.ean, componente.mpn, componente.codice].some(value =>
+        /\b(?:NOUA|NUWO)\s+(?:VITRA|VISION)\b|\b(?:VITRA\s+B[HK]\d+|VISION\s+Z[HK]\d+)\b|^805332350(?:6997|7000)$/i.test(String(value || '').trim()));
+}
+
 async function searchCaseEANByName(caseName) {
     
-    const caseNameMapping = {
-        'MINIMAL CASE WHITE': 'Noua Vision Mini ZH100 White',
-        'MINIMAL CASE BLACK': 'Noua Vision Mini ZK100 Black'
-    };
+
     
     const normalizeCaseName = (value) => String(value || '')
         .replace(/\u00A0/g, ' ')
@@ -3587,7 +3585,7 @@ async function searchCaseEANByName(caseName) {
         .toUpperCase();
 
     
-    const searchName = caseNameMapping[normalizeCaseName(caseName)] || caseName;
+    const searchName = caseName;
     
     try {
         const response = await fetch(`api_gateway/db_bridge/components_service/endpoint/api-components.php?search=${encodeURIComponent(searchName)}&type=Case_PC`);
@@ -3861,6 +3859,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
     
     
     let finalComponents = JSON.parse(JSON.stringify(baseComponents));
+    applyMinimalCaseOverride(finalComponents, configKey, { customProperties: variants });
     
     
     const ramSsdVariants = [];
@@ -3952,7 +3951,7 @@ async function loadComponentsForOrder(orderId, baseComponents, variants = {}, al
         const gpoMappableTypes = ['CPU', 'PSU', 'ALIMENTATORE', 'CASE', 'GPU', 'SCHEDA MADRE', 'SSD', 'SSD ADDON', 'RAM', 'COOLER', 'DISSIPATORE'];
         if (gpoMappableTypes.includes(gpoSearchType)) {
             // v37: la scelta del cliente vince SEMPRE, tranne "MINIMAL CASE" (in quel
-            // caso vale il case deciso dalla regola: NOUA VITRA / CASE ATX).
+            // caso vale il case deciso dalla regola: NOUA FLOW / CASE ATX).
             if (gpoSearchType === 'CASE' && /MINIMAL\s*CASE/i.test(String(value || ''))) {
                 console.log(`🔒 [CASE-RULE v37] "${value}" → mantengo il case da regola`);
                 continue;
@@ -5527,10 +5526,10 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     console.warn('MONITOR v26 sostituzione fallita (non bloccante):', e);
                 }
                 
-                // v27: per STRIKE/VEGA/VORTEX/bundle RTX 3050, se cliente sceglie MINIMAL CASE → NOUA VITRA
+                // v27: per STRIKE/VEGA/VORTEX/bundle RTX 3050, se cliente sceglie MINIMAL CASE → NOUA FLOW
                 try {
-                    if (typeof applyVitraCaseOverride === 'function') {
-                        applyVitraCaseOverride(finalComponents, config.configKey, pcItem);
+                    if (typeof applyMinimalCaseOverride === 'function') {
+                        applyMinimalCaseOverride(finalComponents, config.configKey, pcItem);
                     }
                 } catch (e) {
                     console.warn('VITRA-OVERRIDE v27 fallito (non bloccante):', e);
@@ -5581,8 +5580,8 @@ async function _processOrderImpl(orderId, skipReload = false, worksheetNumber = 
                     );
 
                     // v37: la scelta del cliente vince SEMPRE, tranne quando ha scelto
-                    // "MINIMAL CASE": in quel caso il case corretto (NOUA VITRA / CASE ATX)
-                    // è già stato deciso da applyVitraCaseOverride e la variante GPO
+                    // "MINIMAL CASE": in quel caso il case corretto (NOUA FLOW / CASE ATX)
+                    // è già stato deciso da applyMinimalCaseOverride e la variante GPO
                     // rimetterebbe il vecchio EAN Noua Vision. Solo allora la salto.
                     if (gpoSearchType === 'CASE' && /MINIMAL\s*CASE/i.test(String(value || ''))) {
                         console.log(`🔒 [CASE-RULE v37] "${value}" → mantengo il case da regola`);
@@ -8134,7 +8133,7 @@ document.getElementById('component-search-input')?.addEventListener('input', (e)
         
         let allComponents = [];
         if (data.success && data.components) {
-            allComponents = [...data.components];
+            allComponents = data.components.filter(c => !caseRitirato(c));
         }
         if (customData.success && customData.items) {
             
@@ -8613,7 +8612,7 @@ document.getElementById('bulk-replace-new')?.addEventListener('input', (e) => {
             
             if (data.success && data.components && data.components.length > 0) {
                 
-                const availableComponents = data.components.filter(c => parseInt(c.quantita) >= bulkReplaceMinQty);
+                const availableComponents = data.components.filter(c => !caseRitirato(c) && parseInt(c.quantita) >= bulkReplaceMinQty);
                 
                 if (availableComponents.length === 0) {
                     if (searchNavigation !== undefined && !window.MGNavigation.valid(searchNavigation)) return;

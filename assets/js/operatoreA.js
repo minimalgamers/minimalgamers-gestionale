@@ -915,10 +915,7 @@ function splitRAMandSSD(value) {
 
 async function searchCaseEANByName(caseName) {
     
-    const caseNameMapping = {
-        'MINIMAL CASE WHITE': 'Noua Vision Mini ZH100 White',
-        'MINIMAL CASE BLACK': 'Noua Vision Mini ZK100 Black'
-    };
+
     
     const normalizeCaseName = (value) => String(value || '')
         .replace(/\u00A0/g, ' ')
@@ -929,7 +926,7 @@ async function searchCaseEANByName(caseName) {
         .toUpperCase();
 
     
-    const searchName = caseNameMapping[normalizeCaseName(caseName)] || caseName;
+    const searchName = caseName;
     console.log(`🔍 Ricerca CASE: "${caseName}" -> "${searchName}"`);
     
     try {

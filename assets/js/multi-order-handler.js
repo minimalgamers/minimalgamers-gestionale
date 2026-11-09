@@ -653,10 +653,10 @@ async function processSingleSplitPC(orderId, fullOrder, pcItemIndex, counters, s
                 }
             }
         } catch (e) { console.warn('MONITOR v26 split fail:', e); }
-        // v27: NOUA VITRA override per STRIKE/VEGA/VORTEX/bundle RTX 3050
+        // v27: NOUA FLOW override per STRIKE/VEGA/VORTEX/bundle RTX 3050
         try {
-            if (typeof applyVitraCaseOverride === 'function') {
-                applyVitraCaseOverride(finalComponents, config.configKey, targetPcItem);
+            if (typeof applyMinimalCaseOverride === 'function') {
+                applyMinimalCaseOverride(finalComponents, config.configKey, targetPcItem);
             }
         } catch (e) { console.warn('VITRA-OVERRIDE v27 split fail:', e); }
         // v29: PSU specifico se MOBO richiede doppio EPS ecc.
@@ -923,10 +923,10 @@ async function processMultiPCOrder(orderId, fullOrder, counters, skipReload = fa
                     }
                 }
             } catch (e) { console.warn('MONITOR v26 multi fail:', e); }
-            // v27: NOUA VITRA override per STRIKE/VEGA/VORTEX/bundle RTX 3050
+            // v27: NOUA FLOW override per STRIKE/VEGA/VORTEX/bundle RTX 3050
             try {
-                if (typeof applyVitraCaseOverride === 'function') {
-                    applyVitraCaseOverride(finalComponents, config.configKey, pcItem);
+                if (typeof applyMinimalCaseOverride === 'function') {
+                    applyMinimalCaseOverride(finalComponents, config.configKey, pcItem);
                 }
             } catch (e) { console.warn('VITRA-OVERRIDE v27 multi fail:', e); }
             // v29: PSU specifico se MOBO richiede doppio EPS ecc.

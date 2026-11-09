@@ -84,3 +84,19 @@ test('i recapiti da verificare, i fornitori senza recapito e gli acquisti sul si
     assert.doesNotMatch(amazon, /Recapito da indicare/i);
     assert.equal(linkOutlook(amazon).length, 0);
 });
+
+test('il referente di una casella condivisa compare nell’oggetto del contatto e della richiesta', () => {
+    const A = caricaGestionale();
+    const r = piano({fornitore: 'TRADERBAR', categoria: 'GPU'});
+    const rubrica = {invii: [{id: 'TRADERBAR', nome: 'TRADERBAR · Ervin', fornitori: ['TRADERBAR'],
+        a: ['sales@example.test'], lingua: 'en', attenzione: 'Ervin', richiesta_quotazione: true}]};
+    const [link] = linkOutlook(A.htmlFornitoriDaOrdinare(r, 'TRADERBAR', rubrica));
+    assert.equal(link.searchParams.get('to'), 'sales@example.test');
+    assert.equal(link.searchParams.get('subject'), 'Attn: Ervin');
+    assert.equal(link.searchParams.get('body'), '');
+    const [invio] = A.ordiniEmail(r, rubrica).invii;
+    const mail = A.testoEmail(invio, rubrica, '09/11/2026');
+    assert.equal(mail.a, 'sales@example.test');
+    assert.match(mail.oggetto, /^Attn: Ervin — Availability and quotation request/);
+    assert.match(mail.corpo, /This is a quotation request, not an order confirmation/);
+});

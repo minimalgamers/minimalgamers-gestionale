@@ -3527,6 +3527,7 @@
             !r.senzaCosto && !r.daConfermare && r.fornitore !== 'MAGAZZINO' && r.fornitore !== DA_SCEGLIERE &&
             !motivoScadenzaOfferta(r.proposta) && !(r.scadenze || []).some(x => motivoScadenzaOfferta(x));
     }
+    const propostaConfermabile = r => !!(r?.daApplicare && r.proposta && r.pezzi?.length && rigaOrdinabile({...r, daApplicare:false}));
     function propostaAcquisto(p, r, quantita) {
         if (!p || p.fisso || r.fonte === 'acquistato' || r.fonte === 'magazzino') return null;
         if (p.allocazione_unita?.coperta === false || !p.auto && p.allocazione?.pc_mancanti > 0) return { mancante: true, requisito: p.requisito || '', motivo: p.nota || '' };
@@ -3630,7 +3631,7 @@
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
                 fornitore: forn, daApplicare: !!x.daApplicare, daDecidere: !!x.daDecidere, proposta: x.proposta || null, scadenze: [], motivi: [], requisiti: [], politiche: [], stock: [], listini: [],
                 link: forn === 'AMAZON' || forn === DA_SCEGLIERE ? linkAmazon(x.codice, x.descrizione, categoria) : null });
-            if (x.pezzo) r.pezzi.push(x.pezzo);
+            if (x.pezzo) r.pezzi.push(x.daApplicare ? {...x.pezzo, proposta:x.proposta} : x.pezzo);
             if (x.offerta) r.scadenze.push({stock_valid_until:x.offerta.stock_valid_until,price_valid_until:x.offerta.price_valid_until});
             for (const [campo, valore] of [['motivi',x.motivo],['requisiti',x.requisito],['politiche',x.politica]])
                 if (valore && !r[campo].includes(valore)) r[campo].push(valore);
@@ -4105,10 +4106,9 @@
     function htmlRigaDaOrdinare(r, colore, magazzino, categoria) {
         const membri = r.vistaRighe || [r], aggregata = membri.length > 1;
         const indici = membri.map(x=>x.n).join(',');
-        const confermabile = x => x.daApplicare && rigaOrdinabile({...x,daApplicare:false});
-        const statoRiga = x => rigaOrdinabile(x) ? 'Pronti per la copia' : confermabile(x) ? 'Da confermare nelle distinte' : 'Bloccati: da verificare';
+        const statoRiga = x => rigaOrdinabile(x) ? 'Pronti per la copia' : propostaConfermabile(x) ? 'Da confermare nelle distinte' : 'Bloccati: da verificare';
         const pronti = membri.filter(rigaOrdinabile).reduce((s,x)=>s+x.quantita,0);
-        const pendenti = membri.filter(confermabile).reduce((s,x)=>s+x.quantita,0);
+        const pendenti = membri.filter(propostaConfermabile).reduce((s,x)=>s+x.quantita,0);
         const bloccati = r.quantita-pronti-pendenti;
         const disp = r.disponibilita ? `${r.disponibilita}${r.daConfermare && !/confermare/i.test(r.disponibilita) ? ' · da confermare' : ''}` : '';
         const costo = r.senzaCosto && !r.costo ? 'costo —' : `${r.stimato ? '≈ ' : ''}${eur(r.costo)}${r.senzaCosto ? ' +' : ''}`;
@@ -4126,7 +4126,7 @@
         const modificabili = (r.pezzi || []).filter(p => !p.personalizzato);
         const azioni = [
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
-            membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${confermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join(''),
+            membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${propostaConfermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join(''),
             modificabili.length && !magazzino ? `<button type="button" class="acc-rf-azione" ${aggregata?`data-rf-cambia-gruppo="${indici}"`:`data-rf-cambia="${r.n}"`} title="La sostituzione confermata si salva anche nella distinta di montaggio dei PC selezionati">🔁 Cambia dal Buyer Desk</button>` : '',
             r.pezzi?.length && !magazzino ? `<button type="button" class="acc-rf-azione acc-rf-trash" ${aggregata?`data-rf-escludi-gruppo="${indici}"`:`data-rf-escludi="${r.n}"`} title="Esclude questi ${r.quantita} pezzi solo dagli acquisti. La distinta di montaggio resta invariata.">🗑 Escludi dagli acquisti</button>` : ''
         ].filter(Boolean).join('');
@@ -4168,6 +4168,11 @@
                 `<button type="button" class="acc-rf-azione acc-rf-undo" data-rf-ripristina="${i}">↩ Reincludi negli acquisti</button></div>`).join('') + `</details>`;
     }
 
+    function htmlApplicaProposteFornitore(f) {
+        const quantita = f.righe.filter(propostaConfermabile).reduce((n, r) => n + r.quantita, 0);
+        return quantita ? `<button type="button" class="acc-rf-copia" data-rf-applica-fornitore="${esc(f.nome)}">✓ Rivedi e applica le proposte (${quantita} pz)</button>` : '';
+    }
+
     // Vista «fornitore per fornitore» (Antonio 01/10: «per poter fare gli ordini rapidamente in fornitura»)
     function htmlFornitoriDaOrdinare(r, solo, contatti) {
         const lista = r.fornitori.filter(f => !solo || f.nome === solo);
@@ -4180,6 +4185,7 @@
                 (mag ? '<div class="acc-nota">Già a terra: non si ordinano.</div>' : '') +
                 (f.nome === DA_SCEGLIERE ? '<div class="acc-nota">Pezzi fuori dai listini: si scelgono col budget scritto sotto (link Amazon per trovarli in fretta).</div>' : '') +
                 htmlContattiFornitore(f, contatti) +
+                htmlApplicaProposteFornitore(f) +
                 raggruppaReferenzeAcquisto(f.righe).map(x => htmlRigaDaOrdinare(x, col, mag, x.categoria)).join('') +
                 `</div><div class="supplier-card-footer">${mag ? '' : `<button type="button" class="acc-rf-copia" data-rf-forn="${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 ${f.nome === DA_SCEGLIERE ? 'Copia elenco' : `Copia ordine ${esc(f.nome)}`}</button>`}</div></div>`;
         }).join('');
@@ -4219,7 +4225,8 @@
             r.fornitori.map(f => `<div class="acc-rf-forn-riga${solo === f.nome ? ' scelto' : ''}">` +
                 `<button type="button" class="acc-rf-nome" data-rf-vedi="${esc(f.nome)}" title="Vedi cosa compriamo da ${esc(f.nome)}">${badgeFornitore(f.nome)}</button> <span>${f.pezzi} pz` +
                 `${f.nome === 'MAGAZZINO' ? ' a terra' : (f.senzaCosto && !f.costo ? ' · costo —' : ` · ${eur(f.costo)}${f.senzaCosto ? ' +' : ''}`)}</span>` +
-                `${f.nome === 'MAGAZZINO' ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia solo le righe pronte per ${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled'}>📋 Copia</button>`}</div>`).join('') +
+                `${f.nome === 'MAGAZZINO' ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia solo le righe pronte per ${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled'}>📋 Copia</button>`}</div>` +
+                (solo === f.nome ? htmlApplicaProposteFornitore(f) : '')).join('') +
             (solo ? `<button type="button" class="acc-rf-copia" data-rf-vedi="">↩ Tutti i fornitori</button>` : '') +
             htmlEmailOrdini(r, contatti) +
             htmlContattiLato(r, contatti) +
@@ -4424,6 +4431,10 @@
         }));
         tutti('[data-rf-ripristina]').forEach(b => b.addEventListener('click', () => modificaEsclusioneAcquisto(r.esclusioni[Number(b.dataset.rfRipristina)], false).catch(e => avvisa(e.message,'error'))));
         tutti('[data-rf-applica]').forEach(b => b.addEventListener('click', () => confermaPropostaAcquisto(r.righe[Number(b.dataset.rfApplica)]).catch(e => avvisa(e.message,'error'))));
+        tutti('[data-rf-applica-fornitore]').forEach(b => b.addEventListener('click', () => {
+            const f = r.fornitori.find(x => x.nome === b.dataset.rfApplicaFornitore);
+            confermaProposteFornitore(f).catch(e => avvisa(e.message, 'error'));
+        }));
         tutti('[data-rf-cambia]').forEach(b => b.addEventListener('click', () => apriCambio(r.righe[parseInt(b.dataset.rfCambia, 10)])));
         tutti('[data-rf-cambia-gruppo]').forEach(b => b.addEventListener('click', () => {
             const gruppo=bersaglioReferenzaVista(r,b.dataset.rfCambiaGruppo);
@@ -4620,8 +4631,11 @@
         const c = bersaglioCambioPreciso(p, componentiSalvati(p.id));
         const plan = { expected: { id: c.id ?? null, type:c.type, ean:c.ean, supplier:c.supplier || '', quantity:Number(c.quantity) || 1 },
             replacement: { ean:d.codice, name:d.descrizione || d.codice, supplier:d.fornitore, quantity:Math.max(1,Number(d.quantita) || Number(c.quantity) || 1) }, source };
-        const result = await window.SupabaseDB.replacePurchaseComponent(String(p.id), plan);
-        if (!result?.component || chiave(result.component.ean) !== chiave(d.codice) || String(result.component.supplier || '').toUpperCase() !== String(d.fornitore || '').toUpperCase())
+        const ambito = source === 'allocation_plan' ? {foglio:p.foglio, chiaveAcquisto:p.chiaveAcquisto} : {};
+        const result = await window.SupabaseDB.replacePurchaseComponent(String(p.id), {...plan,...ambito});
+        if (!result?.component || chiave(result.component.ean) !== chiave(d.codice) ||
+            String(result.component.supplier || '').toUpperCase() !== String(d.fornitore || '').toUpperCase() ||
+            Number(result.component.quantity || 1) !== plan.replacement.quantity)
             throw new Error('La sostituzione non risulta confermata dal database');
         const lista = componentiSalvati(p.id), index = lista.indexOf(c);
         if (index >= 0) lista[index] = { ...c, ...result.component };
@@ -4632,22 +4646,28 @@
         return result.component;
     }
 
-    async function salvaCambio(d, scelti, source = 'buyer_desk') {
+    function salvaCambio(d, scelti, source = 'buyer_desk') {
+        return salvaCambiAcquisto((scelti || []).filter(Boolean).map(p => ({p, d})), source);
+    }
+
+    async function salvaCambiAcquisto(cambi, source) {
         let fatti = 0; const falliti = [], riusciti = [];
-        const unici = [...new Map((scelti || []).filter(Boolean).map(p => [p.chiaveAcquisto || JSON.stringify([p.id,p.tipo,p.ean,p.fornitore,p.componentId]),p])).values()];
-        for (const p of unici) {
-            try { await sostituisciAcquisto(p,d,source); fatti++; riusciti.push(p); }
-            catch(e) { falliti.push(`${p.ordine || p.id}: ${e.message}`); }
+        const unici = [...new Map(cambi.map(({p,d}) => [p.chiaveAcquisto || JSON.stringify([p.id,p.tipo,p.ean,p.fornitore,p.componentId]),{p,d}])).values()];
+        for (const {p,d} of unici) {
+            try { await sostituisciAcquisto(p,d,source); fatti++; riusciti.push({p,d}); }
+            catch(e) { falliti.push(`${p.ordine || p.id} · ${p.tipo}: ${e.message}`); }
         }
-        const quotazione = quotazioneScelta(d);
-        if (fatti && quotazione.costo_unitario != null) {
-            const costi = leggiLS(K_COSTI, {});
-            for (const p of riusciti) costi[chiaveCostoOrdine(p.tipo, d.codice, d.fornitore)] =
-                { unitario: quotazione.costo_unitario, il: quotazione.prezzo_il, fonte: 'buyer_desk' };
-            scriviLS(K_COSTI, costi);
+        const costi = leggiLS(K_COSTI, {});
+        let costiAggiornati = false;
+        for (const {p,d} of riusciti) {
+            const q = quotazioneScelta(d);
+            if (q.costo_unitario == null) continue;
+            costi[chiaveCostoOrdine(p.tipo, d.codice, d.fornitore)] = { unitario:q.costo_unitario, il:q.prezzo_il, fonte:'buyer_desk' };
+            costiAggiornati = true;
         }
+        if (costiAggiornati) scriviLS(K_COSTI, costi);
         cambio.riga = null;
-        avvisa(`${fatti} di ${unici.length} distinte aggiornate${falliti.length ? ' · ' + falliti.join('; ') : ''}`, falliti.length ? 'error' : 'success');
+        avvisa(`${fatti} di ${unici.length} componenti aggiornati${falliti.length ? ' · ' + falliti.join('; ') : ''}`, falliti.length ? 'error' : 'success');
         if (!fatti) return {fatti,falliti};
         try {
             if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
@@ -4682,15 +4702,74 @@
         return {fatti,falliti};
     }
 
+    function cambiDaProposte(righe) {
+        return righe.flatMap(r => r.pezzi.map(p => {
+            const a = p.proposta || r.proposta;
+            return {p, d:{...a, prezzo:a.quantita ? a.costo/a.quantita : a.costo}};
+        }));
+    }
+
+    function riepilogoProposteDaApplicare(righe) {
+        return righe.map(r => `<div class="acc-fin-riga"><div><strong>${r.quantita} × ${esc(r.descrizione)} · ${esc(r.codice)}</strong> · ${eur(r.costo)} netti` +
+            `<details${r.pezzi.length <= 3 ? ' open' : ''}><summary>Distinte coinvolte (${r.pezzi.length})</summary>` +
+            r.pezzi.map(p => `<p>${esc(p.ordine)} · ${esc(p.tipo)} · ${esc(p.ean)} → ${(p.proposta || r.proposta).quantita} × ${esc(r.codice)}</p>`).join('') +
+            '</details></div></div>').join('');
+    }
+
     async function confermaPropostaAcquisto(riga) {
-        if (!riga?.daApplicare || !riga.proposta) return;
-        const p=riga.proposta;
-        const corpo=`<p>Applico <b>${esc(riga.descrizione)}</b> · ${esc(p.fornitore)} ${esc(p.codice)} nelle distinte di questi PC:</p>` +
-            riga.pezzi.map(x=>`<p>${esc(x.ordine)} · ${esc(x.tipo)}: ${esc(x.ean)} → ${esc(p.codice)}</p>`).join('') +
-            '<p>Gli altri componenti e i costi già pagati restano invariati. Non viene registrato alcun acquisto.</p>';
+        if (!propostaConfermabile(riga)) return;
+        const corpo = riepilogoProposteDaApplicare([riga]) + '<p>Salvi la proposta nella distinta. L’acquisto e l’invio della bozza sono passaggi separati.</p>';
         const c=await finestra('Conferma il piano acquisti',corpo,'Applica alle distinte','Annulla');
         if (!c) return;
-        return salvaCambio({...p,prezzo:p.quantita ? p.costo/p.quantita : p.costo},riga.pezzi,'allocation_plan');
+        if (!propostaConfermabile(riga)) throw new Error('La proposta è cambiata o scaduta: ricalcola il riepilogo');
+        return salvaCambiAcquisto(cambiDaProposte([riga]), 'allocation_plan');
+    }
+
+    let confermaFornitoreInCorso = false;
+    async function confermaProposteFornitore(f, leggi = () => carica(true)) {
+        const righe = (f?.righe || []).filter(propostaConfermabile);
+        if (!righe.length || confermaFornitoreInCorso) return;
+        const {token, n:foglio, modo} = riepilogo;
+        const quantita = righe.reduce((n,r) => n+r.quantita, 0);
+        const costo = righe.reduce((n,r) => n+r.costo, 0);
+        const bloccate = f.righe.filter(r => r.daApplicare && !propostaConfermabile(r)).reduce((n,r) => n+r.quantita, 0);
+        const corpo = `<p><strong>${quantita} pezzi · ${eur(costo)} netti</strong></p>` + riepilogoProposteDaApplicare(righe) +
+            (bloccate ? `<p>Pezzi da verificare: ${bloccate}. Restano in attesa.</p>` : '') +
+            '<p>Salvi le proposte nelle distinte. L’acquisto e l’invio delle bozze sono passaggi separati.</p>';
+        confermaFornitoreInCorso = true;
+        try {
+            if (!await finestra(`Applica le proposte di ${esc(f.nome)}`,corpo,'Applica tutte alle distinte','Annulla')) return;
+            const cambi = cambiDaProposte(righe);
+            const dati = verificaListini(await leggi());
+            if (token !== riepilogo.token || foglio !== riepilogo.n || modo !== riepilogo.modo || !righe.every(propostaConfermabile))
+                throw new Error('Il riepilogo è cambiato o la proposta è scaduta: ricalcola prima di confermare');
+            const chiavi = new Set(), referenze = new Set();
+            for (const {p,d} of cambi) {
+                const k = JSON.stringify([p.id, p.componentId ?? p.chiaveAcquisto]);
+                const attuale = pezzoAutoDelTipo(pcAutomatico(dati, p.id), p.tipo)?.auto;
+                const ref = chiaveStockAcquisto(d.fornitore,d.codice);
+                if (chiavi.has(k) || !attuale || chiaveStockAcquisto(attuale.fornitore,attuale.codice) !== ref ||
+                    Number(attuale.quantita || 1) !== Number(d.quantita) || tonda(Number(attuale.costo)) !== tonda(Number(d.costo)))
+                    throw new Error(`${p.ordine} · ${p.tipo}: proposta cambiata, ricalcola il riepilogo`);
+                chiavi.add(k);
+                referenze.add(ref);
+            }
+            // Valida costi e stock condiviso soltanto per le referenze da confermare.
+            const offerte = dati.offerte_ordinabili.filter(a => referenze.has(chiaveStockAcquisto(a.fornitore,a.codice)));
+            validaScelte({...dati, offerte_ordinabili:offerte}, cambi.map(({p,d}) =>
+                ({orderId:p.id, ordine:p.ordine, tipo:p.tipo, quantita:d.quantita, a:d})));
+            const perReferenza = new Map(offerte.map(a => [chiaveStockAcquisto(a.fornitore,a.codice), a]));
+            for (const {d} of cambi) {
+                const offerta = perReferenza.get(chiaveStockAcquisto(d.fornitore,d.codice));
+                for (const campo of ['stock_valid_until', 'price_valid_until']) {
+                    if (offerta?.[campo] && (!d[campo] || Date.parse(offerta[campo]) < Date.parse(d[campo])))
+                        d[campo] = offerta[campo];
+                }
+            }
+            return await salvaCambiAcquisto(cambi, 'allocation_plan');
+        } finally {
+            confermaFornitoreInCorso = false;
+        }
     }
 
     async function applicaScelta(d) {
@@ -4905,7 +4984,7 @@
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
         K_ESCLUSIONI_ACQUISTO, sceltaEsplicitaAcquisto, pianoRispettaSceltaEsplicita, identitaAcquisto, esclusioneAcquisto, nomeAcquisto, rigaOrdinabile, propostaAcquisto,
-        bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto,
+        bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto, confermaProposteFornitore,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,

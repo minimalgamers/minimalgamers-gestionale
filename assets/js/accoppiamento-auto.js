@@ -591,6 +591,7 @@
         if (window.SupabaseDB?.getProductReplacements) stato.sostituzioniRemote = await window.SupabaseDB.getProductReplacements();
     }
     async function salvaSostituzioneDefinitiva(orderId,r,d) {
+        verificaCategoriaAcquisto(r.tipo, d);
         const scaduta = motivoScadenzaOfferta(d);
         if (scaduta) throw new Error(scaduta);
         if (!window.SupabaseDB?.saveProductReplacement) throw new Error('Salvataggio sostituzioni non disponibile');
@@ -666,6 +667,7 @@
     }
 
     async function salvaConfermaCompleta(orderId, righe, spese) {
+        for (const r of righe) verificaCategoriaAcquisto(r.tipo, r);
         if (!righe.length || righe.some(r => !Number.isFinite(r.costo) || r.costo < 0)) throw new Error('Completa tutti i costi');
         if (!window.SupabaseDB?.confirmOrderPurchase) throw new Error('Conferma acquisto non disponibile');
         const cp = await window.SupabaseDB.confirmOrderPurchase(orderId, { righe, spese });
@@ -2745,7 +2747,7 @@
                     const i = parseInt(b.dataset.propBd, 10);
                     const x = proposte[i];
                     apriCambio({ proposta: true, codice: x.da.ean, descrizione: `${x.da.nome || ''} (${x.ordine})`,
-                        pezzi: [{ nome: ricercaProposta(x) }],
+                        pezzi: [{ tipo: x.tipo, nome: ricercaProposta(x) }],
                         applica: (d) => {
                             if (!ov.isConnected) return;
                             x.scelta = sceltaDaBuyerDesk(d, x.quantita || 1);
@@ -2882,7 +2884,8 @@
             const n = (order.pc || []).reduce((s, pc) => s + (Number(pc.quantita) || 1), 0);
             for (let i = 1; i <= n; i++) {
                 for (const p of pcAutomatico(dati, `${id}.${i}`)?.pezzi || []) {
-                    if (p.auto && !selected.has(`${id}.${i}|${p.tipo}`)) riserva(p.auto, Number(p.auto.quantita) || 1);
+                    if (p.auto && !selected.has(`${id}.${i}|${p.tipo}`) && !motivoCategoriaAcquisto(p.tipo, p.auto, dati))
+                        riserva(p.auto, Number(p.auto.quantita) || 1);
                 }
             }
         }
@@ -2891,6 +2894,7 @@
             const t = bersaglio(x), q = Number(x.quantita || t.quantita) || 1;
             const off = offerte.get(offKey(t));
             if (!off || !offertaOrdinabile(off)) throw new Error(`${x.ordine} · ${x.tipo}: offerta non più disponibile`);
+            verificaCategoriaAcquisto(x.tipo, off, dati);
             if (tonda(Number(t.costo)) !== tonda(Number(off.costo_unitario) * q)) throw new Error(`${x.ordine} · ${x.tipo}: prezzo cambiato, aggiorna il confronto`);
             const p = pcAutomatico(dati, x.orderId)?.pezzi?.find(p => p.tipo === (TIPI[x.tipo] || x.tipo));
             const compatibili = [p?.auto, ...(p?.alternative || [])].filter(Boolean);
@@ -3013,8 +3017,10 @@
             const conti = ultimiConti[id];
             if (!conti || !conti.righe.length) return '';
             const nome = (dati && dati.ordini && (dati.ordini[String(id).split('.')[0]] || {}).nome) || `#${id}`;
-            return `<div class="acc-fin-ordine"><label><input type="checkbox" data-ordine="${esc(id)}" ${conti.nMancantiExtra ? 'disabled' : 'checked'}> <b>${esc(nome)}</b></label>` +
+            const incompatibili = conti.righe.map(r => motivoCategoriaAcquisto(r.tipo,r,dati)).filter(Boolean);
+            return `<div class="acc-fin-ordine"><label><input type="checkbox" data-ordine="${esc(id)}" ${conti.nMancantiExtra || incompatibili.length ? 'disabled' : 'checked'}> <b>${esc(nome)}</b></label>` +
                 (conti.nMancantiExtra ? '<p>Completa prima i costi delle opzioni e degli upgrade nella scheda.</p>' : '') +
+                incompatibili.map(m => `<p>${esc(m)} Correggi il componente nella distinta prima di confermare.</p>`).join('') +
                 conti.righe.map((r, i) => `<div class="acc-fin-riga"><span><b>${esc(r.tipo)}</b>: ${esc(r.fornitore || '')} ${esc(r.descrizione || r.nome || r.ean)}${r.quantita > 1 ? ` ×${esc(r.quantita)}` : ''}` +
                     `${['stima','altro','budget','riferimento_altro','riferimento_excel'].includes(r.fonte) ? ' <small class="acc-incompleto">≈ riferimento: conferma il prezzo effettivamente pagato al fornitore di questa riga</small>' : ''}</span>` +
                     `<span><input type="text" inputmode="decimal" class="acc-prezzo" data-ordine="${esc(id)}" data-i="${i}" value="${prezzoConferma(r)}"> €</span></div>`).join('') +
@@ -3522,9 +3528,45 @@
         const nome = (candidati || []).map(x => String(x || '').trim()).find(x => x && chiave(x) !== chiave(codice));
         return nome || `${categoria || 'Prodotto'} — nome prodotto da verificare`;
     }
+    const CATEGORIE_ACQUISTO = new Set(['CPU','GPU','RAM','SSD','MOBO','PSU','COOLER','CASE','MONITOR','ACCESSORIO']);
+    function categoriaAcquisto(tipo) {
+        const cat = categoriaScheda(tipo);
+        const t = cat === 'SSD ADDON' || cat === 'SSD_EXTRA' ? 'SSD' : (TIPI[cat] || cat);
+        return CATEGORIE_ACQUISTO.has(t) ? t : '';
+    }
+    function categoriaReferenzaAcquisto(a) {
+        if (!a) return '';
+        const nome = String(a.descrizione || a.nome || a.name || '').trim();
+        const sku = String(a.codice || a.ean || '').trim();
+        // Il listino storico non esportava la categoria. Riconosci soltanto codici o titoli inequivocabili.
+        if (/^PRO(?:AMDRYZ|INTCI[3579])\d+$/i.test(sku)) return 'CPU';
+        const tipo = categoriaAcquisto(a.categoria || a.category);
+        if (tipo) return tipo;
+        if (/^(?:CPU\s+|PROCESSOR\s+)?(?:AMD\s+RYZEN\s+(?:[3579]\s+)?\d{4}[A-Z0-9]*|INTEL\s+CORE\s+(?:I[3579][ -]*\d{4,5}[A-Z]*|ULTRA\s+[3579]\s+\d{3}[A-Z]*))\b/i.test(nome) &&
+            !/\b(?:BUNDLE|KIT|LAPTOP|NOTEBOOK|DESKTOP|MINI\s*PC|SCHEDA MADRE|MOTHERBOARD|COOLER|DISSIPATORE)\b/i.test(nome)) return 'CPU';
+        if (/^(?:VGA\s|GRAPHICS CARD\b|SCHEDA VIDEO\b)/i.test(nome) &&
+            /\b(?:RTX|GTX|RX|ARC)[\s-]*[A-Z]?\d{3,4}\b|\bRADEON\b|\bGEFORCE\b/i.test(nome)) return 'GPU';
+        return '';
+    }
+    function motivoCategoriaAcquisto(tipo, a, dati) {
+        const attesa = categoriaAcquisto(tipo);
+        if (!attesa || !a) return '';
+        const codice = a.codice || a.ean;
+        const offerte = indiceOfferte(dati)?.perFornitore.get(`${testoStockAcquisto(a.fornitore)}|${chiave(codice)}`) || OFFERTE_VUOTE;
+        const esatta = offerte.find(o => testoStockAcquisto(o.codice) === testoStockAcquisto(codice));
+        const trovata = categoriaReferenzaAcquisto(esatta) || categoriaReferenzaAcquisto(a);
+        return trovata && trovata !== attesa ? `Categoria incompatibile: ${codice || a.descrizione} è ${trovata}, la distinta richiede ${attesa}.` : '';
+    }
+    function verificaCategoriaAcquisto(tipo, a, dati = stato.dati) {
+        const motivo = motivoCategoriaAcquisto(tipo, a, dati);
+        if (motivo) throw new Error(motivo);
+    }
     function rigaOrdinabile(r) {
+        const {codice, descrizione} = r;
         return !r.esclusa && !r.daApplicare && !r.daDecidere && !r.nonDisponibile && !r.daVerificare && r.poco == null &&
             !r.senzaCosto && !r.daConfermare && r.fornitore !== 'MAGAZZINO' && r.fornitore !== DA_SCEGLIERE &&
+            !r.categoriaIncoerente && !motivoCategoriaAcquisto(r.categoria, {codice, descrizione}) &&
+            !motivoCategoriaAcquisto(r.categoria, r.proposta) &&
             !motivoScadenzaOfferta(r.proposta) && !(r.scadenze || []).some(x => motivoScadenzaOfferta(x));
     }
     const propostaConfermabile = r => !!(r?.daApplicare && r.proposta && r.pezzi?.length && rigaOrdinabile({...r, daApplicare:false}));
@@ -3571,6 +3613,7 @@
                 const r = {tipo:c.type, ean:c.ean, fornitore:c.supplier};
                 const parte = pezzoAutoDelTipo(auto, c.type);
                 if (pianoRispettaSceltaEsplicita(id, r, parte, scheda.components)) continue;
+                if (motivoCategoriaAcquisto(c.type, {...r, nome:c.name}, dati)) continue;
                 const p = identitaAcquisto({id}, r, c);
                 if (esclusioneAcquisto(p, proprietaOrdine(id)[K_ESCLUSIONI_ACQUISTO]) || pezzoPreso(magazzinoDellaRiga(id, r, dati))) continue;
                 riserva(c.supplier, c.ean, p.quantita);
@@ -3587,7 +3630,7 @@
                 if (ids.has(unita) || cache?.[idScheda]?.stato === 'finalizzati' || acquistoConfermato(idScheda)) continue;
                 const pezzi = pcAutomatico(dati, unita)?.pezzi || [];
                 for (const p of pezzi) {
-                    if (!p.auto) continue;
+                    if (!p.auto || motivoCategoriaAcquisto(p.tipo, p.auto, dati)) continue;
                     const sostituito = scelte.get(`${unita}|${p.tipo}`) === 1 && pezzi.filter(x => x.tipo === p.tipo).length === 1;
                     if (sostituito) continue;
                     riserva(p.auto.fornitore, p.auto.codice, Number(p.auto.quantita) || 1);
@@ -3614,6 +3657,11 @@
                 out.esclusioni.push({ ...x, categoria, ordini: [ordine], pezzi: [p], esclusa: true, n: out.esclusioni.length });
                 return;
             }
+            const incompatibile = motivoCategoriaAcquisto(categoria, x.offerta, dati) || motivoCategoriaAcquisto(categoria, x, dati);
+            if (incompatibile) {
+                raggruppa(categoria, {...x, daApplicare:false, proposta:null, costo:null, categoriaIncoerente:incompatibile}, ordine);
+                return;
+            }
             riserva(x.fornitore, x.offerta?.codice || x.codice, x.quantita);
             if (x.sceltaSalvata) {
                 scelteSalvate.push({categoria, x, ordine});
@@ -3626,10 +3674,12 @@
             const c = cat[categoria] || (cat[categoria] = {});
             const f = c[forn] || (c[forn] = {});
             const k = (testoStockAcquisto(x.codice) || `~${testoStockAcquisto(x.descrizione)}`) + (x.daApplicare ? '|proposta' : '') +
-                (x.daDecidere ? '|mancante' : '') + (x.sceltaSalvata && x.daConfermare ? '|scelta-da-verificare' : '');
+                (x.daDecidere ? '|mancante' : '') + (x.sceltaSalvata && x.daConfermare ? '|scelta-da-verificare' : '') +
+                (x.categoriaIncoerente ? '|categoria-incoerente' : '');
             const r = f[k] || (f[k] = { codice: x.codice || '', ean: '', mpn: '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
-                fornitore: forn, daApplicare: !!x.daApplicare, daDecidere: !!x.daDecidere, proposta: x.proposta || null, scadenze: [], motivi: [], requisiti: [], politiche: [], stock: [], listini: [],
+                fornitore: forn, categoria, categoriaIncoerente:x.categoriaIncoerente || '',
+                daApplicare: !!x.daApplicare, daDecidere: !!x.daDecidere, proposta: x.proposta || null, scadenze: [], motivi: [], requisiti: [], politiche: [], stock: [], listini: [],
                 link: forn === 'AMAZON' || forn === DA_SCEGLIERE ? linkAmazon(x.codice, x.descrizione, categoria) : null });
             if (x.pezzo) r.pezzi.push(x.daApplicare ? {...x.pezzo, proposta:x.proposta} : x.pezzo);
             if (x.offerta) r.scadenze.push({stock_valid_until:x.offerta.stock_valid_until,price_valid_until:x.offerta.price_valid_until});
@@ -4124,6 +4174,7 @@
             return [...valori.values()].map(p=>p.unitario==null?`${p.quantita} ${p.quantita===1?'pezzo':'pezzi'} senza costo`:`${p.quantita} × ${p.stimato?'≈ ':''}${eur(p.unitario)}`).join(' + ');
         };
         const modificabili = (r.pezzi || []).filter(p => !p.personalizzato);
+        const incompatibili = [...new Set(membri.map(x => x.categoriaIncoerente).filter(Boolean))];
         const azioni = [
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
             membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${propostaConfermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join(''),
@@ -4134,7 +4185,7 @@
         const specifiche = [...(r.requisiti || []), ...(r.politiche || []), ...(r.motivi || [])].filter(Boolean);
         const quantitaStock = (r.stock || []).map(x => x.disponibile).filter(x => Number.isFinite(x));
         const stock = r.stock?.length ? (quantitaStock.length ? `Stock libero: ${Math.max(...quantitaStock)} pezzi (prima delle assegnazioni${aggregata?', stessa referenza: valori non sommati':''})` : 'Stock libero non quantificato') : '';
-        return `<div class="supplier-item${aggregata?' acc-rf-reference-group':''}${r.daApplicare ? ' acc-rf-pending' : ''}${!magazzino && info ? ' acc-rf-informativo' : !magazzino && (r.nonDisponibile || r.daVerificare || r.poco != null || r.daDecidere) ? ' acc-rf-indisponibile' : ''}">` +
+        return `<div class="supplier-item${aggregata?' acc-rf-reference-group':''}${r.daApplicare ? ' acc-rf-pending' : ''}${!magazzino && info && !incompatibili.length ? ' acc-rf-informativo' : !magazzino && (incompatibili.length || r.nonDisponibile || r.daVerificare || r.poco != null || r.daDecidere) ? ' acc-rf-indisponibile' : ''}">` +
             `<div class="supplier-item-header"><span class="supplier-item-quantity" style="background:${colore};box-shadow:0 2px 8px ${colore}40">x${r.quantita}</span>` +
             (categoria ? `<span class="acc-rf-cat">${esc(categoria)}</span>` : '') +
             `<span class="acc-cod acc-rf-code" data-copia="${esc(r.codice)}" title="Copia il codice">${esc(r.codice || '—')}</span>` +
@@ -4154,6 +4205,7 @@
             (specifiche.length ? `<details class="acc-rf-rationale"><summary>Perché questo pezzo</summary>${specifiche.map(x => `<p>${esc(x)}</p>`).join('')}</details>` : '') +
             (r.daApplicare ? `<div class="acc-rf-split">${aggregata?`${pendenti} pezzi da confermare nelle distinte${bloccati?' · verifica anche le quantità bloccate':''}`:`Proposta per ${r.pezzi.length} PC: da confermare nelle distinte`}. ${aggregata?'Le proposte non confermate sono escluse':'Esclusa'} da copia e bozze d’ordine fino alla conferma.</div>` : '') +
             (r.daDecidere ? `<div class="acc-rf-avviso">Quantità ancora da coprire: ${r.quantita}. Non inclusa nelle bozze d’ordine.</div>` : '') +
+            incompatibili.map(m => `<div class="acc-rf-avviso">⚠ ${esc(m)} Riga esclusa da copia e bozze d’ordine.</div>`).join('') +
             (r.poco != null ? `<div class="acc-rf-avviso">Stock verificato ${r.poco} / richiesti ${r.quantita}: riga bloccata. Ricalcola per vedere le altre assegnazioni disponibili.</div>` : '') +
             (r.verificaDisponibilita ? `<div class="acc-rf-avviso">${info ? 'ℹ' : '⚠'} ${esc(r.statoVisivo?.testo || r.verificaDisponibilita.testo)}</div>` :
                 r.nonDisponibile ? `<div class="acc-rf-avviso">⚠ oggi non disponibile da questo fornitore</div>` : '') +
@@ -4623,6 +4675,7 @@
     }
 
     async function sostituisciAcquisto(p, d, source = 'buyer_desk') {
+        verificaCategoriaAcquisto(p.tipo, d);
         const scaduta = motivoScadenzaOfferta(d);
         if (scaduta) throw new Error(scaduta);
         if (!window.SupabaseDB?.replacePurchaseComponent) throw new Error('Salvataggio preciso non disponibile: ricarica il gestionale');
@@ -4856,6 +4909,7 @@
     async function applicaScelta(d) {
         const riga = cambio.riga;
         if (!riga) return;
+        for (const tipo of new Set((riga.pezzi || []).map(p => p.tipo))) verificaCategoriaAcquisto(tipo, d);
         // Only the bulk-offer editor uses the boolean marker and a callback.
         // Purchase-summary rows carry an allocation object in `proposta`.
         if (riga.proposta === true) {

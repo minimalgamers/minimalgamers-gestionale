@@ -58,6 +58,15 @@ test('applying an allocation proposal does not pin the old automatic suggestion 
  assert.equal(f.order.custom_properties._scelte_acquisto_gestionale,undefined);
  assert.deepEqual(f.writes.map(w=>w.table),['processed_orders','processed_order_components','processed_orders']);
 });
+test('a supplier allocation cannot apply a component moved or excluded since review',async()=>{
+ const voce=exclusion(), scope={...plan(),source:'allocation_plan',foglio:2,chiaveAcquisto:voce.key};
+ const moved=fixture();moved.order.foglio_di_lavoro=3;
+ await assert.rejects(()=>moved.s.dbReplacePurchaseComponent('77-2',scope),/spostata/);
+ const excluded=fixture({cp:{_esclusioni_acquisto_gestionale:{[voce.key]:{...voce,escluso:true}}}});
+ await assert.rejects(()=>excluded.s.dbReplacePurchaseComponent('77-2',scope),/escluso dagli acquisti/);
+ assert.equal(moved.writes.length+excluded.writes.length,0);
+ assert.equal(excluded.rows[0].ean,'OLD');
+});
 test('whole RAM replacement can change module count; stale old quantity cannot target the row',async()=>{
  const {s,rows}=fixture();const p=plan();p.replacement.quantity=2;
  assert.equal((await s.dbReplacePurchaseComponent('77-2',p)).component.quantity,2);

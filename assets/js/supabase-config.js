@@ -644,6 +644,8 @@ async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
     if(recovered?.key===intentKey)return {component:recovered.component,customProperties:recovered.customProperties};
     const { order, cp } = await dbPurchaseOrder(shopifyOrderId);
     if (cp._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+    if (plan.source === 'allocation_plan' && plan.foglio != null && Number(order.foglio_di_lavoro || 1) !== Number(plan.foglio))
+        throw new Error('La scheda è stata spostata: ricalcola il riepilogo');
     let intent=cp._modifica_distinta_gestionale;
     if(intent&&intent.key!==intentKey)throw new Error('Altra sostituzione in corso: completa o riprova prima la modifica precedente');
     const read = await supabase.from('processed_order_components')
@@ -665,6 +667,11 @@ async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
     if (matches.length !== 1) throw new Error('Il componente è cambiato o ambiguo: ricarica prima di sostituire');
     const old = matches[0];
     if (old.price != null) throw new Error('Prezzo pagato confermato: componente protetto');
+    const esclusione = plan.source === 'allocation_plan' && cp._esclusioni_acquisto_gestionale?.[plan.chiaveAcquisto];
+    if ((esclusione?.escluso || esclusione?.excluded) && !esclusione.personalizzato && esclusione.componentId != null &&
+        purchaseSameComponent(old, {id:esclusione.componentId,type:esclusione.tipo,ean:esclusione.ean,
+            supplier:esclusione.fornitore,quantity:esclusione.quantita}))
+        throw new Error('Componente escluso dagli acquisti: ricalcola il riepilogo');
     // Secondo controllo dopo la lettura dei componenti: non usare una scheda
     // diventata finalizzata o confermata mentre il Buyer Desk era aperto.
     const fresh = await dbPurchaseOrder(shopifyOrderId);

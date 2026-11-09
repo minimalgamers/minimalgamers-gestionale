@@ -4710,9 +4710,10 @@
     }
 
     function riepilogoProposteDaApplicare(righe) {
-        return righe.map(r => `<div class="acc-fin-riga"><strong>${r.quantita} × ${esc(r.descrizione)} · ${esc(r.codice)}</strong> · ${eur(r.costo)} netti` +
+        return righe.map(r => `<div class="acc-fin-riga"><div><strong>${r.quantita} × ${esc(r.descrizione)} · ${esc(r.codice)}</strong> · ${eur(r.costo)} netti` +
+            `<details${r.pezzi.length <= 3 ? ' open' : ''}><summary>Distinte coinvolte (${r.pezzi.length})</summary>` +
             r.pezzi.map(p => `<p>${esc(p.ordine)} · ${esc(p.tipo)} · ${esc(p.ean)} → ${(p.proposta || r.proposta).quantita} × ${esc(r.codice)}</p>`).join('') +
-            '</div>').join('');
+            '</details></div></div>').join('');
     }
 
     async function confermaPropostaAcquisto(riga) {

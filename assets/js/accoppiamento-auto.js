@@ -3839,8 +3839,8 @@
     // ================================================================ ORDINI VIA EMAIL (Antonio 02/10)
     // «Un pulsante rapido che apra il nostro Outlook via Chrome (info@minimalgamers.it) che raggruppi EAN o ID o SKU di
     // ogni prodotto per fornitore (in maniera precisa e ordinata) e il quantitativo di pezzi che servono»: TIER ONE solo
-    // CPU direttamente a T1; TIER ONE (no CPU), OMEGA, ACTION e CASEKING all'intermediario; ABACO, RUNNER, ... ai loro
-    // commerciali. A chi scrivere sta in «contatti_ordini» del file cifrato (LISTINI accoppiamento/contatti_ordini.json),
+    // CPU sempre al fornitore diretto. Per TIER ONE, OMEGA, ACTION e CASEKING il resto passa all'intermediario.
+    // A chi scrivere sta in «contatti_ordini» del file cifrato (LISTINI accoppiamento/contatti_ordini.json),
     // non in questo repo pubblico. L'email si compone dall'ultimo riepilogo: se cambi un pezzo dal Buyer Desk, cambia anche
     // l'email. Il gestionale non manda niente: apre la bozza in Outlook e Antonio controlla e preme «Invia».
     const URL_OUTLOOK = 'https://outlook.office.com/mail/deeplink/compose';
@@ -3861,7 +3861,8 @@
             for (const riga of f.righe || []) {
                 if (!rigaOrdinabile(riga)) continue;
                 const cat = riga.categoria || '';
-                const x = invii.find(i => (i.fornitori || []).some(n => String(n).toUpperCase().trim() === f.nome) &&
+                const x = invii.find(i => !(i.intermediario && cat === 'CPU') &&
+                    (i.fornitori || []).some(n => String(n).toUpperCase().trim() === f.nome) &&
                     (!(i.solo_categorie || []).length || i.solo_categorie.includes(cat)) && !(i.escludi_categorie || []).includes(cat));
                 if (!x) {
                     const z = senza[f.nome] || (senza[f.nome] = { nome: f.nome, pezzi: 0,

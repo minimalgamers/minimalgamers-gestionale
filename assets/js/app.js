@@ -1089,11 +1089,14 @@ function pickTemplateRuleForChannel(channel, rules = []) {
 // 07/10: solo le famiglie che si aggiungono dopo l'ordine della merce (mai schede madri, case, CPU, GPU, RAM, SSD, PSU)
 async function upgradeDellOrdine(order) {
     const A = window.AccoppiamentoAuto;
-    await window.UpgradePaidSync?.verifica();
-    if (A?.upgradeDaAllineare?.(order.id)) throw new Error('upgrade_pagato_in_aggiornamento');
     if (!A || typeof A.carica !== 'function' || typeof A.pcAutomatico !== 'function' ||
         typeof A.propostePaginaUpgrade !== 'function' || typeof A.creaPaginaUpgrade !== 'function' ||
         typeof A.messaggioPaginaUpgrade !== 'function') throw new Error('tool_non_pronto');
+    let verificaPagamenti;
+    try { verificaPagamenti = await window.UpgradePaidSync?.verifica?.(); }
+    catch { verificaPagamenti = null; }
+    if (verificaPagamenti?.ok !== true) throw new Error('pagamento_non_verificabile');
+    if (A.upgradeDaAllineare?.(order.id)) throw new Error('upgrade_pagato_in_aggiornamento');
     // Dati recenti e PC esatto: mai ripiegare sul primo PC o su un messaggio senza link.
     const dati = await A.carica(true);
     const pc = A.pcAutomatico(dati, order?.id);
@@ -1143,6 +1146,7 @@ function motivoErroreUpgradeWhatsApp(error) {
         pc_non_identificato: 'Il PC non è identificabile con certezza. Aggiorna i dati dell’ordine.',
         catalogo_upgrade_incompleto: 'Le opzioni di questo PC non sono state verificate: aggiorna il Buyer Desk prima di inviare il link. Non creo una pagina incompleta con il solo FPS Booster.',
         upgrade_pagato_in_aggiornamento: 'Questo PC ha un pagamento da allineare: la scheda si aggiorna automaticamente. Attendi prima di preparare un altro link, per non riproporre upgrade già acquistati.',
+        pagamento_non_verificabile: 'Non riesco a verificare gli upgrade già pagati. Riprova tra poco.',
         non_autorizzato: 'Accedi di nuovo al gestionale e riprova.',
         nessuna_proposta: 'Non ci sono nuove proposte ammesse per questo PC.',
         ordine_non_trovato: 'Il numero dell’ordine non corrisponde a Shopify.',
@@ -2476,7 +2480,9 @@ async function syncAndLoadOrders() {
                     const r = await fetch(API_ENDPOINT, { headers: { Authorization: `Bearer ${apiKey}` } });
                     if (!r.ok) throw new Error('ordini_non_verificabili');
                     const d = await r.json();
-                    return Array.isArray(d) ? d : d.orders || [];
+                    const ordini = Array.isArray(d) ? d : d?.orders;
+                    if (!Array.isArray(ordini)) throw new Error('ordini_non_verificabili');
+                    return ordini;
                 },
                 caricaDati: () => A.carica(true),
                 ridisegna: () => A.aggiornaSchedeUpgrade(),

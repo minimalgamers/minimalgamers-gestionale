@@ -19,6 +19,13 @@ test('refunds, pending and cancelled upgrades supersede a stale paid entry from 
  const partial=upgrade('partially_refunded');partial.current_total_price='60';assert.equal(A.prezzoVendita('100',[original(),partial],stale).totale,1000);
  partial.line_items[0].current_quantity=0;assert.equal(A.prezzoVendita('100',[original(),partial],stale).totale,1000);
 });
+test('fresh paid and refunded upgrades update the receipt while preserving the original sale',()=>{
+ const {A}=env(),sold=original(),live={...original(),current_total_price:'1500',total_price:'1500'};
+ live.line_items=[{...live.line_items[0],price:'1500'}];
+ assert.equal(A.prezzoVendita('100',[sold],{},[live,upgrade()]).totale,1069.9);
+ assert.equal(A.prezzoVendita('100',[sold,upgrade()],stale,[live,upgrade('refunded')]).totale,1000);
+ assert.equal(A.prezzoVendita('100',[sold,upgrade()],stale,[]).totale,1069.9);
+});
 test('each identical PC gets only its own upgrade, preserving line identity after reordering',()=>{
  const {A}=env(),o=original(2),u=upgrade('paid',1);o.line_items.unshift({id:501,name:'Other item',price:0,quantity:1,current_quantity:1});
  assert.equal(A.prezzoVendita('100.1',[o,u],{}).totale,1000);

@@ -1316,7 +1316,7 @@
     // gestionale mette nella scheda di questo PC (stessa regola di multi-order-handler: un PC prende tutti, piu' PC
     // uno a testa); + spedizione pagata dal cliente (diviso tra i PC dell'ordine). Gli altri articoli dell'ordine non
     // entrano: il loro costo non e' nella scheda (si elencano per non perderli di vista).
-    function prezzoVendita(orderId, ordini, auto) {
+    function prezzoVendita(orderId, ordini, auto, ordiniRecenti) {
         const [idBase, n] = String(orderId).split('.');
         const ord = (ordini || []).find(o => String(o.id) === idBase);
         if (!ord || !Array.isArray(ord.line_items)) return null;
@@ -1393,10 +1393,11 @@
         // Gli upgrade sono pagati con un altro ordine Shopify, ma appartengono soltanto a questo PC.
         // L'originale non viene riscritto: si leggono i pagamenti Shopify, unità per unità;
         // il Buyer Desk resta il riferimento per gli upgrade non presenti nella lettura Shopify.
+        const letturaUpgrade = Array.isArray(ordiniRecenti) && ordiniRecenti.some(o => String(o.id) === idBase) ? ordiniRecenti : ordini;
         const incassiDiretti = typeof window.UpgradePaidSync?.incassi === 'function'
-            ? window.UpgradePaidSync.incassi(ordini, {ePc}).filter(e => e.scheda === String(orderId) ||
+            ? window.UpgradePaidSync.incassi(letturaUpgrade, {ePc}).filter(e => e.scheda === String(orderId) ||
                 (e.scheda === idBase && indice === 0)) : null;
-        const ordiniLetti = new Set((ordini || []).flatMap(o => [String(o.id),String(o.name)]));
+        const ordiniLetti = new Set((letturaUpgrade || []).flatMap(o => [String(o.id),String(o.name)]));
         // Se Shopify contiene l'ordine di upgrade, prevale il suo pagamento attuale sul file dei listini.
         // La stessa riga resta nell'incasso anche dopo la spedizione, senza avviare montaggi o acquisti.
         const upgradeIncassati = incassiDiretti === null ? (auto?.upgrade_pagati || []) : [
@@ -1410,7 +1411,7 @@
             if (!Number.isFinite(p) || p <= 0) continue;
             opzioni += p;
             upgradeLordo += p;
-            const ordineUpgrade = (ordini || []).find(o=>String(o.id)===String(u.id_upgrade)||o.name===u.ordine_upgrade);
+            const ordineUpgrade = (letturaUpgrade || []).find(o=>String(o.id)===String(u.id_upgrade)||o.name===u.ordine_upgrade);
             upgradeNetto += p/(1+ivaVendita('',ordineUpgrade,null).aliquota);
             righeOpzioni.push(`UPGRADE ${u.ordine_upgrade || ''} — ${u.valore || ''}`);
         }
@@ -1976,7 +1977,7 @@
         let ordini = [];
         try { ordini = JSON.parse(sessionStorage.getItem('shopify_orders') || '[]'); } catch (e) { ordini = []; }
         const auto = pcContabile(dati, orderId);
-        const vendita = prezzoVendita(orderId, ordini, auto);
+        const vendita = prezzoVendita(orderId, ordini, auto, window.UpgradePaidSync?.ordiniRecenti?.());
         const riepilogoSpeditoMancante = !auto && ordini.some(o => String(o.id)===String(orderId).split('.')[0] && o.fulfillment_status==='fulfilled');
         const congelato = acquistoSnapshot(orderId);
         let extra = 0, vociPers = [], personalizzatiMancanti = [], erroreVoci = false;

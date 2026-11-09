@@ -51,7 +51,8 @@ test('offline e chiamate sovrapposte: nessuna falsa conferma, si ritenta senza d
     let finish,reads=0,errors=0, paints=0;
     const m=U.monitor({A,leggiOrdini:()=>{reads++;return new Promise(r=>finish=r)},
         caricaDati:async()=>{throw new Error('offline')},ridisegna:async()=>paints++,errore:()=>errors++});
-    const x=m.tick(),y=m.tick();finish([original(),upgrade()]);await Promise.all([x,y]);
+    const x=m.tick(),y=m.tick();finish([original(),upgrade()]);const results=await Promise.all([x,y]);
+    assert.ok(results.every(r=>r.ok===false));
     assert.equal(reads,1);assert.equal(errors,1);assert.equal(paints,0);
 });
 test('nessun polling senza sessione o in una scheda nascosta; nessuna scrittura ordini/database',async()=>{
@@ -65,13 +66,45 @@ test('rimborso dopo un pagamento: segnala cambio e richiede una nuova fotografia
         ridisegna:async()=>{},richiediAggiornamento:async()=>calls++});
     await m.tick();rows=[original(),upgrade('refunded')];await m.tick();
     assert.equal(calls,1);assert.equal(pending[0].ritirato,true);
+    assert.equal(m.ordiniRecenti()[1].financial_status,'refunded');
     d={generato:'new',pcs:{80:{linea_id:'222',unita:0,upgrade_pagati:[]}}};await m.tick();assert.equal(pending.length,0);
+});
+
+test('lettura senza pagamenti riesce senza listini, una risposta invalida conserva solo la lettura già verificata',async()=>{
+    let rows=[original()], reads=0;
+    const m=U.monitor({leggiOrdini:async()=>rows,caricaDati:async()=>reads++});
+    assert.equal(m.ordiniRecenti(),null);
+    assert.equal((await m.tick()).ok,true);
+    assert.equal(m.ordiniRecenti()[0].id,80);
+    rows={error:'offline'};
+    assert.equal((await m.tick()).ok,false);
+    assert.equal(m.ordiniRecenti()[0].id,80);
+    assert.equal(reads,0);
+});
+
+test('la verifica live attende la lettura iniziale e ne controlla comunque i dati freschi',async()=>{
+    let finish, reads=0, pending=[];
+    const m=U.monitor({A:{...A,upgradeInAttesa:e=>pending=e},
+        leggiOrdini:async()=>{reads++;return [original(),upgrade()]},
+        caricaDati:()=>reads ? {generato:'old',pcs:{}} : new Promise(r=>finish=r),
+        ridisegna:async()=>{},richiediAggiornamento:async()=>{throw Error('occupato')}});
+    const initial=m.tick([original(),upgrade()]);
+    const live=m.tick();
+    assert.equal(m.ordiniRecenti(),null);
+    assert.equal(reads,0);
+    finish(snapshot);
+    await initial;
+    assert.equal((await live).ok,true);
+    assert.equal(reads,1);
+    assert.equal(m.ordiniRecenti()[1].id,90);
+    assert.equal(pending[0].scheda,'80');
 });
 
 test('il clic WhatsApp verifica anche i pagamenti e blocca un catalogo non ancora allineato',()=>{
     const app=fs.readFileSync(new URL('../assets/js/app.js',import.meta.url),'utf8');
     const f=app.slice(app.indexOf('async function upgradeDellOrdine'),app.indexOf('const upgradeWhatsAppInCorso'));
-    assert.match(f,/await window\.UpgradePaidSync\?\.verifica\(\)/);
+    assert.match(f,/await window\.UpgradePaidSync\?\.verifica\?\.\(\)/);
+    assert.match(f,/verificaPagamenti\?\.ok !== true\) throw new Error\('pagamento_non_verificabile'\)/);
     assert.match(f,/upgradeDaAllineare/);assert.match(f,/upgrade_pagato_in_aggiornamento/);
     const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
     assert.equal((html.match(/src="assets\/js\/upgrade-paid-sync\.js/g)||[]).length,1);

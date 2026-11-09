@@ -1943,7 +1943,9 @@
             // scheda); la scheda dell'assemblatore resta generica (chipset), qui serve a chi compra
             const stessoCodice = (m) => m && m.descrizione && chiave(m.codice) === chiave(man.ean) ? m.descrizione : '';
             const salvatoRiga = componentiSalvati(orderId).find(x => x.type === tipo && chiave(x.ean) === chiave(man.ean));
-            const descrizione = stessoCodice(vStesso && vStesso.manuale) || stessoCodice(pRiga && pRiga.manuale) ||
+            // Il codice del case base identifica la distinta. Un nome recuperato per somiglianza non lo sostituisce.
+            const nomeCaseBase = tipo === 'CASE' && /^(?:CASE ATX|NOUA (?:FLOW|VITRA|VISION))(?: (?:WHITE|BLACK|BIANCO|NERO))?$/i.test(String(man.ean || '').trim()) ? man.ean : '';
+            const descrizione = nomeCaseBase || stessoCodice(vStesso && vStesso.manuale) || stessoCodice(pRiga && pRiga.manuale) ||
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
             // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,

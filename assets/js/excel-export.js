@@ -3,7 +3,11 @@
 // loro componenti leggibili. Usata sia da Excel che da PDF.
 // Ritorna un array di { orderName, configName, lines: [string] }
 // ============================================================
-async function collectOrdersForExport() {
+async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
+    if (verificaPagamenti) {
+        const verifica = await window.UpgradePaidSync?.verifica?.();
+        if (!verifica?.ok) throw Error('Non riesco a verificare i pagamenti degli upgrade su Shopify. Riprova prima di stampare.');
+    }
     const componentOrder = ['CPU', 'MOBO', 'SSD', 'RAM', 'GPU', 'PSU', 'COOLER', 'CASE'];
     const M = window.MontaggioExport, A = window.AccoppiamentoAuto;
     if (!M || !A?.upgradePagatiDellUnita) throw Error('Ricarica il gestionale per aggiornare la stampa.');
@@ -302,7 +306,7 @@ async function exportProcessedOrdersToPDF() {
     if (pdfBtn) { pdfBtn.disabled = true; pdfBtn.title = 'Generazione PDF...'; }
 
     try {
-        const { orders, worksheetNumber } = await collectOrdersForExport();
+        const { orders, worksheetNumber } = await collectOrdersForExport({ verificaPagamenti: true });
 
         if (!orders.length) {
             showNotification('Nessun ordine da esportare con i filtri attuali', 'warning');

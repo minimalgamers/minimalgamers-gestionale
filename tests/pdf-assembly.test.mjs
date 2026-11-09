@@ -178,10 +178,33 @@ test('collector rispetta scrivania e filtro operatore, non lancia stampe incompl
     await assert.rejects(collector({pending:true}).s.collectOrdersForExport(),/in aggiornamento/);
     await assert.rejects(collector({offline:true}).s.collectOrdersForExport(),/distinta incompleta/);
 });
+test('PDF verifica Shopify prima di leggere la distinta e blocca un pagamento appena rilevato',async()=>{
+    const {s}=collector();
+    const A=s.window.AccoppiamentoAuto;
+    const carica=A.carica;
+    const passaggi=[];
+    A.carica=()=>{passaggi.push('distinta');return carica();};
+    const esporta=()=>s.collectOrdersForExport({verificaPagamenti:true});
+    await assert.rejects(esporta(),/verificare i pagamenti/);
+    s.window.UpgradePaidSync={verifica:async()=>({ok:false})};
+    await assert.rejects(esporta(),/verificare i pagamenti/);
+    assert.deepEqual(passaggi,[]);
+    s.window.UpgradePaidSync.verifica=async()=>{
+        passaggi.push('Shopify');
+        A.upgradeDaAllineare=()=>true;
+        return {ok:true};
+    };
+    await assert.rejects(esporta(),/in aggiornamento/);
+    assert.deepEqual(passaggi,['Shopify','distinta']);
+    s.window.UpgradePaidSync.verifica=async()=>({ok:true});
+    A.upgradeDaAllineare=()=>false;
+    assert.equal((await esporta()).orders.length,1);
+    assert.match(exportSource,/await collectOrdersForExport\(\{ verificaPagamenti: true \}\)/);
+});
 test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file helper locale prima degli utilizzatori',()=>{
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(r\.nome/);
     assert.match(exportSource,/splitTextToSize\(r\.nome, colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=4')<html.indexOf('excel-export.js?v=41'));
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=4')<html.indexOf('excel-export.js?v=42'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });

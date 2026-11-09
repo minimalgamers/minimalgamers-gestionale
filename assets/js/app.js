@@ -564,7 +564,7 @@ function caseMinimalTarget(configKey, props, baseCase = '', baseCooler = '') {
     if (scelta && !/\bMINIMAL\s*CASE\b/.test(scelta)) return '';
     if (!scelta) {
         const base = String(baseCase || '').trim().toUpperCase();
-        scelta = { '8053323506997': 'NOUA VISION WHITE', '8053323507000': 'NOUA VISION BLACK' }[base] || base;
+        scelta = { '8053323506997': 'NOUA VISION BLACK', '8053323507000': 'NOUA VISION WHITE' }[base] || base;
         if (!/^(?:MINIMAL CASE|CASE ATX|NOUA (?:VITRA|VISION|FLOW))\b/.test(scelta)) return '';
     }
     const color = /\b(?:WHITE|BIANCO)\b/.test(scelta) ? 'WHITE' : /\b(?:BLACK|NERO)\b/.test(scelta) ? 'BLACK' : '';

@@ -3851,6 +3851,10 @@
         return c && Array.isArray(c.invii) ? c : null;
     }
 
+    const contattoDelFornitore = (x, nome) => (x.fornitori || []).some(f => String(f).toUpperCase().trim() === nome);
+    const contattoPerCategoria = (x, cat) => !(x.intermediario && cat === 'CPU') &&
+        (!(x.solo_categorie || []).length || x.solo_categorie.includes(cat)) && !(x.escludi_categorie || []).includes(cat);
+
     // Righe del riepilogo divise per email: il primo invio che corrisponde (fornitore e categoria) vince
     function ordiniEmail(r, contatti) {
         const c = contattiOrdini(contatti);
@@ -3861,9 +3865,7 @@
             for (const riga of f.righe || []) {
                 if (!rigaOrdinabile(riga)) continue;
                 const cat = riga.categoria || '';
-                const x = invii.find(i => !(i.intermediario && cat === 'CPU') &&
-                    (i.fornitori || []).some(n => String(n).toUpperCase().trim() === f.nome) &&
-                    (!(i.solo_categorie || []).length || i.solo_categorie.includes(cat)) && !(i.escludi_categorie || []).includes(cat));
+                const x = invii.find(i => contattoDelFornitore(i, f.nome) && contattoPerCategoria(i, cat));
                 if (!x) {
                     const z = senza[f.nome] || (senza[f.nome] = { nome: f.nome, pezzi: 0,
                         motivo: (c && c.senza_email && c.senza_email[f.nome]) || 'contatto da indicare' });
@@ -3946,6 +3948,31 @@
         const pieno = `${base}&body=${encodeURIComponent(corpo)}`;
         if (pieno.length <= MAX_URL_OUTLOOK) return { url: pieno, incolla: false };
         return { url: `${base}&body=${encodeURIComponent("[Incolla qui l'elenco dei pezzi: Ctrl+V]")}`, incolla: true };
+    }
+
+    // La rubrica è consultabile anche per proposte e pezzi bloccati. Apre un messaggio vuoto.
+    function htmlContattiFornitore(f, contatti, categoria) {
+        if (f.nome === 'MAGAZZINO' || fornitoreVago(f.nome)) return '';
+        const c = contattiOrdini(contatti);
+        const rotte = (c?.invii || []).filter(x => contattoDelFornitore(x, f.nome))
+            .map(x => ({ ...x, email: (x.a || []).filter(a => typeof a === 'string' && a.trim()).join('; ') }))
+            .filter(x => x.email);
+        const recapiti = rotte.map(x => {
+            const nome = x.nome || f.nome;
+            const link = urlOutlook(x.email, '', '').url;
+            return `<p><strong>${esc(nome)}${x.intermediario ? ' · altro hardware' : ''}</strong><br>${esc(x.email)}` +
+                `${x.da_confermare ? '<br><strong>Contatto da confermare</strong>' : ''}` +
+                `${x.richiesta_quotazione ? '<br>Per richieste di quotazione' : ''}<br>` +
+                `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer" aria-label="Scrivi in Outlook a ${esc(nome)}">Scrivi in Outlook</a></p>`;
+        });
+        const mancano = f.righe.some(r => !rotte.some(x => contattoPerCategoria(x, categoria || r.categoria || '')));
+        if (!rotte.length || mancano) {
+            const nota = f.nome === 'AMAZON' ? 'Si compra sul sito' : c ? 'Recapito da indicare' : 'Rubrica fornitori non disponibile';
+            const cpu = rotte.length && f.righe.some(r => (categoria || r.categoria) === 'CPU') &&
+                !rotte.some(x => contattoPerCategoria(x, 'CPU'));
+            recapiti.push(`<p>${cpu ? 'CPU · ' : ''}${nota}</p>`);
+        }
+        return `<details class="acc-rf-rationale"><summary>Contatti commerciali</summary>${recapiti.join('')}</details>`;
     }
 
     // Avvisi da vedere prima di ordinare: pezzi non allineati alle schede, pochi pezzi, contatto da confermare
@@ -4119,9 +4146,9 @@
     }
 
     // Vista «fornitore per fornitore» (Antonio 01/10: «per poter fare gli ordini rapidamente in fornitura»)
-    function htmlFornitoriDaOrdinare(r, solo) {
+    function htmlFornitoriDaOrdinare(r, solo, contatti) {
         const lista = r.fornitori.filter(f => !solo || f.nome === solo);
-        if (!lista.length) return htmlCategorieDaOrdinare(r);
+        if (!lista.length) return htmlCategorieDaOrdinare(r, contatti);
         return lista.map(f => {
             const col = COLORI[f.nome] || '#95a5a6';
             const mag = f.nome === 'MAGAZZINO';
@@ -4129,12 +4156,13 @@
                 `<span class="supplier-count">${f.pezzi} pz${mag ? ' a terra' : (f.costo ? ' · ' + eur(f.costo) : '')}</span></div><div class="supplier-items-list">` +
                 (mag ? '<div class="acc-nota">Già a terra: non si ordinano.</div>' : '') +
                 (f.nome === DA_SCEGLIERE ? '<div class="acc-nota">Pezzi fuori dai listini: si scelgono col budget scritto sotto (link Amazon per trovarli in fretta).</div>' : '') +
+                htmlContattiFornitore(f, contatti) +
                 raggruppaReferenzeAcquisto(f.righe).map(x => htmlRigaDaOrdinare(x, col, mag, x.categoria)).join('') +
                 `</div><div class="supplier-card-footer">${mag ? '' : `<button type="button" class="acc-rf-copia" data-rf-forn="${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 ${f.nome === DA_SCEGLIERE ? 'Copia elenco' : `Copia ordine ${esc(f.nome)}`}</button>`}</div></div>`;
         }).join('');
     }
 
-    function htmlCategorieDaOrdinare(r) {
+    function htmlCategorieDaOrdinare(r, contatti) {
         if (!r.categorie.length) {
             return `<div class="suppliers-empty-state"><h2>📦 Niente da ordinare</h2><p>${r.esclusi.length
                 ? 'I PC di questa scrivania hanno già l\'acquisto dei pezzi confermato.' : r.esclusioni?.length ? 'Le voci sono escluse solo dagli acquisti: puoi reincluderle dal riepilogo a lato.' : 'Nessun pezzo nelle schede di questa scrivania.'}</p></div>`;
@@ -4145,6 +4173,7 @@
                 `<span class="supplier-count">${c.pezzi} pz${c.costo ? ' · ' + eur(c.costo) : ''}</span></div><div class="supplier-items-list">` +
                 c.fornitori.map(f => `<div class="acc-rf-forn">${badgeFornitore(f.nome)} <small>${f.pezzi} pz` +
                     `${f.nome === 'MAGAZZINO' ? ' · già a terra, non si ordinano' : (f.costo ? ' · ' + eur(f.costo) : '')}</small></div>` +
+                    htmlContattiFornitore(f, contatti, c.nome) +
                     raggruppaReferenzeAcquisto(f.righe,c.nome).map(x => htmlRigaDaOrdinare(x, col, f.nome === 'MAGAZZINO')).join('')).join('') +
                 `</div><div class="supplier-card-footer"><button type="button" class="acc-rf-copia" data-rf-cat="${esc(c.nome)}"${c.fornitori.some(f => f.righe.some(rigaOrdinabile)) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 Copia ${esc(c.nome)}</button></div></div>`;
         }).join('');
@@ -4163,7 +4192,7 @@
             (r.esclusi.length ? `<div class="acc-nota">Non contati, acquisto già confermato: ${esc(r.esclusi.join(', '))}</div>` : '') +
             (r.giaAcquistati?.length ? `<div class="acc-nota">Righe già acquistate, escluse dagli ordini ai fornitori: ${esc(r.giaAcquistati.map(x=>`${x.nome} ${x.tipo}`).join(', '))}</div>` : '') +
             htmlEsclusioniAcquisto(r) +
-            `<div class="acc-nota" style="margin-top:6px">Clic sul fornitore: solo i suoi pezzi, pronti da ordinare</div>` +
+            `<div class="acc-nota" style="margin-top:6px">Apri un fornitore per vedere i suoi pezzi e i contatti commerciali.</div>` +
             r.fornitori.map(f => `<div class="acc-rf-forn-riga${solo === f.nome ? ' scelto' : ''}">` +
                 `<button type="button" class="acc-rf-nome" data-rf-vedi="${esc(f.nome)}" title="Vedi cosa compriamo da ${esc(f.nome)}">${badgeFornitore(f.nome)}</button> <span>${f.pezzi} pz` +
                 `${f.nome === 'MAGAZZINO' ? ' a terra' : (f.senzaCosto && !f.costo ? ' · costo —' : ` · ${eur(f.costo)}${f.senzaCosto ? ' +' : ''}`)}</span>` +

@@ -51,7 +51,7 @@ function ambiente(opzioni = {}) {
         traccia.finestre.push(f);
         return f;
     };
-    const s = { window: { AccoppiamentoAuto: api, open: (url, target, features) => {
+    const s = { window: { AccoppiamentoAuto: api, UpgradePaidSync: { verifica: async () => ({ ok: true }) }, open: (url, target, features) => {
         if (opzioni.erroreBozza) throw new Error('popup_bloccato');
         if (opzioni.bloccato) return null;
         const f = finestra(); Object.assign(f, { url, target, features }); return f;
@@ -324,13 +324,30 @@ test('email blocca catalogo incompleto, ordine non identificato e link esterno s
 
 test('email rispetta pagamenti in aggiornamento e non ripropone FPS Booster già pagato', async () => {
     const {s,traccia} = ambiente({pagati:[{categoria:'FPS BOOSTER',prezzo:99}]});
-    s.window.UpgradePaidSync = {verifica:async()=>true};
     s.window.AccoppiamentoAuto.upgradeDaAllineare = () => true;
     assert.equal(await s.preparaEmailUpgrade(ordine),false);
     assert.equal(traccia.richieste.length,0);
     s.window.AccoppiamentoAuto.upgradeDaAllineare = () => false;
     assert.equal(await s.preparaEmailUpgrade(ordine),true);
     assert.equal(traccia.richieste[0].corpo.fps,false);
+});
+
+test('WhatsApp ed email attendono una verifica riuscita dei pagamenti', async () => {
+    for (const sync of [undefined, { verifica: async () => ({ ok: false }) },
+        { verifica: async () => { throw new Error('rete'); } }]) {
+        const { s, traccia } = ambiente();
+        s.window.UpgradePaidSync = sync;
+        assert.equal(await s.preparaWhatsAppUpgrade(ordine), false);
+        assert.equal(await s.preparaEmailUpgrade(ordine), false);
+        assert.equal(traccia.richieste.length, 0);
+        assert.equal(traccia.aperture.length, 0);
+        assert.equal(traccia.finestre.length, 0);
+        assert.equal(traccia.forza.length, 0);
+        assert.match(traccia.notifiche.at(-1).msg, /Non riesco a verificare gli upgrade già pagati/);
+        s.window.UpgradePaidSync = { verifica: async () => ({ ok: true, pagati: 0, in_attesa: 0 }) };
+        assert.equal(await s.preparaWhatsAppUpgrade(ordine), true);
+        assert.equal(traccia.richieste.length, 1);
+    }
 });
 
 test('13/10: app installata senza pagina intermedia, riapertura con stesso testo/link e nessuna nuova richiesta', async () => {

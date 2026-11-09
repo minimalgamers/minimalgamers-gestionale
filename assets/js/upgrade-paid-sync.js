@@ -62,15 +62,21 @@
 
     function monitor(config) {
         let running = null, lastRequest = -Infinity, lastSignature = null, previous = [], withdrawn = [];
+        let runningFresh = false, ordiniVerificati = null;
         const now = config.now || Date.now;
         function tick(initial) {
-            if (running) return running;
+            const fresh = initial == null;
+            if (running) return fresh && !runningFresh ? running.then(() => tick()) : running;
+            runningFresh = fresh;
             running = (async () => {
-                if (config.attivo && !config.attivo()) return;
-                const orders = initial || await config.leggiOrdini();
+                if (config.attivo && !config.attivo()) return { ok: false };
+                const orders = fresh ? await config.leggiOrdini() : initial;
+                if (!Array.isArray(orders)) throw new Error('ordini_non_verificabili');
+                if (fresh) ordiniVerificati = Object.freeze([...orders]);
                 const events = riferimenti(orders);
-                if (!events.length && lastSignature === null) return;
+                if (!events.length && lastSignature === null) return { ok: true, pagati: 0, in_attesa: 0 };
                 const dati = await config.caricaDati();
+                if (!dati?.generato) throw new Error('catalogo_non_verificabile');
                 const pending = inAttesa(events, dati, config.A);
                 withdrawn = [...new Map([...withdrawn, ...previous.filter(e => !events.some(n => n.key === e.key))].map(e => [e.key,e])).values()]
                     .filter(e => !events.some(n => n.key === e.key) && inAttesa([e], dati, config.A).length === 0);
@@ -83,13 +89,17 @@
                 }
                 if ((pending.length || withdrawn.length) && now() - lastRequest >= 5 * 60 * 1000) {
                     lastRequest = now();
-                    await config.richiediAggiornamento();
+                    // La richiesta può fallire senza invalidare la lettura: i PC in attesa restano bloccati.
+                    try { await config.richiediAggiornamento(); } catch { config.errore?.(); }
                 }
-                return { pagati: events.length, in_attesa: pending.length };
-            })().catch(() => { config.errore?.(); }).finally(() => { running = null; });
+                return { ok: true, pagati: events.length, in_attesa: pending.length };
+            })().catch(() => {
+                config.errore?.();
+                return { ok: false };
+            }).finally(() => { running = null; });
             return running;
         }
-        return { tick };
+        return { tick, ordiniRecenti: () => ordiniVerificati };
     }
     let singleton;
     function avvia(config, ordini) {
@@ -102,7 +112,9 @@
     }
     // La spedizione chiude il lavoro operativo, non cancella il ricavo storico.
     const incassi = (ordini, opzioni = {}) => riferimenti(ordini, {...opzioni, ancheSpediti:true});
-    const api = { riferimenti, incassi, inAttesa, monitor, avvia, verifica: () => singleton?.tick() };
+    const api = { riferimenti, incassi, inAttesa, monitor, avvia,
+        verifica: () => singleton?.tick() ?? Promise.resolve({ ok: false }),
+        ordiniRecenti: () => singleton?.ordiniRecenti() ?? null };
     if (typeof window !== 'undefined') window.UpgradePaidSync = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

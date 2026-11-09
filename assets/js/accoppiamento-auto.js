@@ -4210,7 +4210,7 @@
 
     function htmlLatoDaOrdinare(r, n, quando, vista, solo, contatti) {
         const v = vista === 'fornitori' ? 'fornitori' : 'categorie';
-        return `<div class="acc-rf-tot"><small>Scrivania E${n} · Piano acquisti · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
+        return htmlStatoConfermaProposte() + `<div class="acc-rf-tot"><small>Scrivania E${n} · Piano acquisti · netto IVA esclusa${quando ? ` · listini delle ${esc(quando)}` : ''}</small>` +
             `<b>${eur(r.totale)}</b><small>${r.pezzi === 1 ? '1 pezzo' : `${r.pezzi} pezzi`} per ${r.pc === 1 ? '1 PC' : `${r.pc} PC`}` +
             `${r.senzaCosto ? ` · ${r.senzaCosto === 1 ? '1 pezzo' : `${r.senzaCosto} pezzi`} senza costo` : ''}</small>` +
             `<small>Pronti per la copia: ${r.pronti === 1 ? '1 pezzo' : `${r.pronti || 0} pezzi`} · ${eur(r.prontoTotale || 0)}${r.daApplicare ? ` · ${r.daApplicare === 1 ? '1 pezzo da confermare' : `${r.daApplicare} pezzi da confermare`} nelle distinte` : ''}</small></div>` +
@@ -4367,7 +4367,7 @@
             return;
         }
         box.innerHTML = `<div class="suppliers-empty-state"><h2>⏳ Calcolo i pezzi da ordinare…</h2><p>Scrivania E${riepilogo.n}: listini di oggi e disponibilità dei fornitori.</p></div>`;
-        if (lato) lato.innerHTML = '';
+        if (lato) lato.innerHTML = htmlStatoConfermaProposte();
         let dati;
         try {
             dati = await carica(forza);
@@ -4401,6 +4401,7 @@
         const vista = riepilogo.solo ? 'fornitori' : leggiLS(K_VISTA_RIEPILOGO, 'categorie');
         box.innerHTML = vista === 'fornitori' ? htmlFornitoriDaOrdinare(r, riepilogo.solo) : htmlCategorieDaOrdinare(r);
         if (lato) lato.innerHTML = htmlLatoDaOrdinare(r, riepilogo.n, riepilogo.quando, vista, riepilogo.solo);
+        aggiornaStatoConfermaProposte();
         const dove = [box, lato].filter(Boolean);
         const tutti = (sel) => dove.flatMap(x => Array.from(x.querySelectorAll(sel)));
         tutti('[data-copia]').forEach(el => el.addEventListener('click', () => { if (el.dataset.copia) copia(el.dataset.copia); }));
@@ -4650,12 +4651,14 @@
         return salvaCambiAcquisto((scelti || []).filter(Boolean).map(p => ({p, d})), source);
     }
 
-    async function salvaCambiAcquisto(cambi, source) {
+    async function salvaCambiAcquisto(cambi, source, aggiorna) {
         let fatti = 0; const falliti = [], riusciti = [];
         const unici = [...new Map(cambi.map(({p,d}) => [p.chiaveAcquisto || JSON.stringify([p.id,p.tipo,p.ean,p.fornitore,p.componentId]),{p,d}])).values()];
+        aggiorna?.({fase:'salvataggio', totale:unici.length});
         for (const {p,d} of unici) {
             try { await sostituisciAcquisto(p,d,source); fatti++; riusciti.push({p,d}); }
             catch(e) { falliti.push(`${p.ordine || p.id} · ${p.tipo}: ${e.message}`); }
+            aggiorna?.({fatti, falliti:falliti.length, elaborati:fatti+falliti.length});
         }
         const costi = leggiLS(K_COSTI, {});
         let costiAggiornati = false;
@@ -4667,8 +4670,10 @@
         }
         if (costiAggiornati) scriviLS(K_COSTI, costi);
         cambio.riga = null;
-        avvisa(`${fatti} di ${unici.length} componenti aggiornati${falliti.length ? ' · ' + falliti.join('; ') : ''}`, falliti.length ? 'error' : 'success');
-        if (!fatti) return {fatti,falliti};
+        const esito = `${fatti} di ${unici.length} componenti aggiornati${falliti.length ? ' · ' + falliti.join('; ') : ''}`;
+        if (!aggiorna) avvisa(esito, falliti.length ? 'error' : 'success');
+        if (!fatti && !aggiorna) return {fatti,falliti};
+        aggiorna?.({fase:'aggiornamento'});
         try {
             if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
             const n = riepilogo.n || (typeof getActiveWorksheetTab === 'function' ? getActiveWorksheetTab() : null);
@@ -4679,6 +4684,7 @@
                 await new Promise(r => setTimeout(r,500));
         } catch(e) { console.warn('[ACCOPPIAMENTO] ricarica schede',e); }
         if (riepilogo.modo === 'auto') await renderRiepilogoAuto();
+        if (aggiorna) avvisa(esito, falliti.length ? 'error' : 'success');
         return {fatti,falliti};
     }
 
@@ -4716,19 +4722,96 @@
             '</details></div></div>').join('');
     }
 
+    let confermaFornitoreInCorso = null;
+    let ultimoEsitoConfermaProposte = null;
+    const statoConfermaProposte = () => confermaFornitoreInCorso ? {...confermaFornitoreInCorso} : null;
+
+    function testoStatoConfermaProposte() {
+        const s = confermaFornitoreInCorso;
+        if (!s) return ultimoEsitoConfermaProposte?.foglio === riepilogo.n ? ultimoEsitoConfermaProposte?.testo || '' : '';
+        if (s.fase === 'revisione') return `${s.fornitore} · In revisione`;
+        if (s.fase === 'verifica') return `${s.fornitore} · Verifica prezzi e disponibilità in corso`;
+        if (s.fase === 'aggiornamento') return `${s.fornitore} · Ricarico distinte e bozze`;
+        return `${s.fornitore} · Salvataggio in corso · ${s.elaborati}/${s.totale} elaborati${s.falliti ? ` · ${s.falliti} da verificare` : ''}`;
+    }
+
+    function htmlStatoConfermaProposte() {
+        const testo = testoStatoConfermaProposte();
+        return `<p class="acc-nota acc-rf-progress" data-rf-progress role="status"${testo ? '' : ' hidden'}>${esc(testo)}</p>`;
+    }
+
+    function aggiornaStatoConfermaProposte() {
+        if (typeof document === 'undefined' || !document.querySelectorAll) return;
+        const s = confermaFornitoreInCorso;
+        const testo = testoStatoConfermaProposte();
+        for (const el of document.querySelectorAll('[data-rf-progress]')) {
+            if (el.textContent !== testo) el.textContent = testo;
+            el.hidden = !testo;
+        }
+        const selettore = '[data-rf-applica-fornitore],[data-rf-applica],[data-rf-cambia],[data-rf-cambia-gruppo],' +
+            '[data-rf-escludi],[data-rf-escludi-gruppo],[data-rf-ripristina],[data-rf-forn],[data-rf-cat],[data-rf-email],[data-rf-ricalcola]';
+        for (const b of document.querySelectorAll(selettore)) {
+            if (s && !b.disabled) {
+                b.disabled = true;
+                b.dataset.rfBusy = '1';
+            } else if (!s && b.dataset.rfBusy) {
+                b.disabled = false;
+                delete b.dataset.rfBusy;
+            }
+            if (s && b.dataset.rfApplicaFornitore) {
+                b.dataset.rfEtichetta ||= b.textContent;
+                const label = b.dataset.rfApplicaFornitore === s.fornitore ? testo : `Attendi ${s.fornitore}`;
+                if (b.textContent !== label) b.textContent = label;
+            } else if (!s && b.dataset.rfEtichetta) {
+                b.textContent = b.dataset.rfEtichetta;
+                delete b.dataset.rfEtichetta;
+            }
+        }
+    }
+
+    async function duranteConfermaProposte(fornitore, operazione) {
+        if (confermaFornitoreInCorso) {
+            avvisa(`Attendi: ${testoStatoConfermaProposte()}`, 'info');
+            return;
+        }
+        const foglio = riepilogo.n;
+        ultimoEsitoConfermaProposte = null;
+        confermaFornitoreInCorso = {fornitore, fase:'revisione', totale:0, fatti:0, falliti:0, elaborati:0};
+        const aggiorna = dati => {
+            Object.assign(confermaFornitoreInCorso, dati);
+            aggiornaStatoConfermaProposte();
+        };
+        try {
+            aggiornaStatoConfermaProposte();
+            const esito = await operazione(aggiorna);
+            if (esito) {
+                const totale = esito.fatti + esito.falliti.length;
+                ultimoEsitoConfermaProposte = {foglio, testo:`${fornitore} · ${esito.fatti}/${totale} componenti aggiornati` +
+                    (esito.falliti.length ? ` · ${esito.falliti.length} da verificare` : '')};
+            }
+            return esito;
+        } catch (e) {
+            ultimoEsitoConfermaProposte = {foglio, testo:`${fornitore} · ${e.message}`};
+            throw e;
+        } finally {
+            confermaFornitoreInCorso = null;
+            aggiornaStatoConfermaProposte();
+        }
+    }
+
     async function confermaPropostaAcquisto(riga) {
         if (!propostaConfermabile(riga)) return;
         const corpo = riepilogoProposteDaApplicare([riga]) + '<p>Salvi la proposta nella distinta. L’acquisto e l’invio della bozza sono passaggi separati.</p>';
-        const c=await finestra('Conferma il piano acquisti',corpo,'Applica alle distinte','Annulla');
-        if (!c) return;
-        if (!propostaConfermabile(riga)) throw new Error('La proposta è cambiata o scaduta: ricalcola il riepilogo');
-        return salvaCambiAcquisto(cambiDaProposte([riga]), 'allocation_plan');
+        return duranteConfermaProposte(riga.fornitore, async aggiorna => {
+            if (!await finestra('Conferma il piano acquisti',corpo,'Applica alle distinte','Annulla')) return;
+            if (!propostaConfermabile(riga)) throw new Error('La proposta è cambiata o scaduta: ricalcola il riepilogo');
+            return salvaCambiAcquisto(cambiDaProposte([riga]), 'allocation_plan', aggiorna);
+        });
     }
 
-    let confermaFornitoreInCorso = false;
     async function confermaProposteFornitore(f, leggi = () => carica(true)) {
         const righe = (f?.righe || []).filter(propostaConfermabile);
-        if (!righe.length || confermaFornitoreInCorso) return;
+        if (!righe.length) return;
         const {token, n:foglio, modo} = riepilogo;
         const quantita = righe.reduce((n,r) => n+r.quantita, 0);
         const costo = righe.reduce((n,r) => n+r.costo, 0);
@@ -4736,10 +4819,10 @@
         const corpo = `<p><strong>${quantita} pezzi · ${eur(costo)} netti</strong></p>` + riepilogoProposteDaApplicare(righe) +
             (bloccate ? `<p>Pezzi da verificare: ${bloccate}. Restano in attesa.</p>` : '') +
             '<p>Salvi le proposte nelle distinte. L’acquisto e l’invio delle bozze sono passaggi separati.</p>';
-        confermaFornitoreInCorso = true;
-        try {
+        return duranteConfermaProposte(f.nome, async aggiorna => {
             if (!await finestra(`Applica le proposte di ${esc(f.nome)}`,corpo,'Applica tutte alle distinte','Annulla')) return;
             const cambi = cambiDaProposte(righe);
+            aggiorna({fase:'verifica', totale:cambi.length});
             const dati = verificaListini(await leggi());
             if (token !== riepilogo.token || foglio !== riepilogo.n || modo !== riepilogo.modo || !righe.every(propostaConfermabile))
                 throw new Error('Il riepilogo è cambiato o la proposta è scaduta: ricalcola prima di confermare');
@@ -4766,10 +4849,8 @@
                         d[campo] = offerta[campo];
                 }
             }
-            return await salvaCambiAcquisto(cambi, 'allocation_plan');
-        } finally {
-            confermaFornitoreInCorso = false;
-        }
+            return salvaCambiAcquisto(cambi, 'allocation_plan', aggiorna);
+        });
     }
 
     async function applicaScelta(d) {
@@ -4984,7 +5065,7 @@
         aggiornaEconomiaAperta,
         sostitutoDaVoce, rispettaScheda, coloreRispettato, marcaRispettata, cercaPerScelta, sceltaUguale, vocePerCodice,
         K_ESCLUSIONI_ACQUISTO, sceltaEsplicitaAcquisto, pianoRispettaSceltaEsplicita, identitaAcquisto, esclusioneAcquisto, nomeAcquisto, rigaOrdinabile, propostaAcquisto,
-        bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto, confermaProposteFornitore,
+        bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto, confermaProposteFornitore, statoConfermaProposte,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,

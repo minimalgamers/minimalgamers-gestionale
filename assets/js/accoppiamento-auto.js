@@ -3958,7 +3958,7 @@
     }
 
     // La rubrica è consultabile anche per proposte e pezzi bloccati. Apre un messaggio vuoto.
-    function htmlContattiFornitore(f, contatti, categoria) {
+    function htmlContattiFornitore(f, contatti, categoria, etichetta = 'Contatti commerciali') {
         if (f.nome === 'MAGAZZINO' || fornitoreVago(f.nome)) return '';
         const c = contattiOrdini(contatti);
         const rotte = (c?.invii || []).filter(x => contattoDelFornitore(x, f.nome))
@@ -3979,7 +3979,23 @@
                 !rotte.some(x => contattoPerCategoria(x, 'CPU'));
             recapiti.push(`<p>${cpu ? 'CPU · ' : ''}${nota}</p>`);
         }
-        return `<details class="acc-rf-rationale"><summary>Contatti commerciali</summary>${recapiti.join('')}</details>`;
+        return `<details class="acc-rf-rationale"><summary>${esc(etichetta)}</summary>${recapiti.join('')}</details>`;
+    }
+
+    function htmlContattiLato(r, contatti) {
+        const c = contattiOrdini(contatti);
+        const scrivania = new Map(r.fornitori.map(f => [f.nome, f]));
+        const altri = new Set([
+            ...(c?.invii || []).flatMap(x => x.fornitori || []),
+            ...Object.keys(c?.senza_email || {}),
+        ].map(nome => String(nome).trim().toUpperCase()).filter(nome => !scrivania.has(nome)));
+        const disegna = (nome, f = {nome, righe: []}) => htmlContattiFornitore(f, c, null, nome);
+        const voci = [...scrivania].sort(([a], [b]) => a.localeCompare(b, 'it')).map(([nome, f]) => disegna(nome, f)).join('');
+        const fuori = [...altri].sort((a, b) => a.localeCompare(b, 'it')).map(nome => disegna(nome)).join('');
+        if (!voci && !fuori) return '';
+        return `<section class="acc-rf-sidebar-contacts" aria-label="Contatti commerciali">` +
+            '<div class="acc-nota" style="margin-top:12px"><strong>Contatti commerciali</strong><br>Disponibili anche per i pezzi in proposta.</div>' +
+            voci + (fuori ? `<details class="acc-rf-rationale"><summary>Altri fornitori</summary>${fuori}</details>` : '') + '</section>';
     }
 
     // Avvisi da vedere prima di ordinare: pezzi non allineati alle schede, pochi pezzi, contatto da confermare
@@ -4206,6 +4222,7 @@
                 `${f.nome === 'MAGAZZINO' ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia solo le righe pronte per ${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled'}>📋 Copia</button>`}</div>`).join('') +
             (solo ? `<button type="button" class="acc-rf-copia" data-rf-vedi="">↩ Tutti i fornitori</button>` : '') +
             htmlEmailOrdini(r, contatti) +
+            htmlContattiLato(r, contatti) +
             `<button type="button" class="acc-rf-copia" data-rf-ricalcola="1">🔄 Ricalcola con gli ultimi dati</button>`;
     }
 

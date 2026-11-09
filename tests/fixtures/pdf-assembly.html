@@ -18,6 +18,7 @@ for(const [id,config,caseName] of [['4824','DEMO - PC GAMING SPARTAN','CASE ATX 
     {ordine_upgrade:'#DEMO-UP',linea_id:'L'+id,unita:0,categoria:'FPS BOOSTER',valore:'FPS Booster - preparazione e ottimizzazione della build'}]}]};
 }
 AccoppiamentoAuto.carica=async()=>data;
+window.UpgradePaidSync={verifica:async()=>({ok:true})};
 getActiveWorksheetTab=()=>3;getOperatorAssignment=()=> 'A';extractSupplierFromText=()=>'';
 showNotification=(text)=>document.getElementById('status').textContent=text;
 loadCustomItemsFromDB=async()=>[{name:'ACCESSORIO',value:'Kit gaming 4-in-1 bianco: mouse, tastiera, cuffie e tappetino (esempio DEMO)'}];

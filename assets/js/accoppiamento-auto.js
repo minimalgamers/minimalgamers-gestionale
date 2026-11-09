@@ -2427,16 +2427,9 @@
         const m = p.manuale || {};
         if (p.mag && chiave(m.codice) === chiave(r.ean)) return null;         // pezzo a magazzino: resta
         if (stessoPezzo && chiave(m.codice) !== chiave(r.ean)) return null;
-        // 30/09: il case che la regola del gestionale vuole oggi (TOP o scheda madre cambiata: CASE ATX) quando nella
-        // scheda c'e' ancora quello vecchio (es. NOUA Vitra M-ATX con una scheda madre ATX)
-        if (!stessoPezzo && p.tipo === 'CASE' && p.auto && offertaOrdinabile(p.auto) && /regola case/i.test(p.origine || '') && m.codice &&
-            chiave(m.codice) !== chiave(r.ean) && !(p.auto && [p.auto.codice, p.auto.mpn].map(chiave).includes(chiave(r.ean)))) {
-            const regolaCase = { ...p, auto: p.auto || { codice: m.codice, fornitore: m.fornitore || (p.fisso && p.fisso.fornitore) || 'ALTRO',
-                descrizione: m.codice, costo: p.costo, quantita: 1, disponibilita: p.fisso ? 'budget del case (regola del gestionale)' : '' } };
-            if (!regolaCase.auto.codice) return null;
-            const schedaCase = [r.ean, r.nome, p.cliente].filter(Boolean).join(' ');
-            return rispettaScheda(auto.linea, 'CASE', schedaCase, { ...regolaCase.auto, descrizione: `${regolaCase.auto.descrizione || ''} ${m.codice}` }, r.quantita) ? regolaCase : null;
-        }
+        if (p.tipo === 'CASE' && auto.linea !== 'MSI' && auto.linea !== 'DEEPCOOL' &&
+            (/^(?:CASE ATX|NOUA FLOW)(?: (?:WHITE|BLACK|BIANCO|NERO))?$/i.test(String(m.codice || '').trim()) ||
+            /\bregola case Minimal\b/i.test(p.origine || ''))) return null;
         if (!p.auto || !p.auto.codice || p.fisso || !offertaOrdinabile(p.auto)) return null;
         const codici = [p.auto.codice, p.auto.mpn].filter(Boolean).map(chiave);
         const stessoFornitore = String(r.fornitore || '').toUpperCase().trim() === String(p.auto.fornitore || '').toUpperCase().trim();

@@ -115,7 +115,13 @@ sandbox.window.SupabaseDB={
   async replacePurchaseComponent(id,p){
     calls.push({op:'replace',id,p:J(p)});
     const saved={id:p.expected.id,type:p.expected.type,...p.replacement,price:null};
-    return{component:saved,customProperties:{_scelte_acquisto_gestionale:{[p.expected.type]:{source:p.source}}}};
+    const customProperties=J(sandbox.processedOrdersCache[id].customProperties||{});
+    if(p.source!=='allocation_plan'){
+      const choice={tipo:saved.type,ean:saved.ean,fornitore:saved.supplier,componentId:saved.id,
+        quantita:saved.quantity,descrizione:saved.name,esplicita:true,il:new Date().toISOString()};
+      customProperties._scelte_acquisto_gestionale={...customProperties._scelte_acquisto_gestionale,[saved.type]:choice};
+    }
+    return{component:saved,customProperties};
   },
   async setProcurementExclusion(id,v){
     calls.push({op:'exclude',id,v:J(v)});
@@ -163,7 +169,7 @@ const oldArtifact={generato:'2026-11-06T11:00:00Z',ordini:{'905':{pc:[{quantita:
 const guarded=J(A.daOrdinare(oldArtifact,[chosenCard],{}));
 assert.equal(guarded.righe[0].codice,'ARC-B570');assert.equal(guarded.righe[0].daApplicare,false);
 assert.equal(guarded.righe[0].daConfermare,true);assert.equal(guarded.pronti,0);
-assert.match(guarded.righe[0].motivi.join(' '),/vecchio piano non può proporre il componente precedente/);
+assert.match(guarded.righe[0].motivi.join(' '),/listino deve ancora confermare codice, prezzo e disponibilità/);
 assert.deepEqual(J(A.proposteOrdine(oldArtifact,'905.2',chosenCard.righe)),[]);
 // A recent timestamp alone does not prove that the artifact incorporated this specific intent.
 oldArtifact.generato='2026-11-06T13:00:00Z';
@@ -179,4 +185,65 @@ assert.equal(cheaper.righe[0].pezzi[0].ean,'ARC-B570');
 // Metadata from an unsuccessful concurrent update is ignored unless it matches the actual saved row.
 sandbox.processedOrdersCache['905.2'].customProperties={_scelte_acquisto_gestionale:{test:{...explicit,ean:'OTHER'}}};
 assert.equal(A.sceltaEsplicitaAcquisto('905.2',chosenCard.righe[0]),null);
+
+// A confirmed Buyer Desk replacement must flow into the current supplier draft while the old allocation is still published.
+const emailContacts={invii:[
+  {id:'caseking',nome:'CASEKING',fornitori:['CASEKING'],a:['caseking@example.invalid']},
+  {id:'abaco',nome:'ABACO',fornitori:['ABACO'],a:['abaco@example.invalid']},
+]};
+const oldRam=component(60,'RAM','RAM-1X16','CASEKING');
+const abacoRam=component(61,'RAM','RAM-2X8','ABACO');
+sandbox.processedOrdersCache['907']={components:[oldRam]};
+sandbox.processedOrdersCache['908']={components:[abacoRam]};
+const freshUntil=new Date(Date.now()+60*60*1000).toISOString();
+const abacoOffer={...offer('RAM-2X8','ABACO',50,3),descrizione:'RAM DDR5 8 GB',stock:3,costo_unitario:50,ordinabile:true,
+  stock_valid_until:freshUntil,price_valid_until:freshUntil};
+const oldRamOffer={...offer('RAM-1X16','CASEKING',50),descrizione:'RAM DDR5 16 GB'};
+const oldRamPlan={ordini:{
+  '907':{pc:[{quantita:1,pezzi:[{tipo:'RAM',manuale:oldRamOffer,auto:oldRamOffer}]}]},
+  '908':{pc:[{quantita:1,pezzi:[{tipo:'RAM',manuale:abacoOffer,auto:abacoOffer}]}]},
+}};
+const ramCards=()=>['907','908'].map(id=>card(id,sandbox.processedOrdersCache[id].components));
+const summaryWithOffer=(quote,plan=oldRamPlan)=>A.daOrdinare({...plan,offerte_ordinabili:[quote]},ramCards(),{});
+const emailOrders=summary=>A.ordiniEmail(summary,emailContacts).invii;
+const emailCounts=summary=>J(emailOrders(summary).map(x=>[x.id,x.pezzi]));
+assert.deepEqual(emailCounts(summaryWithOffer(abacoOffer)),[['caseking',1],['abaco',1]]);
+const ramTarget=A.identitaAcquisto({id:'907',nome:'#907',foglio:1},row(oldRam),oldRam);
+await A.sostituisciAcquisto(ramTarget,{...abacoOffer,quantita:2});
+const afterChange=summaryWithOffer(abacoOffer);
+assert.deepEqual(emailCounts(afterChange),[['abaco',3]],'confirmed changes update supplier and quantity before a new allocation is published');
+const draft=A.testoEmail(emailOrders(afterChange)[0],emailContacts,'06/11/2026');
+assert.equal(draft.a,'abaco@example.invalid');
+assert.match(draft.corpo,/3 x RAM DDR5 8 GB .*RAM-2X8/);
+assert.match(draft.corpo,/Totale: 3 pezzi/);
+assert.doesNotMatch(draft.corpo,/RAM-1X16/);
+const emailButtons=A.htmlEmailOrdini(afterChange,emailContacts);
+assert.match(emailButtons,/ABACO · 3 pz/);
+assert.doesNotMatch(emailButtons,/data-rf-email="caseking"/);
+assert.equal(afterChange.pronti,3);
+assert.equal(afterChange.daApplicare,0);
+
+for(const [why,quote] of [
+  ['insufficient shared stock',{...abacoOffer,stock:2,disponibilita:'2 pz',stock_libero_prima:2}],
+  ['an alias from a different SKU',{...abacoOffer,codice:'OTHER-SKU',mpn:'RAM-2X8'}],
+  ['a different SKU with the same normalized alias',{...abacoOffer,codice:'RAM2X8'}],
+  ['expired supplier stock',{...abacoOffer,stock_valid_until:'2000-01-01T00:00:00Z'}],
+]){
+  const emails=emailOrders(summaryWithOffer(quote));
+  assert.ok(emails.every(x=>x.id==='abaco'&&x.pezzi<=1),`${why} must not put the replaced units or the old SKU in a draft`);
+}
+const offDeskPlan={ordini:{...oldRamPlan.ordini,
+  '909':{elaborato:{foglio:2},pc:[{quantita:1,pezzi:[{tipo:'RAM',manuale:abacoOffer,auto:abacoOffer}]}]},
+}};
+assert.deepEqual(emailCounts(summaryWithOffer(abacoOffer,offDeskPlan)),[['abaco',1]],
+  'an off-desk allocation uses the same stock; hold the replacement and retain the already-ready unit');
+
+const similarCode=component(62,'RAM','RAM2X8','ABACO');
+const similarOffer={...abacoOffer,codice:'RAM2X8',descrizione:'Altra RAM DDR5'};
+const similarPlan={...oldRamPlan.ordini,'910':{pc:[{quantita:1,pezzi:[{tipo:'RAM',manuale:similarOffer,auto:similarOffer}]}]}};
+const withSimilarCode=A.daOrdinare({ordini:similarPlan,offerte_ordinabili:[similarOffer,abacoOffer]},
+  [...ramCards(),card('910',[similarCode])],{});
+const distinctDraft=A.testoEmail(emailOrders(withSimilarCode)[0],emailContacts,'06/11/2026');
+assert.match(distinctDraft.corpo,/3 x RAM DDR5 8 GB .*RAM-2X8/);
+assert.match(distinctDraft.corpo,/1 x Altra RAM DDR5 .*RAM2X8/);
 console.log('purchase-summary: allocation, exact replacement, exclusions and order drafts passed');

@@ -3539,22 +3539,93 @@
             diversa: chiave(a.codice) !== chiave(r.ean) || String(a.fornitore).toUpperCase().trim() !== String(r.fornitore || '').toUpperCase().trim() || q !== quantita };
     }
 
+    const testoStockAcquisto = valore => String(valore || '').trim().toUpperCase();
+    const chiaveStockAcquisto = (fornitore, codice) => `${testoStockAcquisto(fornitore)}|${testoStockAcquisto(codice)}`;
+    const idUnitaAcquisto = id => String(id).includes('.') ? String(id) : `${id}.1`;
+
+    function offertaSceltaSalvata(dati, r, quantita) {
+        const offerte = indiceOfferte(dati)?.perFornitore.get(`${testoStockAcquisto(r.fornitore)}|${chiave(r.ean)}`) || OFFERTE_VUOTE;
+        const offerta = offerte.find(a => testoStockAcquisto(a.codice) === testoStockAcquisto(r.ean));
+        if (!offerta) return null;
+        const pubblicazione = Date.parse(dati.listini || '');
+        const scadenzaListino = Number.isFinite(pubblicazione) && pubblicazione <= Date.now() + 60000
+            ? new Date(pubblicazione + 24 * 60 * 60 * 1000).toISOString() : null;
+        const a = { ...offerta, quantita, costo: tonda(Number(offerta.costo_unitario ?? offerta.costo) * quantita),
+            stock_valid_until: offerta.stock_valid_until ?? scadenzaListino,
+            price_valid_until: offerta.price_valid_until ?? scadenzaListino };
+        return Number.isFinite(a.costo) && a.stock_valid_until && a.price_valid_until && offertaOrdinabile(a) ? a : null;
+    }
+
+    function riservaAltreScrivanie(dati, ids, riserva) {
+        const cache = typeof processedOrdersCache === 'undefined' ? {} : processedOrdersCache;
+        // Riserva le scelte già salvate anche se il piano pubblicato è ancora precedente al cambio.
+        const scelte = new Map();
+        for (const [id, scheda] of Object.entries(cache || {})) {
+            const unita = idUnitaAcquisto(id);
+            const elaborato = dati.ordini?.[id.split('.')[0]]?.elaborato;
+            if (ids.has(unita) || scheda.stato === 'finalizzati' || elaborato?.acquistato ||
+                elaborato?.stato === 'finalizzati' || acquistoConfermato(id)) continue;
+            const auto = pcAutomatico(dati, unita);
+            for (const c of scheda.components || []) {
+                const r = {tipo:c.type, ean:c.ean, fornitore:c.supplier};
+                const parte = pezzoAutoDelTipo(auto, c.type);
+                if (pianoRispettaSceltaEsplicita(id, r, parte, scheda.components)) continue;
+                const p = identitaAcquisto({id}, r, c);
+                if (esclusioneAcquisto(p, proprietaOrdine(id)[K_ESCLUSIONI_ACQUISTO]) || pezzoPreso(magazzinoDellaRiga(id, r, dati))) continue;
+                riserva(c.supplier, c.ean, p.quantita);
+                const k = `${unita}|${TIPI[c.type] || c.type}`;
+                scelte.set(k, (scelte.get(k) || 0) + 1);
+            }
+        }
+        for (const [id, ordine] of Object.entries(dati.ordini || {})) {
+            if (ordine.elaborato?.acquistato || ordine.elaborato?.stato === 'finalizzati') continue;
+            const n = (ordine.pc || []).reduce((q, pc) => q + (Number(pc.quantita) || 1), 0);
+            for (let i = 1; i <= n; i++) {
+                const unita = `${id}.${i}`;
+                const idScheda = cache?.[unita] ? unita : i === 1 ? id : unita;
+                if (ids.has(unita) || cache?.[idScheda]?.stato === 'finalizzati' || acquistoConfermato(idScheda)) continue;
+                const pezzi = pcAutomatico(dati, unita)?.pezzi || [];
+                for (const p of pezzi) {
+                    if (!p.auto) continue;
+                    const sostituito = scelte.get(`${unita}|${p.tipo}`) === 1 && pezzi.filter(x => x.tipo === p.tipo).length === 1;
+                    if (sostituito) continue;
+                    riserva(p.auto.fornitore, p.auto.codice, Number(p.auto.quantita) || 1);
+                }
+            }
+        }
+    }
+
     // Pezzi da comprare per i PC di una scrivania. schede: [{ id, nome, confermato, righe: [{tipo, ean, fornitore, nome,
     // costo, fonte}] (le righe del riquadro dell'utile), salvati: componenti della scheda nel database, voci: voci
     // personalizzate [{name, value, supplier, ean}] }]. Ritorna le categorie con i loro fornitori e il totale per fornitore.
     function daOrdinare(dati, schede, salvatiFissi) {
         const out = { pc: 0, esclusi: [], esclusioni: [], giaAcquistati: [], cambi: 0, senzaCosto: 0, totale: 0, prontoTotale: 0, pronti: 0, daApplicare: 0, pezzi: 0, categorie: [], fornitori: [], righe: [] };
         const cat = {};                                          // CATEGORIA -> FORNITORE -> codice -> riga
+        const richiesti = new Map(), scelteSalvate = [];
+        const riserva = (fornitore, codice, quantita) => {
+            if (!codice || fornitoreVago(fornitore) || fornitore === 'MAGAZZINO') return;
+            const k = chiaveStockAcquisto(fornitore, codice);
+            richiesti.set(k, (richiesti.get(k) || 0) + quantita);
+        };
         const aggiungi = (categoria, x, ordine) => {
             const p = x.pezzo;
             if (p && esclusioneAcquisto(p, p.esclusioni)) {
                 out.esclusioni.push({ ...x, categoria, ordini: [ordine], pezzi: [p], esclusa: true, n: out.esclusioni.length });
                 return;
             }
+            riserva(x.fornitore, x.offerta?.codice || x.codice, x.quantita);
+            if (x.sceltaSalvata) {
+                scelteSalvate.push({categoria, x, ordine});
+                return;
+            }
+            raggruppa(categoria, x, ordine);
+        };
+        const raggruppa = (categoria, x, ordine) => {
             const forn = fornitoreVago(x.fornitore) ? DA_SCEGLIERE : String(x.fornitore).toUpperCase().trim();
             const c = cat[categoria] || (cat[categoria] = {});
             const f = c[forn] || (c[forn] = {});
-            const k = (chiave(x.codice) || `~${String(x.descrizione || '').toUpperCase().trim()}`) + (x.daApplicare ? '|proposta' : '') + (x.daDecidere ? '|mancante' : '');
+            const k = (testoStockAcquisto(x.codice) || `~${testoStockAcquisto(x.descrizione)}`) + (x.daApplicare ? '|proposta' : '') +
+                (x.daDecidere ? '|mancante' : '') + (x.sceltaSalvata && x.daConfermare ? '|scelta-da-verificare' : '');
             const r = f[k] || (f[k] = { codice: x.codice || '', ean: '', mpn: '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
                 fornitore: forn, daApplicare: !!x.daApplicare, daDecidere: !!x.daDecidere, proposta: x.proposta || null, scadenze: [], motivi: [], requisiti: [], politiche: [], stock: [], listini: [],
@@ -3633,6 +3704,15 @@
                 const automatico = pezzoAutoDelTipo(auto, r.tipo);
                 const sceltaEsplicita = sceltaEsplicitaAcquisto(s.id,r,salvati);
                 const pianoSuperato = !!sceltaEsplicita && !pianoRispettaSceltaEsplicita(s.id,r,automatico,salvati);
+                if (pianoSuperato && !aTerra) {
+                    const a = offertaSceltaSalvata(dati, r, quantita);
+                    aggiungi(categoria, { sceltaSalvata:true, fornitore:r.fornitore, codice:r.ean, quantita, offerta:a,
+                        ean:a?.ean, mpn:a?.mpn, prezzoListino:a?.prezzo_listino,
+                        descrizione:nomeAcquisto(r.ean,[a?.descrizione,salvato?.name,sceltaEsplicita.descrizione,r.nome],categoria),
+                        requisito:sceltaEsplicita.descrizione, costo:a?.costo ?? r.costo ?? null, stimato:!a,
+                        disponibilita:a?.disponibilita || '', pezzo }, s.nome);
+                    continue;
+                }
                 const acquistato = salvato && salvato.price !== null && salvato.price !== undefined && salvato.price !== '';
                 // Il piano usa le allocazioni reali. Una diversa referenza resta una proposta fino alla conferma mirata.
                 const piano = !acquistato && !pianoSuperato ? propostaAcquisto(automatico, r, quantita) : null;
@@ -3661,14 +3741,14 @@
                     ean: (uguale && uguale.auto.ean) || (sch && sch.ean) || (/^\d{8,14}$/.test(String(r.ean || '').trim()) ? String(r.ean).trim() : ''),
                     mpn: (uguale && uguale.auto.mpn) || (sch && sch.mpn) || '',
                     descrizione: nomeAcquisto(r.ean,[(uguale && uguale.auto.descrizione),(listino && listino.descrizione),
-                        (vago && fisso && fisso.descrizione),salvato?.name,r.descrizione,r.nome,pr?.manuale?.descrizione,pr?.cliente,pianoSuperato ? sceltaEsplicita.descrizione : automatico?.requisito],categoria),
-                    prezzoListino: listino?.prezzo_listino ?? null, requisito: pianoSuperato ? sceltaEsplicita.descrizione || '' : automatico?.requisito || '',
-                    politica: automatico?.regola_acquisto || '', motivo: pianoSuperato ? 'Scelta manuale già salvata nella distinta. Il vecchio piano non può proporre il componente precedente: attesa della nuova allocazione delle quantità.' : aTerra ? 'Prelievo di magazzino già registrato.' : 'Referenza salvata nella distinta; nessuna sostituzione automatica applicata.',
+                         (vago && fisso && fisso.descrizione),salvato?.name,r.descrizione,r.nome,pr?.manuale?.descrizione,pr?.cliente,automatico?.requisito],categoria),
+                    prezzoListino: listino?.prezzo_listino ?? null, requisito: automatico?.requisito || '',
+                    politica: automatico?.regola_acquisto || '', motivo: aTerra ? 'Prelievo di magazzino già registrato.' : 'Referenza salvata nella distinta; nessuna sostituzione automatica applicata.',
                     quantita, costo: r.costo != null ? r.costo : null, stimato: r.fonte === 'stima' || r.fonte === 'altro',
                     disponibilita: aTerra ? 'a terra' : (uguale && uguale.auto.disponibilita) || (listino && listino.disponibilita) || '',
                     verificaDisponibilita: disponibilitaRiga(dati, auto, { ...r, quantita }),
                     statoVisivo: statoAvvisoComponente(r,disponibilitaRiga(dati, auto, { ...r, quantita })),
-                    daConfermare: pianoSuperato || !!(uguale && uguale.auto.da_confermare),
+                    daConfermare: !!(uguale && uguale.auto.da_confermare),
                     offerta: offertaDelPezzo(dati,r.ean,r.fornitore) || uguale?.auto || listino, pezzo }, s.nome);
             }
             for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
@@ -3689,6 +3769,19 @@
                     pezzo: { ...identitaAcquisto(s,{tipo:`PERSONALIZZATO:${v.name || ''}`,ean:v.ean || v.value || v.name,fornitore:v.supplier,nome:v.value || v.name,quantita:q,personalizzato:true},v,indiceVoce),
                         esclusioni: s.esclusioni || proprietaOrdine(s.id)[K_ESCLUSIONI_ACQUISTO] || {} } }, s.nome);
             }
+        }
+        if (scelteSalvate.some(({x}) => x.offerta)) {
+            riservaAltreScrivanie(dati, new Set((schede || []).map(s => idUnitaAcquisto(s.id))), riserva);
+        }
+        for (const {categoria, x, ordine} of scelteSalvate) {
+            const a = x.offerta;
+            const richiestiSku = richiesti.get(chiaveStockAcquisto(x.fornitore, x.codice));
+            const disponibili = a?.stock ?? pezziDisponibili(a?.disponibilita);
+            x.daConfermare = !a || richiestiSku > disponibili;
+            x.motivo = !a ? 'Cambio salvato. Il listino deve ancora confermare codice, prezzo e disponibilità per la bozza.' :
+                x.daConfermare ? `Cambio salvato. Stock insufficiente per tutti gli ordini (${disponibili} disponibili, ${richiestiSku} richiesti).` :
+                'Cambio salvato. Codice, prezzo e quantità verificati nel listino per la bozza.';
+            raggruppa(categoria, x, ordine);
         }
         const forn = {};
         for (const nome of Object.keys(cat).sort((a, b) => posizione(a) - posizione(b) || a.localeCompare(b))) {
@@ -3877,7 +3970,7 @@
         const em = ordiniEmail(r, contatti);
         if (!em.contatti) return '';
         if (!em.invii.length && !em.senza.length) return '';
-        return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Ordini via email: si apre la bozza in Outlook (info@), la controlli e premi Invia</div>` +
+        return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Le bozze includono i pezzi pronti da ordinare. Apri la bozza in Outlook (info@), controllala e premi Invia.</div>` +
             em.invii.map(x => `<button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
                 `✉️ ${condizioniEmail(x).richiesta ? 'Richiesta · ' : ''}${esc(x.nome)} · ${x.pezzi} pz${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
                 `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>`).join('') +

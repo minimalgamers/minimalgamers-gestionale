@@ -739,9 +739,9 @@ const schedeEm = [{ id: '950', nome: '#9950', righe: [
   rigaRf('PSU', 'PSU-MAG', 'ABACO', 60, 'magazzino', 'Alimentatore a terra')] }];
 const rEm = J(A.daOrdinare(datiEm, schedeEm, {}));
 const em = J(A.ordiniEmail(rEm, contattiProva));
-assert.deepEqual(em.invii.map(x => [x.id, x.pezzi]), [['T1_CPU', 1], ['INTER', 3], ['ABACO', 1]]);
+assert.deepEqual(em.invii.map(x => [x.id, x.pezzi]), [['T1_CPU', 1], ['INTER', 2], ['ABACO', 1]]);
 assert.deepEqual(em.invii[1].gruppi.map(g => g.nome).sort(), ['ACTION', 'TIER ONE']);   // TIER ONE senza CPU all'intermediario
-assert.deepEqual(em.senza, []); // acquisto Amazon non verificato e magazzino esclusi dalle bozze
+assert.deepEqual(em.senza, [{ nome: 'ACTION', pezzi: 1, motivo: 'contatto da indicare' }]);
 const tT1 = A.testoEmail(em.invii[0], contattiProva, '02/10/2026');
 assert.equal(tT1.a, 'uno@t1.example; due@t1.example');
 assert.equal(tT1.oggetto, 'Ordine Minimal Gamers del 02/10/2026');
@@ -749,9 +749,9 @@ assert.match(tT1.corpo, /- 1 x AMD Ryzen 5 9600X Tray — cod\. 1298\n\nTotale: 
 assert.match(tT1.corpo, /Grazie,\nProva Firma$/);
 const tInt = A.testoEmail(em.invii[1], contattiProva, '02/10/2026');
 assert.match(tInt.oggetto, /— (ACTION, TIER ONE|TIER ONE, ACTION)$/);
-assert.match(tInt.corpo, /ACTION — 2 pezzi\nCPU\n- 1 x AMD Ryzen 7 9700X — cod\. PROAMDRYZ0301\nGPU\n- 1 x Asrock RX 9060 XT 16GB — cod\. VGAASRATI0106/);
+assert.match(tInt.corpo, /ACTION — 1 pezzo\n- 1 x Asrock RX 9060 XT 16GB — cod\. VGAASRATI0106/);
 assert.match(tInt.corpo, /TIER ONE — 1 pezzo\n- 1 x ASRock B650M-HDV\/M\.2 — cod\. 2855/);
-assert.doesNotMatch(tInt.corpo, /9600X/);                                            // la CPU di TIER ONE va diretta
+assert.doesNotMatch(tInt.corpo, /9600X|9700X/);
 assert.equal(A.rigaEmail({ quantita: 2, descrizione: 'Pezzo', codice: 'ABC1', ean: '8001234567890', mpn: 'MPN-9' }),
   '- 2 x Pezzo — cod. ABC1 · EAN 8001234567890 · P/N MPN-9');
 assert.equal(A.rigaEmail({ quantita: 1, descrizione: 'Pezzo', codice: '8001234567890', ean: '8001234567890', mpn: '' }),
@@ -769,12 +769,14 @@ assert.doesNotMatch(A.htmlLatoDaOrdinare(rEm, 3, '10:00'), /data-rf-email/);    
 
 // --- 02/10: CPU sempre dirette (anche ACTION), email in inglese per i fornitori esteri ---
 const contattiCpu = { firma: 'Prova Firma', invii: [
-  { id: 'ACTION_CPU', nome: 'ACTION CPU', a: ['kiryl@action.example'], fornitori: ['ACTION'], solo_categorie: ['CPU'], lingua: 'en' },
-  ...contattiProva.invii] };
+  ...contattiProva.invii,
+  { id: 'ACTION_CPU', nome: 'ACTION CPU', a: ['kiryl@action.example'], fornitori: ['ACTION'], solo_categorie: ['CPU'], lingua: 'en' }] };
 const emCpu = J(A.ordiniEmail(rEm, contattiCpu));
-assert.deepEqual(emCpu.invii.map(x => [x.id, x.pezzi]), [['ACTION_CPU', 1], ['T1_CPU', 1], ['INTER', 2], ['ABACO', 1]]);
-assert.doesNotMatch(A.testoEmail(emCpu.invii[2], contattiCpu, '02/10/2026').corpo, /9700X/);   // la CPU di ACTION non passa dall'intermediario
-const tEn = A.testoEmail(emCpu.invii[0], contattiCpu, '02/10/2026');
+assert.deepEqual(emCpu.invii.map(x => [x.id, x.pezzi]), [['T1_CPU', 1], ['INTER', 2], ['ABACO', 1], ['ACTION_CPU', 1]]);
+assert.deepEqual(emCpu.senza, []);
+assert.doesNotMatch(A.testoEmail(emCpu.invii[1], contattiCpu, '02/10/2026').corpo, /9600X|9700X/);
+const tEn = A.testoEmail(emCpu.invii[3], contattiCpu, '02/10/2026');
+assert.equal(tEn.a, 'kiryl@action.example');
 assert.equal(tEn.oggetto, 'Order Minimal Gamers — 02/10/2026');
 assert.match(tEn.corpo, /^Hello,\n\nplease find below our order:\n\n- 1 x AMD Ryzen 7 9700X — code PROAMDRYZ0301\n\nTotal: 1 pc\./);
 assert.match(tEn.corpo, /proforma invoice\?\n\nThank you,\nProva Firma$/);

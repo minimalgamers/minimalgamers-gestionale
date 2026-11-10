@@ -1440,7 +1440,10 @@
     const COLORI = { PROKS: '#e74c3c', OMEGA: '#9b59b6', 'TIER ONE': '#3498db', AMAZON: '#f39c12', NOUA: '#2ecc71',
         INTEGRATA: '#7f8c8d', MSI: '#d35400', ACTION: '#1abc9c', ABACO: '#16a085', RUNNER: '#e67e22',
         CASEKING: '#c0392b', FOCELDA: '#8e44ad', 'NAVY BLUE': '#2c3e50', ESPRINET: '#2980b9', BREVI: '#27ae60',
-        MEEMO: '#f1c40f', ALTRO: '#95a5a6', 'FORNITORE LOCALE': '#bdc3c7', MAGAZZINO: '#27ae60' };
+        MEEMO: '#f1c40f', ALTRO: '#95a5a6', 'FORNITORE LOCALE': '#bdc3c7', MAGAZZINO: '#27ae60',
+        // 10/11: fornitori nuovi del Buyer Desk (prima restavano grigi)
+        'TD SYNNEX': '#0e7490', EPTIMO: '#b45309', 'COMPUTER GROSS': '#be123c', QWERTY: '#6d28d9',
+        'ED SYSTEM': '#4d7c0f', '100MEGA': '#0369a1', TRADERBAR: '#a21caf', 'INGRAM MICRO': '#1d4ed8' };
 
     function stile() {
         if (document.getElementById('accoppiamento-auto-style')) return;

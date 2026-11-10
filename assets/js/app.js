@@ -1311,6 +1311,15 @@ function getSupplierAbbreviation(supplier) {
         'INTEGRATA': 'IG',
         'MSI': 'MS',
         'CASEKING': 'CK',
+        // 10/11: fornitori nuovi del Buyer Desk (prima uscivano le prime due lettere: CO, 10, IN, TR)
+        'TD SYNNEX': 'TD',
+        'EPTIMO': 'EP',
+        'COMPUTER GROSS': 'CG',
+        'QWERTY': 'QW',
+        'ED SYSTEM': 'ED',
+        '100MEGA': '1M',
+        'TRADERBAR': 'TB',
+        'INGRAM MICRO': 'IM',
         'NAVY BLUE': 'NB',
         'ABACO': 'ABA'
     };

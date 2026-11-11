@@ -80,6 +80,9 @@
         '10487168041303': 'MSI OMEGA',
         // Bundle SETUP (promo 19/09/2026): PC + monitor + sedia + scrivania.
         '11192864735575': 'SETUP VOLT',
+        // 11/11/2026: promo Black Friday (prodotti in bozza finche' Antonio non li attiva)
+        '11375166423383': 'SETUP BLACK FREEZER',
+        '11375166619991': 'PC GAMING BLACK FREEZER',
         '11192864768343': 'SETUP SINNER',
         // Linea partner DEEPCOOL (20/09/2026): guscio DeepCool su basi Minimal,
         // in bozza su Shopify fino a foto e set GPO dedicati.

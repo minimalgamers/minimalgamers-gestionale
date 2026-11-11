@@ -76,7 +76,7 @@ assert.equal(renamedBundle.matchSource, 'product_id');
 assert.equal(identifyPCConfigFromConfigs('PRODOTTO NON MAPPATO', configs, true, 999), null);
 assert.equal(Object.isFrozen(PRODUCT_ID_CONFIG_KEYS), true);
 assert.equal(Object.isFrozen(CONFIG_KEY_ALIASES), true);
-assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 74);
+assert.equal(Object.keys(PRODUCT_ID_CONFIG_KEYS).length, 76); // 11/11: + SETUP BLACK FREEZER e PC GAMING BLACK FREEZER
 
 // Nuove build Minimal (fase 2E, 18/09/2026): id stabile -> chiave config.
 const newBuildVolt = identifyPCConfigFromConfigs(
@@ -193,4 +193,4 @@ for (const [productId, expectedConfigKey] of Object.entries(PRODUCT_ID_CONFIG_KE
   assert.equal(result.isFallback, false);
 }
 
-console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 74/74 + unicita PASS');
+console.log('order-config-matcher: base + MIRAGE rename compatibility + product_id map 76/76 + unicita PASS');

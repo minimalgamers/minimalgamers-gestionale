@@ -45,6 +45,14 @@ assert.match(rendered,/Acquisto netto unitario/);assert.match(rendered,/totale r
 assert.match(rendered,/Stock libero: 1 pezzi/);assert.match(rendered,/Perché questo pezzo/);
 assert.doesNotMatch(rendered,/si allinea con|gli altri vanno presi altrove/);
 
+const msiGpu = {tipo:'GPU', ean:'MSI-5080', fornitore:'ABACO', nome:'MSI RTX 5080 16GB', quantita:1};
+const otherGpu = {codice:'PNY-5080', fornitore:'OMEGA', descrizione:'PNY RTX 5080 16GB', costo:850, quantita:1, stock:3};
+const msiOrder = {linea:'MSI', pezzi:[{tipo:'GPU', manuale:{codice:msiGpu.ean}, auto:otherGpu}]};
+assert.equal(A.sostitutoDaOrdine(msiOrder, msiGpu, false), null);
+otherGpu.ripiego_gpu_msi = true;
+assert.equal(A.sostitutoDaOrdine(msiOrder, msiGpu, false), msiOrder.pezzi[0]);
+assert.equal(A.sostitutoDaOrdine(msiOrder, msiGpu, true), null, 'brand fallback requires a proposal review');
+
 // Ready rows group quantity and cost; unknown names do not display a distributor SKU as a product name.
 const c1=component(20,'SSD','SSD-A','ACTION'),c2=component(21,'SSD','SSD-A','ACTION');
 const readyData={ordini:{'901':{pc:[{quantita:2,pezzi:[{tipo:'SSD',auto:{...aa,disponibilita:'10 pz',stock_libero_prima:10},requisito:'NVMe 500GB'}]}]}}};

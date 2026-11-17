@@ -2395,10 +2395,11 @@
 
     const stessaQuantita = (a, b) => (parseInt(a, 10) || 1) === (parseInt(b, 10) || 1);
 
-    function rispettaScheda(linea, tipo, scheda, a, quantita) {
+    function rispettaScheda(linea, tipo, scheda, a, quantita, ripiegoGpuMsi = false) {
         const nuovo = [a.descrizione, a.codice, a.mpn].filter(Boolean).join(' ');
         const coloreConta = tipo === 'CASE' || (tipo === 'COOLER' && /LIQUID|AIO|CORE\s*LIQUID|KRAKEN|\bL[STEC]\d{3}\b/i.test(scheda + ' ' + nuovo));
-        if ((coloreConta && !coloreRispettato(scheda, nuovo)) || !marcaRispettata(linea, tipo, scheda, nuovo)) return false;
+        if (coloreConta && !coloreRispettato(scheda, nuovo)) return false;
+        if (!ripiegoGpuMsi && !marcaRispettata(linea, tipo, scheda, nuovo)) return false;
         if (!stessaQuantita(a.quantita, quantita)) return false;
         if (tipo === 'PSU') {
             const wScheda = wattAlimentatore(scheda), wNuovo = wattAlimentatore(nuovo);
@@ -2441,7 +2442,9 @@
         if (codici.includes(chiave(r.ean)) && stessoFornitore) return null;
         const scheda = [r.ean, r.nome, p.cliente, chiave(m.codice) === chiave(r.ean) ? m.descrizione : '']
             .filter(Boolean).join(' ');
-        return rispettaScheda(auto.linea, p.tipo, scheda, p.auto, r.quantita) ? p : null;
+        const ripiegoGpuMsi = auto.linea === 'MSI' && p.tipo === 'GPU' && p.auto.ripiego_gpu_msi === true;
+        if (ripiegoGpuMsi && stessoPezzo) return null; // Il cambio marca si rivede tra le proposte dell'ordine.
+        return rispettaScheda(auto.linea, p.tipo, scheda, p.auto, r.quantita, ripiegoGpuMsi) ? p : null;
     }
 
     // Stessa cosa quando l'ordine non e' ancora nei dati automatici (arrivato dopo l'ultimo aggiornamento):

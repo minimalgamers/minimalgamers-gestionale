@@ -153,3 +153,73 @@ test('an applied component with an interrupted final response recovers without d
  assert.equal(result.component.ean,'NEW');assert.equal(f.order.custom_properties._modifica_distinta_gestionale,undefined);
  assert.equal(f.writes.filter(w=>w.table==='processed_order_components').length,before);
 });
+
+const registrationPlan=(stato='pagato')=>({...plan(),source:'registro_acquisti',foglio:2,
+  registrazione:{stato,costo:10,canale:'Intermediario GT',riferimento:'Conferma fornitore',precedente:null}});
+
+test('supplier substitution persists the assembly component and its exact cost with the purchase receipt',async()=>{
+ const f=fixture(),p=registrationPlan();
+ p.replacement.name='Pinco Pallino';
+ const out=await f.s.dbReplacePurchaseComponent('77-2',p);
+ const ledger=out.customProperties._acquisti_parziali_gestionale[10];
+ assert.equal(f.rows[0].product_name,'Pinco Pallino');assert.equal(f.rows[0].ean,'NEW');
+ assert.equal(ledger.ean,'NEW');assert.equal(ledger.costo,10);assert.equal(ledger.stato,'pagato');
+ assert.equal(ledger.canale,'Intermediario GT');assert.equal(ledger.sostituito.ean,'OLD');
+ assert.equal(ledger.sostituito.name,'Original');assert.equal(f.rows[1].ean,'SECOND');
+ assert.equal(f.order.custom_properties._sostituzioni_componenti,undefined,'the change is scoped to these sold PCs');
+ assert.equal(f.order.custom_properties._modifica_distinta_gestionale,undefined);
+ const writes=f.writes.length;
+ await f.s.dbReplacePurchaseComponent('77-2',p);
+ assert.equal(f.writes.length,writes,'retrying a completed receipt does not duplicate it');
+});
+
+test('an ordered substitute retains its quoted cost and can later be paid for the same new article',async()=>{
+ const f=fixture(),p=registrationPlan('ordinato');
+ const out=await f.s.dbReplacePurchaseComponent('77-2',p);
+ const ledger=out.customProperties._acquisti_parziali_gestionale[10];
+ assert.equal(ledger.costo,null);assert.equal(ledger.costo_previsto,10);
+ const paid=await f.s.dbSavePartialPurchases('77-2',[{id:10,type:'SSD',ean:'NEW',supplier:'OMEGA',
+   quantity:1,stato:'pagato',costo:10,precedente:ledger.il}],2);
+ assert.equal(paid._acquisti_parziali_gestionale[10].costo,10);
+ assert.equal(paid._acquisti_parziali_gestionale[10].sostituito.ean,'OLD');
+});
+
+test('an existing unpaid order can accept the supplier substitution using its current receipt revision',async()=>{
+ const f=fixture(),old={id:10,type:'SSD',ean:'OLD',supplier:'ACTION',quantity:1,stato:'ordinato',il:'previous'};
+ f.order.custom_properties._acquisti_parziali_gestionale={10:old};
+ const p=registrationPlan();p.registrazione.precedente='previous';
+ const out=await f.s.dbReplacePurchaseComponent('77-2',p);
+ assert.equal(out.customProperties._acquisti_parziali_gestionale[10].sostituito.registrazione.il,'previous');
+ assert.equal(f.rows[0].ean,'NEW');
+});
+
+test('supplier corrections reject moved desks, paid rows, changed receipts and invalid costs before any write',async()=>{
+ for(const change of [
+   (f,p)=>{p.foglio=1;},
+   (f,p)=>{p.registrazione.costo=-1;},
+   (f,p)=>{p.registrazione.costo=NaN;},
+   (f,p)=>{p.registrazione.costo=null;},
+   (f,p)=>{p.replacement.quantity=2;},
+   (f,p)=>{f.order.custom_properties._acquisti_parziali_gestionale={10:{...p.expected,stato:'pagato',costo:10,il:'previous'}};},
+   (f,p)=>{f.order.custom_properties._acquisti_parziali_gestionale={10:{...p.expected,stato:'ordinato',il:'other'}};}
+ ]) {
+   const f=fixture(),p=registrationPlan();change(f,p);
+   await assert.rejects(()=>f.s.dbReplacePurchaseComponent('77-2',p));
+   assert.equal(f.rows[0].ean,'OLD');assert.equal(f.writes.length,0);
+ }
+});
+
+test('an interrupted supplier substitution recovers both receipt and cost without repeating the component write',async()=>{
+ const opts={beforeWrite:({table,order})=>{
+   if(table==='processed_orders'&&order.custom_properties._modifica_distinta_gestionale)throw Error('interrupted receipt');
+ }};
+ const f=fixture(opts),p=registrationPlan();
+ await assert.rejects(()=>f.s.dbReplacePurchaseComponent('77-2',p),/interrupted receipt/);
+ assert.equal(f.rows[0].ean,'NEW');assert.equal(f.order.custom_properties._acquisti_parziali_gestionale,undefined);
+ assert.ok(f.order.custom_properties._modifica_distinta_gestionale);
+ const writes=f.writes.filter(w=>w.table==='processed_order_components').length;
+ opts.beforeWrite=null;
+ const recovered=await f.s.dbReplacePurchaseComponent('77-2',p);
+ assert.equal(recovered.customProperties._acquisti_parziali_gestionale[10].costo,10);
+ assert.equal(f.writes.filter(w=>w.table==='processed_order_components').length,writes);
+});

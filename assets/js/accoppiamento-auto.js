@@ -4276,21 +4276,49 @@
         return quantita ? `<button type="button" class="acc-rf-copia" data-rf-applica-fornitore="${esc(f.nome)}">✓ Rivedi e applica le proposte (${quantita} pz)</button>` : '';
     }
 
+    function fornitoriConStorico(r) {
+        const perNome = new Map(r.fornitori.map(f => [f.nome, {...f, registrati:[], quantitaRegistrata:0}]));
+        (r.registrati || []).forEach((p, indice) => {
+            const nome = String(p.fornitore || '').trim().toUpperCase();
+            if (!nome) return;
+            if (!perNome.has(nome)) perNome.set(nome, {nome, righe:[], pezzi:0, costo:0, registrati:[], quantitaRegistrata:0});
+            const fornitore = perNome.get(nome);
+            fornitore.registrati.push({p, indice});
+            fornitore.quantitaRegistrata += p.quantita;
+        });
+        return [...perNome.values()];
+    }
+
+    function htmlRegistratiFornitore(registrati, stato, etichetta) {
+        const righe = registrati.filter(({p}) => p.registrato.stato === stato);
+        if (!righe.length) return '';
+        const totale = righe.reduce((n, {p}) => n + p.quantita, 0);
+        return `<section class="acc-rf-registrati"><h3 class="acc-rf-stato-titolo">${etichetta} · ${totale} pz</h3>` +
+            righe.map(({p, indice}) => htmlAcquistoRegistrato(p, indice)).join('') + '</section>';
+    }
+
     // Vista «fornitore per fornitore» (Antonio 01/10: «per poter fare gli ordini rapidamente in fornitura»)
     function htmlFornitoriDaOrdinare(r, solo, contatti) {
-        const lista = r.fornitori.filter(f => !solo || f.nome === solo);
+        const lista = fornitoriConStorico(r).filter(f => !solo || f.nome === solo);
         if (!lista.length) return htmlCategorieDaOrdinare(r, contatti);
         return lista.map(f => {
             const col = COLORI[f.nome] || '#95a5a6';
             const mag = f.nome === 'MAGAZZINO';
             return `<div class="supplier-card"><div class="supplier-header" style="background:${col}"><span>${esc(f.nome)}</span>` +
-                `<span class="supplier-count">${f.pezzi} pz${mag ? ' a terra' : (f.costo ? ' · ' + eur(f.costo) : '')}</span></div><div class="supplier-items-list">` +
+                `<span class="supplier-count">${f.pezzi} pz${mag ? ' a terra' : (f.costo ? ' · ' + eur(f.costo) : '')}${f.quantitaRegistrata ? ' · ' + f.quantitaRegistrata + ' registrati' : ''}</span></div><div class="supplier-items-list">` +
                 (mag ? '<div class="acc-nota">Già a terra: non si ordinano.</div>' : '') +
                 (f.nome === DA_SCEGLIERE ? '<div class="acc-nota">Pezzi fuori dai listini: si scelgono col budget scritto sotto (link Amazon per trovarli in fretta).</div>' : '') +
                 htmlContattiFornitore(f, contatti) +
                 htmlApplicaProposteFornitore(f) +
+                (pezziDaRegistrareFornitore(f, contatti).length
+                    ? `<button type="button" class="acc-rf-copia" data-rf-registra-fornitore="${esc(f.nome)}">✓ Registra acquisto</button>`
+                    : '') +
+                (f.quantitaRegistrata && f.pezzi ? '<h3 class="acc-rf-stato-titolo">Da ordinare</h3>' : '') +
+                (!f.pezzi ? '<p class="acc-nota">Nessun pezzo da ordinare.</p>' : '') +
                 raggruppaReferenzeAcquisto(f.righe).map(x => htmlRigaDaOrdinare(x, col, mag, x.categoria)).join('') +
-                `</div><div class="supplier-card-footer">${mag ? '' : `<button type="button" class="acc-rf-copia" data-rf-forn="${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 ${f.nome === DA_SCEGLIERE ? 'Copia elenco' : `Copia ordine ${esc(f.nome)}`}</button>`}</div></div>`;
+                htmlRegistratiFornitore(f.registrati, 'ordinato', 'Ordinati, da pagare') +
+                htmlRegistratiFornitore(f.registrati, 'pagato', 'Acquistati e pagati') +
+                `</div><div class="supplier-card-footer">${mag || !f.pezzi ? '' : `<button type="button" class="acc-rf-copia" data-rf-forn="${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled title="Nessuna riga pronta: conferma le proposte e verifica la disponibilità"'}>📋 ${f.nome === DA_SCEGLIERE ? 'Copia elenco' : `Copia ordine ${esc(f.nome)}`}</button>`}</div></div>`;
         }).join('');
     }
 
@@ -4326,10 +4354,10 @@
             htmlEsclusioniAcquisto(r) +
             htmlAcquistiRegistrati(r) +
             `<div class="acc-nota" style="margin-top:6px">Apri un fornitore per vedere i suoi pezzi e i contatti commerciali.</div>` +
-            r.fornitori.map(f => `<div class="acc-rf-forn-riga${solo === f.nome ? ' scelto' : ''}">` +
+            fornitoriConStorico(r).map(f => `<div class="acc-rf-forn-riga${solo === f.nome ? ' scelto' : ''}">` +
                 `<button type="button" class="acc-rf-nome" data-rf-vedi="${esc(f.nome)}" title="Vedi cosa compriamo da ${esc(f.nome)}">${badgeFornitore(f.nome)}</button> <span>${f.pezzi} pz` +
-                `${f.nome === 'MAGAZZINO' ? ' a terra' : (f.senzaCosto && !f.costo ? ' · costo —' : ` · ${eur(f.costo)}${f.senzaCosto ? ' +' : ''}`)}</span>` +
-                `${f.nome === 'MAGAZZINO' ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia solo le righe pronte per ${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled'}>📋 Copia</button>`}</div>` +
+                `${f.nome === 'MAGAZZINO' ? ' a terra' : (f.senzaCosto && !f.costo ? ' · costo —' : f.pezzi ? ` · ${eur(f.costo)}${f.senzaCosto ? ' +' : ''}` : ' da ordinare')}${f.quantitaRegistrata ? ' · ' + f.quantitaRegistrata + ' registrati' : ''}</span>` +
+                `${f.nome === 'MAGAZZINO' || !f.pezzi ? '' : `<button type="button" class="acc-rf-copia acc-rf-mini" data-rf-forn="${esc(f.nome)}" title="Copia solo le righe pronte per ${esc(f.nome)}"${f.righe.some(rigaOrdinabile) ? '' : ' disabled'}>📋 Copia</button>`}</div>` +
                 (solo === f.nome ? htmlApplicaProposteFornitore(f) : '')).join('') +
             (solo ? `<button type="button" class="acc-rf-copia" data-rf-vedi="">↩ Tutti i fornitori</button>` : '') +
             htmlEmailOrdini(r, contatti) +
@@ -4556,6 +4584,10 @@
         tutti('[data-rf-registra]').forEach(b => b.addEventListener('click', () => {
             const invio = ordiniEmail(riepilogo.ultimo).invii.find(x=>x.id===b.dataset.rfRegistra);
             if (invio) registraAcquisti(invio.nome,pezziPerRegistrazione(invio)).catch(e=>avvisa(e.message,'error'));
+        }));
+        tutti('[data-rf-registra-fornitore]').forEach(b => b.addEventListener('click', () => {
+            const f = r.fornitori.find(x => x.nome === b.dataset.rfRegistraFornitore);
+            if (f) registraAcquisti(f.nome, pezziDaRegistrareFornitore(f)).catch(e => avvisa(e.message,'error'));
         }));
         tutti('[data-rf-paga]').forEach(b=>b.addEventListener('click',()=>{
             const p=r.registrati[Number(b.dataset.rfPaga)];
@@ -4873,6 +4905,21 @@
             .filter(p=>p.componentId != null && !p.personalizzato).map(p=>({...p,nome:r.descrizione}))));
     }
 
+    function pezziDaRegistrareFornitore(f, contatti) {
+        if (f.nome === 'MAGAZZINO' || f.nome === DA_SCEGLIERE) return [];
+        const invii = contattiOrdini(contatti)?.invii || [];
+        const unici = new Map();
+        for (const r of f.righe) {
+            if (r.daApplicare || r.daDecidere || r.categoriaIncoerente) continue;
+            const canale = invii.find(x => contattoDelFornitore(x, f.nome) && contattoPerCategoria(x, r.categoria))?.nome || f.nome;
+            for (const p of r.pezzi || []) {
+                if (p.componentId == null || p.personalizzato || String(p.fornitore || '').trim().toUpperCase() !== f.nome) continue;
+                unici.set(JSON.stringify([p.id, p.componentId]), {...p, nome:r.descrizione, canale});
+            }
+        }
+        return [...unici.values()];
+    }
+
     async function registraDallaScheda(id,r) {
         const p = bersaglioDallaScheda(id,r);
         await registraAcquisti(r.fornitore,[{...p, costoProposto:r.costo, nome:r.descrizione || r.nome,
@@ -4914,9 +4961,12 @@
 
     async function registraAcquisti(canale,pezzi,soloPagamento=false) {
         if (!pezzi.length || salvataggioAcquisti) return;
-        const contenuto = pezzi.map((p,i)=>`<div class="acc-fin-riga"><label><input type="checkbox" data-acq="${i}" checked> ` +
-            `<strong>${esc(p.ordine)}</strong> · ${p.quantita} × ${esc(p.nome || p.ean)} <small>${esc(p.fornitore)}</small></label>` +
-            `<input type="text" inputmode="decimal" aria-label="Totale netto ${esc(p.ordine)} ${esc(p.tipo)}" data-acq-costo="${i}" value="${p.costoProposto == null ? '' : esc(String(p.costoProposto).replace('.',','))}"></div>`).join('');
+        const contenuto = pezzi.map((p, i) => {
+            const costo = p.registrato?.costo ?? p.costoProposto;
+            return `<div class="acc-fin-riga"><label><input type="checkbox" data-acq="${i}" checked> ` +
+                `<strong>${esc(p.ordine)}</strong> · ${p.quantita} × ${esc(p.nome || p.ean)} <small>${esc(p.fornitore)}</small></label>` +
+                `<input type="text" inputmode="decimal" aria-label="Totale netto ${esc(p.ordine)} ${esc(p.tipo)}" data-acq-costo="${i}" value="${costo == null ? '' : esc(String(costo).replace('.',','))}"></div>`;
+        }).join('');
         const statoInput = soloPagamento ? '<p>Registra gli importi netti pagati.</p>' :
             '<label>Stato <select data-stato><option value="pagato">Acquistato e pagato</option><option value="ordinato">Ordinato, da pagare</option></select></label>';
         const controlli=pezzi.length>1 ? '<div><button type="button" data-acq-tutti>Seleziona tutti</button> <button type="button" data-acq-nessuno>Deseleziona tutti</button></div>' : '';
@@ -4933,7 +4983,7 @@
         const stato=box.querySelector('[data-stato]')?.value || 'pagato';
         const voci=[...box.querySelectorAll('[data-acq]:checked')].map(b=>{
             const i=Number(b.dataset.acq);
-            return {p:pezzi[i],stato,canale,riferimento:box.querySelector('[data-riferimento]').value.trim(),
+            return {p:pezzi[i],stato,canale:pezzi[i].canale || canale,riferimento:box.querySelector('[data-riferimento]').value.trim(),
                 costo:numeroCosto(box.querySelector(`[data-acq-costo="${i}"]`).value)};
         });
         if (stato==='pagato' && voci.some(v=>v.costo==null)) throw new Error('Inserisci l’importo netto pagato per ogni riga selezionata');
@@ -4944,12 +4994,15 @@
         if (!r.registrati?.length) return '';
         const n=r.registrati.reduce((tot,p)=>tot+p.quantita,0);
         return `<details class="acc-rf-excluded"><summary>Acquisti registrati (${n} pz)</summary>` +
-            r.registrati.map((p,i)=>`<div><b>${esc(p.ordine)} · ${esc(p.registrato.canale)}</b> · ${p.quantita} × ${esc(p.nome)}` +
-                `<small>${p.registrato.stato==='pagato'?'Pagato · '+eur(p.registrato.costo):'Ordinato, da pagare'} · ${esc(dataBreve(p.registrato.il))}` +
-                `${p.registrato.riferimento?' · '+esc(p.registrato.riferimento):''}</small>` +
-                (!p.congelato && p.registrato.stato==='ordinato' ? `<button class="acc-rf-azione" type="button" data-rf-paga="${i}">Segna pagato</button>` : '') +
-                (!p.congelato ? `<button class="acc-rf-azione" type="button" data-rf-annulla-acquisto="${i}">Rimetti da ordinare</button>` : '')+'</div>').join('')+
-            '</details>';
+            r.registrati.map(htmlAcquistoRegistrato).join('') + '</details>';
+    }
+
+    function htmlAcquistoRegistrato(p, i) {
+        return `<div class="acc-rf-registrato"><b>${esc(p.ordine)} · ${esc(p.registrato.canale || p.fornitore)}</b> · ${p.quantita} × ${esc(p.nome)}` +
+            `<small>${p.registrato.stato === 'pagato' ? 'Pagato · ' + eur(p.registrato.costo) : 'Ordinato, da pagare'} · ${esc(dataBreve(p.registrato.il))}` +
+            `${p.registrato.riferimento ? ' · ' + esc(p.registrato.riferimento) : ''}</small>` +
+            (!p.congelato && p.registrato.stato === 'ordinato' ? `<button class="acc-rf-azione" type="button" data-rf-paga="${i}">Segna pagato</button>` : '') +
+            (!p.congelato ? `<button class="acc-rf-azione" type="button" data-rf-annulla-acquisto="${i}">Rimetti da ordinare</button>` : '') + '</div>';
     }
 
     function cambiDaProposte(righe) {
@@ -4993,7 +5046,7 @@
             el.hidden = !testo;
         }
         const selettore = '[data-rf-applica-fornitore],[data-rf-applica],[data-rf-cambia],[data-rf-cambia-gruppo],' +
-            '[data-rf-escludi],[data-rf-escludi-gruppo],[data-rf-ripristina],[data-rf-forn],[data-rf-cat],[data-rf-email],[data-rf-ricalcola],[data-rf-registra],[data-rf-paga],[data-rf-annulla-acquisto]';
+            '[data-rf-escludi],[data-rf-escludi-gruppo],[data-rf-ripristina],[data-rf-forn],[data-rf-cat],[data-rf-email],[data-rf-ricalcola],[data-rf-registra],[data-rf-registra-fornitore],[data-rf-paga],[data-rf-annulla-acquisto]';
         for (const b of document.querySelectorAll(selettore)) {
             if (s && !b.disabled) {
                 b.disabled = true;
@@ -5313,7 +5366,7 @@
         bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto, confermaProposteFornitore, statoConfermaProposte,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
-        htmlFornitoriDaOrdinare, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
+        htmlFornitoriDaOrdinare, pezziDaRegistrareFornitore, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
         righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, rigaUpgradePagati, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,

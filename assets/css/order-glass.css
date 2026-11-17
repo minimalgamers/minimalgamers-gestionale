@@ -64,6 +64,11 @@ body.mg-ios #processed-container .mg-glass-order .acc-utile {margin:0!important;
 .mg-ledger-actions button {font-size:11px;padding:5px 7px;margin:0 2px;vertical-align:middle;}
 .mg-ledger-actions button:has(img) {width:32px;padding:5px;}
 .mg-ledger-actions img {vertical-align:middle;}
+.acc-rf-stato-titolo{margin:14px 0 6px;font-size:.96rem;line-height:1.35;}
+.acc-rf-registrati{margin-top:14px;}
+.acc-rf-registrati .acc-rf-registrato{background:#424956;color:#f1f3f6;border-radius:10px;padding:10px 12px;margin:5px 0;overflow-wrap:anywhere;}
+.acc-rf-registrati small{display:block;color:#dfe4ed;margin-top:4px;}
+.acc-rf-registrati .acc-rf-azione{margin:6px 6px 0 0;background:#f1f3f6;color:#202631;}
 .acc-rf-email-row {display:flex;align-items:stretch;gap:6px;margin-block:6px;}
 .acc-rf-email-row .acc-rf-copia {flex:1;min-width:0;margin:0;}
 .acc-rf-email-row [data-rf-registra] {flex:0 0 auto;max-width:40%;line-height:1.15;}

@@ -73,6 +73,46 @@ const gt={invii:[{id:'gt',nome:'Intermediario GT',intermediario:true,fornitori:[
 assert.equal(A.ordiniEmail(giornoDopo,gt).invii[0].pezzi,1);
 assert.match(A.htmlEmailOrdini(giornoDopo,gt),/data-rf-registra="gt"/);
 assert.deepEqual(J(registrate[0].salvati),J(readyCards[0].salvati),'ordini parziali non cambiano la distinta');
+
+// The supplier view keeps the exact remaining unit separate from both purchase statuses.
+const amazon1=component(100,'SSD','SSD-AMAZON','AMAZON');
+const amazon2=component(101,'SSD','SSD-AMAZON','AMAZON');
+const amazon3=component(102,'SSD','SSD-AMAZON','AMAZON');
+const amazonCards=[card('950',[amazon1]),card('950.2',[amazon2]),card('950.3',[amazon3])];
+const amazonPlan=A.daOrdinare(null,amazonCards,{});
+const amazonOpen=amazonPlan.fornitori.find(f=>f.nome==='AMAZON');
+assert.match(A.htmlFornitoriDaOrdinare(amazonPlan,'AMAZON'),/data-rf-registra-fornitore="AMAZON"/);
+assert.deepEqual(J(A.pezziDaRegistrareFornitore(amazonOpen,{invii:[]}).map(p=>[p.id,p.componentId,p.canale])),
+  [['950',100,'AMAZON'],['950.2',101,'AMAZON'],['950.3',102,'AMAZON']]);
+function acquistoAmazon(c,stato) {
+  return {[c.id]:{id:c.id,type:c.type,ean:c.ean,supplier:c.supplier,quantity:c.quantity,
+    stato,costo:43,canale:'AMAZON',il:'2026-11-17T13:00:00Z'}};
+}
+amazonCards[0].acquisti=acquistoAmazon(amazon1,'ordinato');
+amazonCards[2].acquisti=acquistoAmazon(amazon3,'pagato');
+const misto=A.daOrdinare(readyData,[registrate[0],...amazonCards],{});
+const amazonMisto=A.htmlFornitoriDaOrdinare(misto,'AMAZON');
+assert.deepEqual(J(A.pezziDaRegistrareFornitore(misto.fornitori.find(f=>f.nome==='AMAZON')).map(p=>p.id)),['950.2']);
+assert.match(amazonMisto,/Da ordinare[\s\S]*#950\.2[\s\S]*Ordinati, da pagare · 1 pz[\s\S]*Acquistati e pagati · 1 pz/);
+assert.match(amazonMisto,/data-rf-paga="1"/,'filtered history retains the source row index');
+assert.doesNotMatch(amazonMisto,/data-rf-paga="[02]"/);
+assert.match(amazonMisto,/data-rf-annulla-acquisto="2"/);
+amazonCards[1].acquisti=acquistoAmazon(amazon2,'pagato');
+const completo=A.daOrdinare(readyData,[...registrate,...amazonCards],{});
+const amazonChiuso=A.htmlFornitoriDaOrdinare(completo,'AMAZON');
+assert.match(A.htmlLatoDaOrdinare(completo,1,null,'fornitori',null),/data-rf-vedi="AMAZON"/);
+assert.match(amazonChiuso,/Nessun pezzo da ordinare[\s\S]*Acquistati e pagati · 2 pz/);
+assert.doesNotMatch(amazonChiuso,/data-rf-forn=|data-rf-registra-fornitore=/);
+assert.equal(A.ordiniEmail(completo,{invii:[{id:'a',nome:'AMAZON',fornitori:['AMAZON']}]}).invii.length,0);
+assert.deepEqual(J(completo.fornitori.map(f=>f.nome)),['ACTION'],'history stays out of supplier purchase totals');
+
+const [pendente]=ready.fornitori[0].righe;
+const cpu={...pendente,categoria:'CPU',pezzi:[{...pendente.pezzi[0],componentId:999}]};
+const proposta={...pendente,daApplicare:true,pezzi:[{...pendente.pezzi[0],componentId:998}]};
+const rotte={invii:[...gt.invii,{nome:'ACTION diretto',fornitori:['ACTION'],solo_categorie:['CPU']}]};
+assert.deepEqual(J(A.pezziDaRegistrareFornitore({nome:'ACTION',righe:[pendente,cpu,proposta]},rotte)
+  .map(p=>[p.componentId,p.canale])),[[20,'Intermediario GT'],[21,'Intermediario GT'],[999,'ACTION diretto']]);
+
 assert.equal(A.nomeAcquisto('VGAASUATI0472',['VGAASUATI0472','RTX 5060 Ti 8GB'],'GPU'),'RTX 5060 Ti 8GB');
 assert.equal(A.nomeAcquisto('CODE',['CODE'],'GPU'),'GPU — nome prodotto da verificare');
 const noCatalog=J(A.daOrdinare(null,[card('902',[component(22,'GPU','BARE-SKU','ACTION')])],{}));

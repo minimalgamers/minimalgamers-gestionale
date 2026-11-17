@@ -43,6 +43,16 @@ function fixture(options={}) {
  return {s,order,rows,writes};
 }
 const plan=()=>({expected:{id:10,type:'SSD',ean:'OLD',supplier:'ACTION',quantity:1},replacement:{ean:'NEW',name:'New SSD',supplier:'OMEGA',quantity:1}});
+
+test('free-text replacement is persisted only on the selected component with its own supplier',async()=>{
+ const f=fixture(),p=plan();
+ p.source='manuale';p.replacement={ean:'SSD 2TB NVMe',name:'SSD 2TB NVMe acquistato su Amazon',supplier:'AMAZON',quantity:1};
+ const out=await f.s.dbReplacePurchaseComponent('77-2',p);
+ assert.equal(out.component.name,p.replacement.name);assert.equal(out.component.supplier,'AMAZON');
+ assert.equal(f.rows[1].ean,'SECOND');assert.equal(f.rows[0].price,null);
+ const manual=Object.values(out.customProperties._scelte_acquisto_gestionale);
+ assert.equal(manual[0].descrizione,p.replacement.name);
+});
 const exclusion=()=>({key:'77-2|SSD|OLD|ACTION|10',tipo:'SSD',ean:'OLD',fornitore:'ACTION',componentId:10,quantita:1,foglio:2,excluded:true});
 test('replacement updates only the exact original row, persists assembly name and preserves prices/history',async()=>{
  const {s,rows,writes,order}=fixture();const result=await s.dbReplacePurchaseComponent('77-2',plan());

@@ -1938,7 +1938,8 @@
             const quantita = Math.max(1, Number(row.dataset.quantity) || Number(componentiSalvati(orderId).find(c => c.type === tipo && chiave(c.ean) === chiave(man.ean))?.quantity) || 1);
             const pMag = magazzinoDellaRiga(orderId,{tipo,...man,quantita},dati,auto);
             const mag = costoDelPrelievo(pMag);
-            const inserito = costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
+            const inserito = acquistato?.stato === 'ordinato' && Number.isFinite(acquistato.costo_previsto)
+                ? acquistato.costo_previsto : costoInseritoOrdine(orderId, tipo, man.ean, man.fornitore, quantita, auto);
             const quotazioni = quotazioniDellaRiga(dati, { ...man, quantita });
             const offertaAttuale = quotazioni.proprio;
             const {costo, fonte, prezzo_il, riferimento} = costoRigaVerificato({ tipo, nome:man.nome, ean: man.ean, fornitore: man.fornitore, quantita, pagato, inserito, mag, magPreso: pezzoPreso(pMag),
@@ -4811,6 +4812,16 @@
         return salvaCambiAcquisto((scelti || []).filter(Boolean).map(p => ({p, d})), source);
     }
 
+    async function ricaricaSchedeAcquisto() {
+        if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
+        const n = riepilogo.n || (typeof getActiveWorksheetTab === 'function' ? getActiveWorksheetTab() : null);
+        if (typeof renderProcessedOrders === 'function' && typeof getFilteredProcessedOrdersMap === 'function' && typeof processedOrdersMap !== 'undefined' && n)
+            await renderProcessedOrders(getFilteredProcessedOrdersMap(processedOrdersMap,n));
+        const inizio = Date.now();
+        while (Date.now()-inizio < 20000 && typeof isProcessedOrdersViewLoading === 'function' && isProcessedOrdersViewLoading())
+            await new Promise(r => setTimeout(r,500));
+    }
+
     async function salvaCambiAcquisto(cambi, source, aggiorna) {
         let fatti = 0; const falliti = [], riusciti = [];
         const unici = [...new Map(cambi.map(({p,d}) => [p.chiaveAcquisto || JSON.stringify([p.id,p.tipo,p.ean,p.fornitore,p.componentId]),{p,d}])).values()];
@@ -4835,13 +4846,7 @@
         if (!fatti && !aggiorna) return {fatti,falliti};
         aggiorna?.({fase:'aggiornamento'});
         try {
-            if (typeof loadProcessedOrdersFromDB === 'function') await loadProcessedOrdersFromDB();
-            const n = riepilogo.n || (typeof getActiveWorksheetTab === 'function' ? getActiveWorksheetTab() : null);
-            if (typeof renderProcessedOrders === 'function' && typeof getFilteredProcessedOrdersMap === 'function' && typeof processedOrdersMap !== 'undefined' && n)
-                await renderProcessedOrders(getFilteredProcessedOrdersMap(processedOrdersMap,n));
-            const inizio = Date.now();
-            while (Date.now()-inizio < 20000 && typeof isProcessedOrdersViewLoading === 'function' && isProcessedOrdersViewLoading())
-                await new Promise(r => setTimeout(r,500));
+            await ricaricaSchedeAcquisto();
         } catch(e) { console.warn('[ACCOPPIAMENTO] ricarica schede',e); }
         if (riepilogo.modo === 'auto') await renderRiepilogoAuto();
         if (aggiorna) avvisa(esito, falliti.length ? 'error' : 'success');
@@ -4927,6 +4932,28 @@
     }
 
     let salvataggioAcquisti = false;
+    async function salvaSostituzioneRegistrata(v) {
+        const {p, sostituzione:d, stato, costo, canale, riferimento} = v;
+        const result = await window.SupabaseDB.replacePurchaseComponent(String(p.id), {
+            expected:{id:p.componentId,type:p.tipo,ean:p.ean,supplier:p.fornitore,quantity:p.quantita},
+            replacement:{ean:d.codice,name:d.descrizione,supplier:d.fornitore,quantity:p.quantita},
+            source:'registro_acquisti', foglio:p.foglio, chiaveAcquisto:p.chiaveAcquisto,
+            registrazione:{stato,costo,canale,riferimento,precedente:p.registrato?.il || null}
+        });
+        const c = result?.component, registro = result?.customProperties?.[K_ACQUISTI_PARZIALI]?.[p.componentId];
+        if (!c || String(c.id) !== String(p.componentId) || c.ean !== d.codice || c.name !== d.descrizione ||
+            c.supplier !== d.fornitore || Number(c.quantity || 1) !== p.quantita || registro?.stato !== stato ||
+            stato === 'pagato' && registro.costo !== costo)
+            throw new Error('Sostituzione e acquisto da verificare: ricarica il riepilogo');
+        const lista = componentiSalvati(p.id), indice = lista.findIndex(x => String(x.id) === String(p.componentId));
+        if (indice >= 0) lista[indice] = {...lista[indice],...c};
+        if (typeof processedOrdersCache !== 'undefined' && processedOrdersCache[p.id]) {
+            processedOrdersCache[p.id].customProperties=result.customProperties;
+            processedOrdersCache[p.id].custom_properties=result.customProperties;
+        }
+        pulisciModificheLocali(p.id,p.tipo);
+    }
+
     async function salvaRegistrazioni(voci) {
         if (salvataggioAcquisti) throw new Error('Registrazione acquisti già in corso');
         const db=window.SupabaseDB;
@@ -4937,11 +4964,18 @@
             gruppi.get(v.p.id).push(v);
         }
         salvataggioAcquisti=true;
-        let contate=0; const errori=[];
+        let contate=0, sostituite=0; const errori=[];
         try {
             for (const [id,lista] of gruppi) {
                 try {
-                    const cp=await db.savePartialPurchases(id,lista.map(({p,stato,costo,canale,riferimento})=>({
+                    for (const v of lista.filter(x => x.sostituzione)) {
+                        await salvaSostituzioneRegistrata(v);
+                        contate += v.p.quantita;
+                        sostituite++;
+                    }
+                    const residue = lista.filter(x => !x.sostituzione);
+                    if (!residue.length) continue;
+                    const cp=await db.savePartialPurchases(id,residue.map(({p,stato,costo,canale,riferimento})=>({
                         id:p.componentId,type:p.tipo,ean:p.ean,supplier:p.fornitore,quantity:p.quantita,
                         stato,costo,canale,riferimento,precedente:p.registrato?.il
                     })),lista[0].p.foglio);
@@ -4949,22 +4983,79 @@
                         processedOrdersCache[id].customProperties=cp;
                         processedOrdersCache[id].custom_properties=cp;
                     }
-                    contate+=lista.reduce((n,x)=>n+x.p.quantita,0);
+                    contate+=residue.reduce((n,x)=>n+x.p.quantita,0);
                 } catch(e) { errori.push(`#${id}: ${e.message}`); }
             }
-            avvisa(`${contate} pezzi aggiornati${errori.length?' · '+errori.join('; '):''}`,errori.length?'error':'success');
+            if (sostituite) {
+                try { await ricaricaSchedeAcquisto(); }
+                catch (e) { errori.push('Acquisti salvati, ricarica schede non riuscita: ' + e.message); }
+            }
+            avvisa(`${contate} pezzi aggiornati${sostituite ? ' · distinte aggiornate per ' + sostituite + ' righe' : ''}${errori.length?' · '+errori.join('; '):''}`,errori.length?'error':'success');
             if (riepilogo.modo==='auto' && riepilogo.ultimo && document.querySelector('.tab-button.active[data-tab="suppliers"]'))
                 await renderRiepilogoAuto();
             else await Promise.all([...gruppi.keys()].map(id=>aggiornaOrdine(id)));
         } finally { salvataggioAcquisti=false; }
     }
 
+    function stessoArticoloRegistrazione(a, b) {
+        return a.tipo === b.tipo && chiave(a.ean) === chiave(b.ean) &&
+            String(a.fornitore || '').trim().toUpperCase() === String(b.fornitore || '').trim().toUpperCase() &&
+            a.foglio === b.foglio && b.componentId != null && !b.personalizzato && !b.congelato && b.registrato?.stato !== 'pagato';
+    }
+
+    function canaleSostituzioneRegistrata(p, d, canale, contatti) {
+        if (d.fornitore === String(p.fornitore || '').trim().toUpperCase()) return p.canale || canale;
+        return (contattiOrdini(contatti)?.invii || []).find(x => contattoDelFornitore(x,d.fornitore) &&
+            contattoPerCategoria(x,categoriaScheda(p.tipo)))?.nome || d.fornitore;
+    }
+
+    async function modificaArticoloRegistrazione(body, pezzi, indice, sostituzioni) {
+        const origine = pezzi[indice], attuale = sostituzioni.get(indice);
+        const gruppo = pezzi.map((p,i) => ({p,i})).filter(({p}) => stessoArticoloRegistrazione(origine,p));
+        const costo = numeroCosto(body.querySelector(`[data-acq-costo="${indice}"]`).value);
+        const scelte = gruppo.map(({p,i}) => `<label class="acc-acq-pc"><input type="checkbox" data-sost-pc="${i}" checked> ` +
+            `${esc(p.ordine)} · E${p.foglio} · ${p.quantita} × ${esc(p.nome || p.ean)}</label>`).join('');
+        const editor = await finestra('Modifica articolo nelle distinte',
+            `<p>Articolo attuale <b>${esc(origine.nome || origine.ean)}</b> · ${esc(origine.fornitore)} · ${esc(origine.ean)}</p>` +
+            `<label>Nuovo componente <input data-sost-nome maxlength="240" required value="${esc(attuale?.descrizione || origine.nome)}"></label>` +
+            `<label>Fornitore <input data-sost-fornitore maxlength="100" required value="${esc(attuale?.fornitore || origine.fornitore)}"></label>` +
+            `<label>Codice nuovo articolo (facoltativo) <input data-sost-codice maxlength="180" value="${esc(attuale?.codice || '')}"></label>` +
+            `<label>Costo unitario <input data-sost-costo type="text" inputmode="decimal" required value="${costo == null ? '' : esc(String(tonda(costo / origine.quantita)).replace('.',','))}"></label>` +
+            '<label>Importo <select data-sost-iva><option value="1">Netto, IVA esclusa</option><option value="1.22">IVA 22% inclusa</option></select></label>' +
+            `<p>Conferma i PC da aggiornare con questo componente e costo.</p>${scelte}` +
+            '<p>Le distinte saranno aggiornate premendo «Registra selezionati» nel registro acquisti.</p><p data-sost-errore role="alert"></p>',
+            'Conferma modifica per i PC selezionati','Annulla', box => {
+                box.closest('.acc-finestra-box').querySelector('[data-si]').addEventListener('click', e => {
+                    const valido = ['[data-sost-nome]','[data-sost-fornitore]'].every(s => box.querySelector(s).value.trim()) &&
+                        numeroCosto(box.querySelector('[data-sost-costo]').value) != null && box.querySelector('[data-sost-pc]:checked');
+                    if (!valido) {
+                        e.stopImmediatePropagation();
+                        box.querySelector('[data-sost-errore]').textContent = 'Inserisci nome, fornitore, costo e seleziona almeno un PC.';
+                    }
+                }, true);
+            });
+        if (!editor || !body.isConnected) return;
+        const descrizione = editor.querySelector('[data-sost-nome]').value.trim();
+        const d = {descrizione, fornitore:editor.querySelector('[data-sost-fornitore]').value.trim().toUpperCase(),
+            codice:editor.querySelector('[data-sost-codice]').value.trim() || descrizione.slice(0,180)};
+        const unitario = numeroCosto(editor.querySelector('[data-sost-costo]').value) / Number(editor.querySelector('[data-sost-iva]').value);
+        for (const input of editor.querySelectorAll('[data-sost-pc]:checked')) {
+            const i = Number(input.dataset.sostPc), p = pezzi[i];
+            sostituzioni.set(i,d);
+            body.querySelector(`[data-acq="${i}"]`).checked = true;
+            body.querySelector(`[data-acq-nome="${i}"]`).textContent = `${d.descrizione} · ${d.fornitore} (era ${p.nome || p.ean})`;
+            body.querySelector(`[data-acq-costo="${i}"]`).value = String(tonda(unitario * p.quantita)).replace('.',',');
+        }
+    }
+
     async function registraAcquisti(canale,pezzi,soloPagamento=false) {
         if (!pezzi.length || salvataggioAcquisti) return;
+        const sostituzioni = new Map();
         const contenuto = pezzi.map((p, i) => {
-            const costo = p.registrato?.costo ?? p.costoProposto;
-            return `<div class="acc-fin-riga"><label><input type="checkbox" data-acq="${i}" checked> ` +
-                `<strong>${esc(p.ordine)}</strong> · ${p.quantita} × ${esc(p.nome || p.ean)} <small>${esc(p.fornitore)}</small></label>` +
+            const costo = p.registrato?.costo ?? p.registrato?.costo_previsto ?? p.costoProposto;
+            return `<div class="acc-fin-riga acc-acq-riga"><label><input type="checkbox" data-acq="${i}" checked> ` +
+                `<strong>${esc(p.ordine)}</strong> · ${p.quantita} × <span data-acq-nome="${i}">${esc(p.nome || p.ean)} · ${esc(p.fornitore)}</span></label>` +
+                (!p.congelato && p.registrato?.stato !== 'pagato' ? `<button type="button" class="acc-acq-matita" data-acq-modifica="${i}" title="Modifica articolo e costo nelle distinte" aria-label="Modifica ${esc(p.nome || p.ean)} per ${esc(p.ordine)}">✎</button>` : '') +
                 `<input type="text" inputmode="decimal" aria-label="Totale netto ${esc(p.ordine)} ${esc(p.tipo)}" data-acq-costo="${i}" value="${costo == null ? '' : esc(String(costo).replace('.',','))}"></div>`;
         }).join('');
         const statoInput = soloPagamento ? '<p>Registra gli importi netti pagati.</p>' :
@@ -4978,15 +5069,22 @@
                 const spunta = checked => body.querySelectorAll('[data-acq]').forEach(x=>x.checked=checked);
                 body.querySelector('[data-acq-tutti]')?.addEventListener('click',()=>spunta(true));
                 body.querySelector('[data-acq-nessuno]')?.addEventListener('click',()=>spunta(false));
+                body.querySelectorAll('[data-acq-modifica]').forEach(b => b.addEventListener('click', async () => {
+                    b.disabled=true;
+                    try { await modificaArticoloRegistrazione(body,pezzi,Number(b.dataset.acqModifica),sostituzioni); }
+                    catch(e) { avvisa(e.message,'error'); }
+                    finally { b.disabled=false; }
+                }));
             });
         if (!box) return;
         const stato=box.querySelector('[data-stato]')?.value || 'pagato';
         const voci=[...box.querySelectorAll('[data-acq]:checked')].map(b=>{
             const i=Number(b.dataset.acq);
-            return {p:pezzi[i],stato,canale:pezzi[i].canale || canale,riferimento:box.querySelector('[data-riferimento]').value.trim(),
+            const d = sostituzioni.get(i);
+            return {p:pezzi[i],sostituzione:d,stato,canale:d ? canaleSostituzioneRegistrata(pezzi[i],d,canale) : pezzi[i].canale || canale,riferimento:box.querySelector('[data-riferimento]').value.trim(),
                 costo:numeroCosto(box.querySelector(`[data-acq-costo="${i}"]`).value)};
         });
-        if (stato==='pagato' && voci.some(v=>v.costo==null)) throw new Error('Inserisci l’importo netto pagato per ogni riga selezionata');
+        if (voci.some(v => (stato==='pagato' || v.sostituzione) && v.costo==null)) throw new Error('Inserisci l’importo netto per ogni riga selezionata');
         if (voci.length) await salvaRegistrazioni(voci);
     }
 
@@ -4999,7 +5097,7 @@
 
     function htmlAcquistoRegistrato(p, i) {
         return `<div class="acc-rf-registrato"><b>${esc(p.ordine)} · ${esc(p.registrato.canale || p.fornitore)}</b> · ${p.quantita} × ${esc(p.nome)}` +
-            `<small>${p.registrato.stato === 'pagato' ? 'Pagato · ' + eur(p.registrato.costo) : 'Ordinato, da pagare'} · ${esc(dataBreve(p.registrato.il))}` +
+            `<small>${p.registrato.stato === 'pagato' ? 'Pagato · ' + eur(p.registrato.costo) : 'Ordinato, da pagare' + (Number.isFinite(p.registrato.costo_previsto) ? ' · concordato ' + eur(p.registrato.costo_previsto) : '')} · ${esc(dataBreve(p.registrato.il))}` +
             `${p.registrato.riferimento ? ' · ' + esc(p.registrato.riferimento) : ''}</small>` +
             (!p.congelato && p.registrato.stato === 'ordinato' ? `<button class="acc-rf-azione" type="button" data-rf-paga="${i}">Segna pagato</button>` : '') +
             (!p.congelato ? `<button class="acc-rf-azione" type="button" data-rf-annulla-acquisto="${i}">Rimetti da ordinare</button>` : '') + '</div>';
@@ -5366,7 +5464,7 @@
         bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto, confermaProposteFornitore, statoConfermaProposte,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
-        htmlFornitoriDaOrdinare, pezziDaRegistrareFornitore, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
+        htmlFornitoriDaOrdinare, pezziDaRegistrareFornitore, stessoArticoloRegistrazione, canaleSostituzioneRegistrata, registraAcquisti, salvaSostituzioneRegistrata, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
         righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, rigaUpgradePagati, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,

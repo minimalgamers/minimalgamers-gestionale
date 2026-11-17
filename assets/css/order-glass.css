@@ -109,3 +109,19 @@ body.mg-glass-desk #processed-container > .order-card {scroll-margin-top:220px;m
  .mg-order-reset {width:auto;min-height:30px;padding:4px 7px;margin-bottom:5px;}
  body.mg-glass-desk #processed-container > .order-card {scroll-margin-top:360px;}
 }
+
+/* Registrazione fornitori con sostituzione manuale nelle distinte. */
+.acc-finestra .acc-acq-riga{display:grid;grid-template-columns:minmax(0,1fr) 44px 120px;align-items:center;gap:8px;}
+.acc-acq-riga>label{min-width:0;overflow-wrap:anywhere;}
+.acc-acq-riga>input{box-sizing:border-box;min-width:0;width:100%;}
+.acc-finestra .acc-acq-matita{padding:8px;width:44px;min-height:44px;font-size:20px;}
+.acc-finestra [data-sost-nome],.acc-finestra [data-sost-fornitore],.acc-finestra [data-sost-codice],.acc-finestra [data-sost-costo]{box-sizing:border-box;width:100%;min-width:0;}
+.acc-acq-pc{overflow-wrap:anywhere;}
+.acc-finestra [data-sost-errore]{color:#b42332;}
+.acc-acq-riga:has(label + input){grid-template-columns:minmax(0,1fr) 120px;}
+@media(max-width:600px){
+ .acc-finestra .acc-acq-riga{grid-template-columns:minmax(0,1fr) 44px;}
+ .acc-acq-riga>label{grid-column:1/-1;}
+ .acc-acq-riga>input{grid-column:1;grid-row:2;min-height:44px;}
+ .acc-acq-riga>.acc-acq-matita{grid-column:2;grid-row:2;}
+}

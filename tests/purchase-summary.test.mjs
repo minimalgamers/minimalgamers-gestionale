@@ -307,3 +307,13 @@ const distinctDraft=A.testoEmail(emailOrders(withSimilarCode)[0],emailContacts,'
 assert.match(distinctDraft.corpo,/3 x RAM DDR5 8 GB .*RAM-2X8/);
 assert.match(distinctDraft.corpo,/1 x Altra RAM DDR5 .*RAM2X8/);
 console.log('purchase-summary: allocation, exact replacement, exclusions and order drafts passed');
+
+// Manual registration groups exact supplier references within the current desk.
+const groupBase={tipo:'GPU',ean:'RTX-5080-SKU',fornitore:'TIER ONE',foglio:1,componentId:10};
+assert.equal(A.stessoArticoloRegistrazione(groupBase,{...groupBase,componentId:11}),true);
+for(const different of [{tipo:'CPU'},{ean:'OTHER-5080-SKU'},{fornitore:'ACTION'},{foglio:2},
+ {componentId:null},{personalizzato:true},{congelato:true},{registrato:{stato:'pagato'}}])
+ assert.equal(A.stessoArticoloRegistrazione(groupBase,{...groupBase,...different}),false);
+assert.equal(A.canaleSostituzioneRegistrata(groupBase,{fornitore:'TIER ONE'},'Intermediario GT',{invii:[]}),'Intermediario GT');
+assert.equal(A.canaleSostituzioneRegistrata(groupBase,{fornitore:'AMAZON'},'Intermediario GT',{invii:[]}),'AMAZON');
+assert.equal(A.canaleSostituzioneRegistrata({...groupBase,tipo:'CPU'},{fornitore:'ACTION'},'Intermediario GT',rotte),'ACTION diretto');

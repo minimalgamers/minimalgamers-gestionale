@@ -61,6 +61,18 @@ const ready=J(A.daOrdinare(readyData,readyCards,{}));
 assert.deepEqual([ready.pronti,ready.pezzi,ready.totale,ready.prontoTotale],[2,2,100,100]);
 assert.equal(A.testoOrdineFornitore(ready.fornitori[0]),'x2 | SSD-A - SSD NVMe SSD-A');
 assert.equal(ready.righe[0].pezzi.length,2);
+const registrate=J(readyCards);
+registrate[0].acquisti={'20':{id:20,type:'SSD',ean:'SSD-A',supplier:'ACTION',quantity:1,stato:'ordinato',
+    canale:'GT',il:'2026-11-17T13:00:00Z'}};
+const giornoDopo=A.daOrdinare(readyData,registrate,{});
+assert.equal(giornoDopo.registrati.length,1);
+assert.equal(giornoDopo.registrati[0].id,'901');
+assert.equal(giornoDopo.righe[0].pezzi[0].id,'901.2');
+assert.equal(A.testoOrdineFornitore(giornoDopo.fornitori[0]),'x1 | SSD-A - SSD NVMe SSD-A');
+const gt={invii:[{id:'gt',nome:'Intermediario GT',intermediario:true,fornitori:['ACTION'],a:['gt@example.invalid']}]};
+assert.equal(A.ordiniEmail(giornoDopo,gt).invii[0].pezzi,1);
+assert.match(A.htmlEmailOrdini(giornoDopo,gt),/data-rf-registra="gt"/);
+assert.deepEqual(J(registrate[0].salvati),J(readyCards[0].salvati),'ordini parziali non cambiano la distinta');
 assert.equal(A.nomeAcquisto('VGAASUATI0472',['VGAASUATI0472','RTX 5060 Ti 8GB'],'GPU'),'RTX 5060 Ti 8GB');
 assert.equal(A.nomeAcquisto('CODE',['CODE'],'GPU'),'GPU — nome prodotto da verificare');
 const noCatalog=J(A.daOrdinare(null,[card('902',[component(22,'GPU','BARE-SKU','ACTION')])],{}));

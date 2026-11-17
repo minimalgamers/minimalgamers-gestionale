@@ -228,11 +228,13 @@ async function dbSaveProcessedOrder(shopifyOrderId, orderData) {
         const cp = typeof old?.custom_properties === 'string' ? JSON.parse(old.custom_properties) : old?.custom_properties;
         if (old && !componentsArray) return dbUpdateProcessedOrder(shopifyOrderId, clean);
         if (cp?._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: distinta e costi protetti');
+        if (componentsArray && Object.values(cp?._acquisti_parziali_gestionale || {}).some(purchaseActive))
+            throw new Error('Ci sono pezzi già ordinati: modifica le singole righe da acquistare nella scheda');
         if (cp?._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di risalvare la distinta');
         if (old && clean.custom_properties !== undefined) {
             const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
             clean.custom_properties = {...nuove};
-            for (const k of ['_costi_netti_gestionale', '_iva_vendita_gestionale','_sostituzioni_componenti', '_esclusioni_acquisto_gestionale', '_scelte_acquisto_gestionale', '_modifica_distinta_gestionale'])
+            for (const k of ['_costi_netti_gestionale', '_iva_vendita_gestionale','_sostituzioni_componenti', '_esclusioni_acquisto_gestionale', '_scelte_acquisto_gestionale', '_modifica_distinta_gestionale', '_acquisti_parziali_gestionale'])
                 if (cp?.[k] !== undefined) clean.custom_properties[k] = cp[k];
         }
         if (old) {
@@ -310,6 +312,7 @@ async function dbReconcileOrderAccessories(shopifyOrderId, plan) {
     if (readError) throw readError;
     if (rows.some(c => c.price != null)) throw new Error('Acquisto confermato: storico protetto');
     const managed = rows.filter(c => allowed.has(c.component_type));
+    if (managed.some(c=>purchaseForRow(prot,c))) throw new Error('Accessori già ordinati o pagati: storico protetto');
     const canonical = list => JSON.stringify(list.map(c => [c.type, c.ean || '', c.name || '', c.supplier || '', Number(c.quantity) || 1])
         .sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
     if (canonical(managed.map(c => ({ type:c.component_type,ean:c.ean,name:c.product_name,supplier:c.supplier,quantity:c.quantity }))) !== canonical(plan.previous))
@@ -365,13 +368,14 @@ async function dbSaveOrderCost(shopifyOrderId, voce) {
     if (prot._acquisto_confermato_gestionale) throw new Error('Acquisto confermato: i costi storici sono protetti');
     if (prot._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa la modifica prima di salvare il costo');
     const { data: componenti, error: errC } = await supabase.from('processed_order_components')
-        .select('component_type,ean,supplier,price').eq('order_id', order.id);
+        .select('id,component_type,ean,supplier,quantity,price').eq('order_id', order.id);
     if (errC) throw errC;
     const norm = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^0+/, '');
     const esatti = componenti.filter(c => c.component_type === voce.tipo && norm(c.ean) === norm(voce.ean) &&
         String(c.supplier || '').toUpperCase() === String(voce.fornitore || '').toUpperCase());
     if (!voce.extra && !esatti.length) throw new Error('Il componente è cambiato: ricarica la scheda');
-    if (esatti.some(c => c.price != null)) throw new Error('Prezzo pagato già confermato: storico protetto');
+    if (esatti.some(c => c.price != null || purchaseForRow(prot,c)?.stato === 'pagato'))
+        throw new Error('Prezzo pagato già confermato: storico protetto');
     let cp = order.custom_properties || {};
     if (typeof cp === 'string') cp = JSON.parse(cp);
     cp = { ...cp, _costi_netti_gestionale: { ...(cp._costi_netti_gestionale || {}) } };
@@ -461,12 +465,20 @@ async function dbConfirmOrderPurchase(shopifyOrderId, piano) {
     if (cp._acquisto_confermato_gestionale) throw new Error('Acquisto già confermato');
     if (cp._modifica_distinta_gestionale) throw new Error('Sostituzione in corso: completa o riprova la stessa modifica prima di confermare l’acquisto');
     const { data: righe, error: errR } = await supabase.from('processed_order_components')
-        .select('component_type,ean,supplier,quantity,price').eq('order_id', order.id).or('is_custom.is.null,is_custom.eq.0');
+        .select('id,component_type,ean,supplier,quantity,price').eq('order_id', order.id).or('is_custom.is.null,is_custom.eq.0');
     if (errR) throw errR;
     if (righe.some(r => r.price != null)) throw new Error('Acquisto già confermato: prezzi storici conservati');
     const canon = rs => JSON.stringify(rs.map(r => [r.tipo || r.component_type, r.ean || '', r.fornitore ?? r.supplier ?? '', Number(r.quantita ?? r.quantity) || 1])
         .sort((a,b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
     if (canon(righe) !== canon(piano.righe)) throw new Error('La distinta è cambiata: ricarica prima di confermare');
+    for (const row of righe) {
+        const prior = purchaseForRow(cp,row);
+        if (!prior) continue;
+        if (prior.stato === 'ordinato') throw new Error('Registra prima il pagamento dei pezzi già ordinati');
+        const r = piano.righe.find(r => purchaseSameComponent(row,
+            {id:r.componentId,type:r.tipo,ean:r.ean,supplier:r.fornitore,quantity:r.quantita}));
+        if (!r || r.costo !== prior.costo) throw new Error('Il costo pagato è cambiato: ricarica prima di confermare');
+    }
     const nuovo = { ...cp, _acquisto_confermato_gestionale: { ...piano, il: new Date().toISOString() } };
     let q = supabase.from('processed_orders').update({ custom_properties: nuovo, updated_at: new Date().toISOString() }).eq('id', order.id);
     q = order.updated_at == null ? q.is('updated_at', null) : q.eq('updated_at', order.updated_at);
@@ -503,7 +515,7 @@ async function dbUpdateProcessedOrder(shopifyOrderId, fields) {
         if (clean.custom_properties !== undefined) {
         const nuove = typeof clean.custom_properties === 'string' ? JSON.parse(clean.custom_properties) : clean.custom_properties || {};
         clean.custom_properties = { ...nuove };
-        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_esclusioni_acquisto_gestionale', '_scelte_acquisto_gestionale', '_modifica_distinta_gestionale']) {
+        for (const k of ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti', '_esclusioni_acquisto_gestionale', '_scelte_acquisto_gestionale', '_modifica_distinta_gestionale', '_acquisti_parziali_gestionale']) {
             if (cp[k] !== undefined) clean.custom_properties[k] = cp[k];
             else delete clean.custom_properties[k];
         }
@@ -538,6 +550,55 @@ function purchaseSameComponent(row, expected) {
         row.component_type === expected.type && String(row.ean || '') === String(expected.ean || '') &&
         String(row.supplier || '') === String(expected.supplier || '') &&
         Number(row.quantity || 1) === Number(expected.quantity || 1);
+}
+
+const purchaseActive = p => p?.stato === 'ordinato' || p?.stato === 'pagato';
+const purchaseForRow = (cp, row) => {
+    const p = cp._acquisti_parziali_gestionale?.[row.id];
+    return purchaseActive(p) && purchaseSameComponent(row, p) ? p : null;
+};
+
+// One compare-and-swap per PC. A partial batch across PCs can be retried safely.
+async function dbSavePartialPurchases(shopifyOrderId, entries, foglio) {
+    if (!Array.isArray(entries) || !entries.length || ![1,2,3,4].includes(Number(foglio)) ||
+        new Set(entries.map(e => String(e.id))).size !== entries.length) throw new Error('Selezione acquisti non valida');
+    const {order, cp} = await dbPurchaseOrder(shopifyOrderId);
+    if (Number(order.foglio_di_lavoro || 1) !== Number(foglio)) throw new Error('La scheda è stata spostata: ricarica il riepilogo');
+    if (cp._acquisto_confermato_gestionale || cp._modifica_distinta_gestionale)
+        throw new Error('Scheda confermata o modifica in corso: ricarica il riepilogo');
+    const {data: rows, error} = await supabase.from('processed_order_components')
+        .select('id,component_type,ean,supplier,quantity,price').eq('order_id',order.id).or('is_custom.is.null,is_custom.eq.0');
+    if (error) throw error;
+    const ledger = {...cp._acquisti_parziali_gestionale};
+    const now = new Date().toISOString();
+    for (const e of entries) {
+        const row = e.id == null ? null : (rows || []).find(r => purchaseSameComponent(r,e));
+        if (!row || row.price != null) throw new Error('Componente cambiato o già confermato: ricarica la scheda');
+        const prior = purchaseForRow(cp,row);
+        if (!['ordinato','pagato','annullato'].includes(e.stato) ||
+            e.stato === 'pagato' && (typeof e.costo !== 'number' || !Number.isFinite(e.costo) || e.costo < 0))
+            throw new Error('Stato o importo netto di acquisto non valido');
+        const costo = e.stato === 'pagato' ? Math.round(e.costo * 100) / 100 : null;
+        if (prior && prior.stato === e.stato && prior.costo === costo) continue;
+        if ((prior && prior.il !== e.precedente) || (!prior && (e.precedente || e.stato === 'annullato')))
+            throw new Error('Acquisto già aggiornato: ricarica il riepilogo');
+        if (!prior && Object.values(cp._esclusioni_acquisto_gestionale || {}).some(x =>
+                (x.escluso || x.excluded) && x.componentId != null &&
+                purchaseSameComponent(row,{id:x.componentId,type:x.tipo,ean:x.ean,supplier:x.fornitore,quantity:x.quantita})))
+            throw new Error('Componente già escluso dagli acquisti');
+        ledger[row.id] = {...prior, id:row.id, type:row.component_type, ean:row.ean, supplier:row.supplier,
+            quantity:Number(row.quantity || 1), stato:e.stato, costo, il:now, ordinato_il:prior?.ordinato_il || now,
+            pagato_il:e.stato === 'pagato' ? now : null, canale:prior?.canale || String(e.canale || row.supplier || '').slice(0,150),
+            riferimento:String(e.riferimento || prior?.riferimento || '').slice(0,150)};
+    }
+    const next = {...cp, _acquisti_parziali_gestionale:ledger};
+    let q = supabase.from('processed_orders').update({custom_properties:next,updated_at:purchaseWriteTime(order.updated_at)})
+        .eq('id',order.id);
+    q = order.updated_at == null ? q.is('updated_at',null) : q.eq('updated_at',order.updated_at);
+    const saved = await q.select('id');
+    if (saved.error) throw saved.error;
+    if (saved.data?.length !== 1) throw new Error('La scheda è cambiata: ricarica prima di confermare');
+    return next;
 }
 
 async function dbPurchaseOrder(shopifyOrderId) {
@@ -658,7 +719,8 @@ async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
     // snapshot d'acquisto confermato nel frattempo.
     if(intent){
         const already=(read.data||[]).find(c=>String(c.id)===String(intent.componentId)&&c.component_type===e.type&&
-            c.ean===String(r.ean)&&c.supplier===String(r.supplier)&&Number(c.quantity||1)===Number(r.quantity||e.quantity||1)&&c.price==null);
+            c.ean===String(r.ean)&&c.supplier===String(r.supplier)&&c.product_name===String(r.name)&&
+            Number(c.quantity||1)===Number(r.quantity||e.quantity||1)&&c.price==null);
         if(already){
             const properties=await dbReleasePurchaseIntent(shopifyOrderId,intent.token);
             return {component:{id:already.id,type:already.component_type,ean:already.ean,name:already.product_name,supplier:already.supplier,quantity:already.quantity||1,price:already.price},customProperties:properties};
@@ -666,7 +728,7 @@ async function dbReplacePurchaseComponent(shopifyOrderId, plan) {
     }
     if (matches.length !== 1) throw new Error('Il componente è cambiato o ambiguo: ricarica prima di sostituire');
     const old = matches[0];
-    if (old.price != null) throw new Error('Prezzo pagato confermato: componente protetto');
+    if (old.price != null || purchaseForRow(cp,old)) throw new Error('Pezzo già ordinato o pagato: componente protetto');
     const esclusione = plan.source === 'allocation_plan' && cp._esclusioni_acquisto_gestionale?.[plan.chiaveAcquisto];
     if ((esclusione?.escluso || esclusione?.excluded) && !esclusione.personalizzato && esclusione.componentId != null &&
         purchaseSameComponent(old, {id:esclusione.componentId,type:esclusione.tipo,ean:esclusione.ean,
@@ -777,7 +839,7 @@ async function dbUpsertSingleComponent(shopifyOrderId, componentType, ean, produ
             .eq('order_id',order.id).eq('component_type',componentType).or('is_custom.is.null,is_custom.eq.0').maybeSingle();
         if(read.error)throw read.error;
         const old=read.data;
-        if(old?.price!=null)throw new Error('Prezzo pagato confermato: componente protetto');
+        if(old?.price!=null || old && purchaseForRow(cp,{...old,component_type:componentType}))throw new Error('Pezzo ordinato o pagato: componente protetto');
         intent={kind:'legacy_component',key,token:`${Date.now()}-${Math.random().toString(36).slice(2)}`,type:componentType,
             operation:old?'update':'insert',desired:{...desired,quantity:old?.quantity || 1},
             expected:old?{id:old.id,type:componentType,ean:old.ean,supplier:old.supplier,quantity:old.quantity,price:old.price}:null,
@@ -836,6 +898,7 @@ async function dbSetComponentPrices(shopifyOrderId, prezzi) {
             const rows=(read.data || []).filter(c=>c.component_type===p.type && (!p.ean || String(c.ean)===String(p.ean)));
             if(!rows.length || !p.ean && rows.length!==1)throw new Error('Il componente del costo è cambiato o ambiguo: ricarica la scheda');
             for(const row of rows){
+                if(purchaseForRow(cp,row)) throw new Error('Pezzo ordinato o pagato: usa lo storico acquisti');
                 const prior=selected.get(row.id);
                 if(prior && !legacyPriceEqual(prior.price,p.price))throw new Error('Prezzi discordanti per lo stesso componente: correggi la richiesta');
                 selected.set(row.id,{expected:{id:row.id,type:row.component_type,ean:row.ean,supplier:row.supplier,quantity:row.quantity,price:row.price},price:p.price});
@@ -1388,6 +1451,7 @@ window.SupabaseDB = {
     getProductReplacements: dbGetProductReplacements,
     saveProductReplacement: dbSaveProductReplacement,
     confirmOrderPurchase: dbConfirmOrderPurchase,
+    savePartialPurchases: dbSavePartialPurchases,
     setComponentPrices: dbSetComponentPrices,
     // Custom items per ordine
     getCustomItemsByOrder: dbGetCustomItemsByOrder,

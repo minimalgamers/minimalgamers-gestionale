@@ -34,7 +34,7 @@
         'KIT GAMING': 'ACCESSORIO', KIT: 'ACCESSORIO', SEDIA: 'ACCESSORIO', SCRIVANIA: 'ACCESSORIO'
     };
     const CHIAVI_TECNICHE = ['_acquisto_confermato_gestionale', '_costi_netti_gestionale', '_iva_vendita_gestionale', '_sostituzioni_componenti',
-        '_scelte_acquisto_gestionale', '_esclusioni_acquisto_gestionale', '_modifica_distinta_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
+        '_scelte_acquisto_gestionale', '_esclusioni_acquisto_gestionale', '_modifica_distinta_gestionale', '_acquisti_parziali_gestionale', '_has_gpo', '_gpo_product_group', '_gpo_personalize', 'gpo_field_name',
         'gpo_parent_product_group', '_gpo_field_name', '_gpo_parent_product_group'];
 
     const stato = { dati: null, errore: null, promessa: null, caricatoIl: 0, inCorso: false, upgradeAttesi: [] };
@@ -1925,7 +1925,9 @@
             const sch = costoScheda(dati, man.ean, man.fornitore);
             // scheda senza fornitore ma con il codice di un fornitore (es. monitor MONLG-GAM0046 di ACTION): e' quel pezzo
             const delCodice = fornitoreVago(man.fornitore) ? pezzoDelCodice(dati, man.ean) : null;
-            const pagato = prezzoAcquisto(orderId, tipo, man.ean);
+            const componente = componenteDistinta(orderId, {tipo,...man});
+            const acquistato = acquistoParziale(componente, proprietaOrdine(orderId)[K_ACQUISTI_PARZIALI]);
+            const pagato = acquistato?.stato === 'pagato' ? acquistato.costo : prezzoAcquisto(orderId, tipo, man.ean);
             // 30/09 (Antonio: «il gestionale mi ha detto di non sapere il costo del kit»): conta sempre il pezzo scritto
             // nella scheda. La voce dell'opzione del cliente vale solo se la scheda ha proprio quel pezzo; altrimenti
             // vale la voce del pezzo della scheda (per codice) o il pezzo dell'automatico per quella riga (case ATX
@@ -1950,9 +1952,12 @@
             const nomeCaseBase = tipo === 'CASE' && /^(?:CASE ATX|NOUA (?:FLOW|VITRA|VISION))(?: (?:WHITE|BLACK|BIANCO|NERO))?$/i.test(String(man.ean || '').trim()) ? man.ean : '';
             const descrizione = nomeCaseBase || stessoCodice(vStesso && vStesso.manuale) || stessoCodice(pRiga && pRiga.manuale) ||
                 (sch && sch.descrizione) || (delCodice && delCodice.descrizione) || (salvatoRiga && salvatoRiga.name) || man.nome;
+            const ref = componente?.id != null && identitaAcquisto({id:orderId}, {tipo,...man,quantita}, componente);
+            const esclusa = !!ref && esclusioneAcquisto(ref, proprietaOrdine(orderId)[K_ESCLUSIONI_ACQUISTO]);
             // La fonte del prezzo non cambia l'identità salvata della riga (né la chiave del costo manuale).
             conti.righe.push({ tipo, quantita, ean: man.ean, fornitore: man.fornitore,
                 nome: man.nome, descrizione, costo, fonte, prezzo_il, riferimento, magazzino:pMag?.mag, consigliato: consigliato(auto, tipo, salvati),
+                componentId:componente?.id, acquistato, esclusa,
                 ...((costo == null || fonte==='riferimento_altro') && quotazioni.alternativa ? {offertaAlternativa:quotazioni.alternativa} : {}) });
             if (costo == null) conti.mancanti.push(conti.righe[conti.righe.length - 1]);
             else conti.man += costo;
@@ -1968,7 +1973,7 @@
             const m = manualeDellaRiga(row);
             const r = conti.righe.find(x => x.tipo === row.dataset.componentType && chiave(x.ean) === chiave(m.ean) &&
                 String(x.fornitore || '').toUpperCase() === String(m.fornitore || '').toUpperCase());
-            const avviso = row.dataset.accPaid === '1' || !r ? null : disponibilitaRiga(dati, auto, r, conti.confermato || auto?.solo_contabile);
+            const avviso = row.dataset.accPaid === '1' || !r || r.acquistato || r.esclusa ? null : disponibilitaRiga(dati, auto, r, conti.confermato || auto?.solo_contabile);
             if (r) r.verificaDisponibilita = avviso;
             segnaDisponibilitaRiga(row, orderId, r, avviso);
         }
@@ -2186,6 +2191,9 @@
                     ...(riepilogoSpeditoMancante ? ['Riepilogo costi della scheda spedita non disponibile: utile da verificare.'] : []),
                     ...(erroreVoci ? ['Voci personalizzate non leggibili: ricarica prima di confermare acquisti.'] : [])]}, {
                 change:r=>apriCambioPezzo(orderId,r), cost:r=>apriCosto(orderId,r),
+                manual:r=>apriModificaManuale(orderId,r).catch(e=>avvisa(e.message,'error')),
+                exclude:r=>escludiDallaScheda(orderId,r).catch(e=>avvisa(e.message,'error')),
+                purchase:r=>registraDallaScheda(orderId,r).catch(e=>avvisa(e.message,'error')),
                 plan:()=>aggiornaScrivania(scrivaniaAttiva(),document.querySelector('#processed-container .acc-barra') || el.querySelector('.mg-glass-account'),[String(orderId)]),
                 refresh:async()=>{await carica(true);await aggiornaOrdine(orderId);},
                 confirm:section=>confermaScrivania(scrivaniaAttiva(),section,[String(orderId)])
@@ -2332,7 +2340,7 @@
     }
 
     // Finestra con due pulsanti; risolve con il contenitore se si preme il primo, con null altrimenti
-    function finestra(titolo, corpo, si, no) {
+    function finestra(titolo, corpo, si, no, prepara) {
         return new Promise(resolve => {
             stile();
             const ov = document.createElement('div');
@@ -2343,6 +2351,7 @@
             const chiudi = (ok) => { const c = ov.querySelector('.acc-finestra-corpo'); ov.remove(); resolve(ok ? c : null); };
             ov.querySelector('[data-si]').addEventListener('click', () => chiudi(true));
             ov.querySelector('[data-no]').addEventListener('click', () => chiudi(false));
+            prepara?.(ov.querySelector('.acc-finestra-corpo'));
         });
     }
 
@@ -2539,7 +2548,7 @@
         if (!auto || !Array.isArray(auto.pezzi)) return [];
         const out = [];
         for (const r of righeScheda) {
-            if (acquistoConfermato(orderId) || ['PSU','COOLER'].includes(TIPI[r.tipo] || r.tipo) ||
+            if (r.acquistato || r.esclusa || acquistoConfermato(orderId) || ['PSU','COOLER'].includes(TIPI[r.tipo] || r.tipo) ||
                 ['acquistato','magazzino','inserito','fisso_utente'].includes(r.fonte)) continue;
             const salvato = componentiSalvati(orderId).find(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean));
             // nome salvato, non quello mostrato (la scheda aggiunge il colore del case a scheda video e madre)
@@ -3025,7 +3034,7 @@
                 incompatibili.map(m => `<p>${esc(m)} Correggi il componente nella distinta prima di confermare.</p>`).join('') +
                 conti.righe.map((r, i) => `<div class="acc-fin-riga"><span><b>${esc(r.tipo)}</b>: ${esc(r.fornitore || '')} ${esc(r.descrizione || r.nome || r.ean)}${r.quantita > 1 ? ` ×${esc(r.quantita)}` : ''}` +
                     `${['stima','altro','budget','riferimento_altro','riferimento_excel'].includes(r.fonte) ? ' <small class="acc-incompleto">≈ riferimento: conferma il prezzo effettivamente pagato al fornitore di questa riga</small>' : ''}</span>` +
-                    `<span><input type="text" inputmode="decimal" class="acc-prezzo" data-ordine="${esc(id)}" data-i="${i}" value="${prezzoConferma(r)}"> €</span></div>`).join('') +
+                    `<span><input type="text" inputmode="decimal" class="acc-prezzo" data-ordine="${esc(id)}" data-i="${i}" value="${prezzoConferma(r)}"${r.acquistato?.stato === 'pagato' ? ' readonly' : ''}> €</span></div>`).join('') +
                 `</div>`;
         }).join('');
         const corpo = `<p>Prezzi <b>netti (IVA esclusa), totali della riga</b>: con quantità maggiori di uno inserisci il totale pagato per tutti i pezzi della riga. Sono già scritti quelli di oggi, correggi quelli diversi. ` +
@@ -3506,6 +3515,21 @@
     }
 
     const K_ESCLUSIONI_ACQUISTO = '_esclusioni_acquisto_gestionale';
+    const K_ACQUISTI_PARZIALI = '_acquisti_parziali_gestionale';
+
+    function componenteDistinta(orderId,r) {
+        const cs = componentiSalvati(orderId).filter(c=>c.type===r.tipo && chiave(c.ean)===chiave(r.ean) &&
+            String(c.supplier || '').toUpperCase()===String(r.fornitore || '').toUpperCase());
+        return cs.length===1 ? cs[0] : null;
+    }
+
+    function acquistoParziale(c,mappa) {
+        if (c?.id == null) return null;
+        const p = mappa?.[c.id];
+        return p && ['ordinato','pagato'].includes(p.stato) && p.type === c.type &&
+            String(p.ean || '') === String(c.ean || '') && String(p.supplier || '') === String(c.supplier || '') &&
+            Number(p.quantity) === Number(c.quantity || 1) ? p : null;
+    }
     // L'identità contiene il singolo PC (anche gli ID .2), mai soltanto lo SKU o la scrivania.
     function identitaAcquisto(s, r, salvato, indice = 0) {
         const p = { id: String(s.id), tipo: r.tipo, ean: r.ean || '', fornitore: r.fornitore || '',
@@ -3645,7 +3669,7 @@
     // costo, fonte}] (le righe del riquadro dell'utile), salvati: componenti della scheda nel database, voci: voci
     // personalizzate [{name, value, supplier, ean}] }]. Ritorna le categorie con i loro fornitori e il totale per fornitore.
     function daOrdinare(dati, schede, salvatiFissi) {
-        const out = { pc: 0, esclusi: [], esclusioni: [], giaAcquistati: [], cambi: 0, senzaCosto: 0, totale: 0, prontoTotale: 0, pronti: 0, daApplicare: 0, pezzi: 0, categorie: [], fornitori: [], righe: [] };
+        const out = { pc: 0, esclusi: [], esclusioni: [], giaAcquistati: [], registrati: [], cambi: 0, senzaCosto: 0, totale: 0, prontoTotale: 0, pronti: 0, daApplicare: 0, pezzi: 0, categorie: [], fornitori: [], righe: [] };
         const cat = {};                                          // CATEGORIA -> FORNITORE -> codice -> riga
         const richiesti = new Map(), scelteSalvate = [];
         const riserva = (fornitore, codice, quantita) => {
@@ -3659,6 +3683,7 @@
                 out.esclusioni.push({ ...x, categoria, ordini: [ordine], pezzi: [p], esclusa: true, n: out.esclusioni.length });
                 return;
             }
+            if (p) p.costoProposto=x.senzaCosto ? null : x.costo;
             const incompatibile = motivoCategoriaAcquisto(categoria, x.offerta, dati) || motivoCategoriaAcquisto(categoria, x, dati);
             if (incompatibile) {
                 raggruppa(categoria, {...x, daApplicare:false, proposta:null, costo:null, categoriaIncoerente:incompatibile}, ordine);
@@ -3713,8 +3738,8 @@
             const extraPagati = extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi)
                 .filter(x => sceltePagate.has(x.tipo) && !x.personalizzata && x.costo !== 0);
             const mirato = montaggio.length > 0 || sceltePagate.size > 0;
-            if (s.confermato && !montaggio.length && !extraPagati.length) { out.esclusi.push(s.nome); continue; }
-            out.pc++;
+            const chiuso = s.confermato && !montaggio.length && !extraPagati.length;
+            if (chiuso) out.esclusi.push(s.nome); else out.pc++;
             for (const x of montaggio) {
                 // Gli acquisti congelati non riappaiono: solo il nuovo pezzo della scelta pagata.
                 // Nessuna sostituzione generale e nessun pulsante Cambia sullo storico.
@@ -3726,12 +3751,18 @@
             let indiceRiga = -1;
             for (const r of s.righe || []) {
                 indiceRiga++;
-                if (s.confermato || mirato) continue;
                 if (SENZA_PEZZO.test(String(r.ean || '').trim())) continue;
                 const categoria = categoriaScheda(r.tipo);
                 const salvatiUguali = salvati.filter(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean) && (!r.fornitore || String(x.supplier || '').toUpperCase() === String(r.fornitore).toUpperCase()));
                 const salvato = salvatiUguali.length === 1 ? salvatiUguali[0] : null;
                 const quantita = Math.max(1, parseInt(salvato?.quantity ?? r.quantita, 10) || 1);
+                const registrato = acquistoParziale(salvato, s.acquisti || proprietaOrdine(s.id)[K_ACQUISTI_PARZIALI]);
+                if (registrato) {
+                    out.registrati.push({...identitaAcquisto(s,r,salvato,indiceRiga),nome:r.descrizione || salvato.name || r.ean,
+                        registrato,congelato:s.confermato});
+                    continue;
+                }
+                if (s.confermato || mirato) continue;
                 if (r.fonte === 'acquistato' || salvato && salvato.price !== null && salvato.price !== undefined && salvato.price !== '') {
                     out.giaAcquistati.push({id:s.id,nome:s.nome,tipo:r.tipo,ean:r.ean,quantita});
                     continue;
@@ -4075,17 +4106,35 @@
         if (!em.contatti) return '';
         if (!em.invii.length && !em.senza.length) return '';
         return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Le bozze includono i pezzi pronti da ordinare. Apri la bozza in Outlook (info@), controllala e premi Invia.</div>` +
-            em.invii.map(x => `<button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
+            em.invii.map(x => `<div class="acc-rf-email-row"><button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
                 `✉️ ${condizioniEmail(x).richiesta ? 'Richiesta · ' : ''}${esc(x.nome)} · ${x.pezzi} pz${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
-                `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>`).join('') +
+                `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>` +
+                (pezziPerRegistrazione(x).length ? `<button type="button" class="acc-rf-azione" data-rf-registra="${esc(x.id)}" aria-label="Registra acquisto da ${esc(x.nome)}">✓ Registra acquisto</button>` : '') +
+                '</div>').join('') +
             (em.senza.length ? `<div class="acc-nota">Senza email: ${em.senza.map(z => `${esc(z.nome)} ${z.pezzi} pz (${esc(z.motivo)})`).join(' · ')}</div>` : '') +
             `</div>`;
     }
 
-    function apriEmailOrdine(id, r) {
+    async function apriEmailOrdine(id, r) {
         const em = ordiniEmail(r);
         const x = em.invii.find(i => i.id === id);
         if (!x) return avvisa('Niente da ordinare per questo contatto', 'warning');
+        if (salvataggioAcquisti) throw new Error('Attendi il salvataggio degli acquisti');
+        const token=riepilogo.token, navigation=window.MGNavigation?.current();
+        if (typeof loadProcessedOrdersFromDB === 'function') {
+            const ordini=await loadProcessedOrdersFromDB();
+            if (token!==riepilogo.token || navigation!==undefined && !window.MGNavigation.valid(navigation)) return;
+            if (pezziPerRegistrazione(x).some(p=>{
+                const c=componenteDistinta(p.id,p), cp=proprietaOrdine(p.id);
+                return !ordini?.[p.id] || Number(ordini[p.id].foglioDiLavoro || 1)!==p.foglio ||
+                    c?.id==null || String(c.id)!==String(p.componentId) ||
+                    Number(c.quantity || 1)!==p.quantita || c.price!=null || acquistoConfermato(p.id) ||
+                    acquistoParziale(c,cp[K_ACQUISTI_PARZIALI]) || esclusioneAcquisto(p,cp[K_ESCLUSIONI_ACQUISTO]);
+            })) {
+                await renderRiepilogoAuto();
+                throw new Error('La lista acquisti è cambiata: apri la bozza aggiornata');
+            }
+        }
         stile();
         const t = testoEmail(x, em.contatti);
         const avvisi = avvisiEmail(x, r);
@@ -4275,6 +4324,7 @@
             (r.esclusi.length ? `<div class="acc-nota">Non contati, acquisto già confermato: ${esc(r.esclusi.join(', '))}</div>` : '') +
             (r.giaAcquistati?.length ? `<div class="acc-nota">Righe già acquistate, escluse dagli ordini ai fornitori: ${esc(r.giaAcquistati.map(x=>`${x.nome} ${x.tipo}`).join(', '))}</div>` : '') +
             htmlEsclusioniAcquisto(r) +
+            htmlAcquistiRegistrati(r) +
             `<div class="acc-nota" style="margin-top:6px">Apri un fornitore per vedere i suoi pezzi e i contatti commerciali.</div>` +
             r.fornitori.map(f => `<div class="acc-rf-forn-riga${solo === f.nome ? ' scelto' : ''}">` +
                 `<button type="button" class="acc-rf-nome" data-rf-vedi="${esc(f.nome)}" title="Vedi cosa compriamo da ${esc(f.nome)}">${badgeFornitore(f.nome)}</button> <span>${f.pezzi} pz` +
@@ -4434,7 +4484,8 @@
         await Promise.all(riepilogo.ids.filter(id => contesti[id]).map(id => aggiornaOrdine(id).catch(() => {})));
         if (tok !== riepilogo.token) return;
         const schede = riepilogo.ids.map(id => ({
-            id, foglio: riepilogo.n, esclusioni: proprietaOrdine(id)[K_ESCLUSIONI_ACQUISTO] || {}, confermato: acquistoConfermato(id), righe: righeDaScheda(id), salvati: componentiSalvati(id), voci: vociDaScheda(id),
+            id, foglio: riepilogo.n, esclusioni: proprietaOrdine(id)[K_ESCLUSIONI_ACQUISTO] || {}, acquisti: proprietaOrdine(id)[K_ACQUISTI_PARZIALI] || {},
+            confermato: acquistoConfermato(id), righe: righeDaScheda(id), salvati: componentiSalvati(id), voci: vociDaScheda(id),
             nome: riepilogo.nomi[id] || ((dati.ordini || {})[String(id).split('.')[0]] || {}).nome || `#${id}`
         }));
         const r = daOrdinare(dati, schede, leggiLS(K_FISSI, {}));
@@ -4496,7 +4547,26 @@
             if(gruppo)apriCambio(gruppo);
         }));
         tutti('[data-rf-ricalcola]').forEach(b => b.addEventListener('click', () => renderRiepilogoAuto(true)));
-        tutti('[data-rf-email]').forEach(b => b.addEventListener('click', () => apriEmailOrdine(b.dataset.rfEmail, riepilogo.ultimo)));
+        tutti('[data-rf-email]').forEach(b => b.addEventListener('click', async () => {
+            b.disabled=true;
+            try { await apriEmailOrdine(b.dataset.rfEmail,riepilogo.ultimo); }
+            catch(e) { avvisa(e.message,'error'); }
+            finally { b.disabled=false; }
+        }));
+        tutti('[data-rf-registra]').forEach(b => b.addEventListener('click', () => {
+            const invio = ordiniEmail(riepilogo.ultimo).invii.find(x=>x.id===b.dataset.rfRegistra);
+            if (invio) registraAcquisti(invio.nome,pezziPerRegistrazione(invio)).catch(e=>avvisa(e.message,'error'));
+        }));
+        tutti('[data-rf-paga]').forEach(b=>b.addEventListener('click',()=>{
+            const p=r.registrati[Number(b.dataset.rfPaga)];
+            if (p) registraAcquisti(p.registrato.canale,[p],true).catch(e=>avvisa(e.message,'error'));
+        }));
+        tutti('[data-rf-annulla-acquisto]').forEach(b=>b.addEventListener('click',async()=>{
+            const p=r.registrati[Number(b.dataset.rfAnnullaAcquisto)];
+            if (p && await finestra('Rimetti il pezzo da ordinare',
+                `<p>${esc(p.ordine)} · ${esc(p.nome)} tornerà nella lista acquisti.</p>`,'Rimetti da ordinare','Annulla'))
+                salvaRegistrazioni([{p,stato:'annullato'}]).catch(e=>avvisa(e.message,'error'));
+        }));
     }
 
     // ================================================================ CAMBIA UN PEZZO DAL BUYER DESK (Antonio 01/10)
@@ -4685,13 +4755,16 @@
         if (acquistoConfermato(p.id) || pezzoPreso(magazzinoDellaRiga(p.id,{tipo:p.tipo,ean:p.ean,fornitore:p.fornitore})))
             throw new Error('Acquisto o prelievo già confermato: storico protetto');
         const c = bersaglioCambioPreciso(p, componentiSalvati(p.id));
+        if (acquistoParziale(c,proprietaOrdine(p.id)[K_ACQUISTI_PARZIALI]))
+            throw new Error('Pezzo già ordinato: usa lo storico acquisti');
         const plan = { expected: { id: c.id ?? null, type:c.type, ean:c.ean, supplier:c.supplier || '', quantity:Number(c.quantity) || 1 },
             replacement: { ean:d.codice, name:d.descrizione || d.codice, supplier:d.fornitore, quantity:Math.max(1,Number(d.quantita) || Number(c.quantity) || 1) }, source };
         const ambito = source === 'allocation_plan' ? {foglio:p.foglio, chiaveAcquisto:p.chiaveAcquisto} : {};
         const result = await window.SupabaseDB.replacePurchaseComponent(String(p.id), {...plan,...ambito});
         if (!result?.component || chiave(result.component.ean) !== chiave(d.codice) ||
             String(result.component.supplier || '').toUpperCase() !== String(d.fornitore || '').toUpperCase() ||
-            Number(result.component.quantity || 1) !== plan.replacement.quantity)
+            Number(result.component.quantity || 1) !== plan.replacement.quantity ||
+            source === 'manuale' && result.component.name !== d.descrizione)
             throw new Error('La sostituzione non risulta confermata dal database');
         const lista = componentiSalvati(p.id), index = lista.indexOf(c);
         if (index >= 0) lista[index] = { ...c, ...result.component };
@@ -4763,6 +4836,122 @@
         return {fatti,falliti};
     }
 
+    function bersaglioDallaScheda(id,r) {
+        const componente = componenteDistinta(id,r);
+        const foglio = scrivaniaAttiva();
+        if (componente?.id == null || !foglio) throw new Error('Riga cambiata o ambigua: ricarica la scheda');
+        return identitaAcquisto({id,foglio},r,componente);
+    }
+
+    async function apriModificaManuale(id,r) {
+        const p = bersaglioDallaScheda(id,r);
+        const box = await finestra(`Modifica a mano · ${esc(r.tipo)}`,
+            `<label>Descrizione <input data-nome maxlength="240" value="${esc(r.descrizione || r.nome)}"></label>` +
+            `<label>Fornitore <input data-fornitore maxlength="100" value="${esc(r.fornitore)}"></label>` +
+            '<label>Codice fornitore (facoltativo) <input data-codice maxlength="180"></label>' +
+            '<p>La modifica vale per la distinta di questo PC. Il costo si può inserire dalla scheda.</p>',
+            'Salva nella distinta','Annulla');
+        if (!box) return;
+        const descrizione=box.querySelector('[data-nome]').value.trim();
+        const fornitore=box.querySelector('[data-fornitore]').value.trim().toUpperCase();
+        if (!descrizione || !fornitore) throw new Error('Inserisci descrizione e fornitore');
+        const codice=box.querySelector('[data-codice]').value.trim() || descrizione.slice(0,180);
+        await salvaCambiAcquisto([{p,d:{codice,descrizione,fornitore,quantita:p.quantita}}],'manuale');
+    }
+
+    async function escludiDallaScheda(id,r) {
+        const p = bersaglioDallaScheda(id,r);
+        if (!r.esclusa && !await finestra('Escludi dagli acquisti',
+            `<p>${esc(r.descrizione || r.ean)} resta nella distinta di montaggio. Puoi reincluderlo quando vuoi.</p>`,
+            'Escludi dagli acquisti','Annulla')) return;
+        await modificaEsclusioneAcquisto({pezzi:[p]},!r.esclusa);
+        await aggiornaOrdine(id);
+    }
+
+    function pezziPerRegistrazione(invio) {
+        return (invio?.gruppi || []).flatMap(g=>g.righe.flatMap(r=>(r.pezzi || [])
+            .filter(p=>p.componentId != null && !p.personalizzato).map(p=>({...p,nome:r.descrizione}))));
+    }
+
+    async function registraDallaScheda(id,r) {
+        const p = bersaglioDallaScheda(id,r);
+        await registraAcquisti(r.fornitore,[{...p, costoProposto:r.costo, nome:r.descrizione || r.nome,
+            registrato:r.acquistato}],!!r.acquistato);
+    }
+
+    let salvataggioAcquisti = false;
+    async function salvaRegistrazioni(voci) {
+        if (salvataggioAcquisti) throw new Error('Registrazione acquisti già in corso');
+        const db=window.SupabaseDB;
+        if (!db?.savePartialPurchases) throw new Error('Registrazione acquisti non disponibile: ricarica il gestionale');
+        const gruppi = new Map();
+        for (const v of voci) {
+            if (!gruppi.has(v.p.id)) gruppi.set(v.p.id,[]);
+            gruppi.get(v.p.id).push(v);
+        }
+        salvataggioAcquisti=true;
+        let contate=0; const errori=[];
+        try {
+            for (const [id,lista] of gruppi) {
+                try {
+                    const cp=await db.savePartialPurchases(id,lista.map(({p,stato,costo,canale,riferimento})=>({
+                        id:p.componentId,type:p.tipo,ean:p.ean,supplier:p.fornitore,quantity:p.quantita,
+                        stato,costo,canale,riferimento,precedente:p.registrato?.il
+                    })),lista[0].p.foglio);
+                    if (typeof processedOrdersCache !== 'undefined' && processedOrdersCache[id]) {
+                        processedOrdersCache[id].customProperties=cp;
+                        processedOrdersCache[id].custom_properties=cp;
+                    }
+                    contate+=lista.reduce((n,x)=>n+x.p.quantita,0);
+                } catch(e) { errori.push(`#${id}: ${e.message}`); }
+            }
+            avvisa(`${contate} pezzi aggiornati${errori.length?' · '+errori.join('; '):''}`,errori.length?'error':'success');
+            if (riepilogo.modo==='auto' && riepilogo.ultimo && document.querySelector('.tab-button.active[data-tab="suppliers"]'))
+                await renderRiepilogoAuto();
+            else await Promise.all([...gruppi.keys()].map(id=>aggiornaOrdine(id)));
+        } finally { salvataggioAcquisti=false; }
+    }
+
+    async function registraAcquisti(canale,pezzi,soloPagamento=false) {
+        if (!pezzi.length || salvataggioAcquisti) return;
+        const contenuto = pezzi.map((p,i)=>`<div class="acc-fin-riga"><label><input type="checkbox" data-acq="${i}" checked> ` +
+            `<strong>${esc(p.ordine)}</strong> · ${p.quantita} × ${esc(p.nome || p.ean)} <small>${esc(p.fornitore)}</small></label>` +
+            `<input type="text" inputmode="decimal" aria-label="Totale netto ${esc(p.ordine)} ${esc(p.tipo)}" data-acq-costo="${i}" value="${p.costoProposto == null ? '' : esc(String(p.costoProposto).replace('.',','))}"></div>`).join('');
+        const statoInput = soloPagamento ? '<p>Registra gli importi netti pagati.</p>' :
+            '<label>Stato <select data-stato><option value="pagato">Acquistato e pagato</option><option value="ordinato">Ordinato, da pagare</option></select></label>';
+        const controlli=pezzi.length>1 ? '<div><button type="button" data-acq-tutti>Seleziona tutti</button> <button type="button" data-acq-nessuno>Deseleziona tutti</button></div>' : '';
+        const box=await finestra(`Registra acquisto · ${esc(canale || 'fornitore')}`,
+            `<p>Seleziona i pezzi che hai ordinato. Le righe registrate escono dalle prossime bozze e restano nello storico.</p>${statoInput}` +
+            '<label>Riferimento ordine / fattura (facoltativo) <input data-riferimento maxlength="150"></label>' +
+            '<p>Importi netti IVA esclusa, totali per riga. Controlla quelli proposti.</p>'+controlli+contenuto,
+            'Registra selezionati','Annulla',body=>{
+                const spunta = checked => body.querySelectorAll('[data-acq]').forEach(x=>x.checked=checked);
+                body.querySelector('[data-acq-tutti]')?.addEventListener('click',()=>spunta(true));
+                body.querySelector('[data-acq-nessuno]')?.addEventListener('click',()=>spunta(false));
+            });
+        if (!box) return;
+        const stato=box.querySelector('[data-stato]')?.value || 'pagato';
+        const voci=[...box.querySelectorAll('[data-acq]:checked')].map(b=>{
+            const i=Number(b.dataset.acq);
+            return {p:pezzi[i],stato,canale,riferimento:box.querySelector('[data-riferimento]').value.trim(),
+                costo:numeroCosto(box.querySelector(`[data-acq-costo="${i}"]`).value)};
+        });
+        if (stato==='pagato' && voci.some(v=>v.costo==null)) throw new Error('Inserisci l’importo netto pagato per ogni riga selezionata');
+        if (voci.length) await salvaRegistrazioni(voci);
+    }
+
+    function htmlAcquistiRegistrati(r) {
+        if (!r.registrati?.length) return '';
+        const n=r.registrati.reduce((tot,p)=>tot+p.quantita,0);
+        return `<details class="acc-rf-excluded"><summary>Acquisti registrati (${n} pz)</summary>` +
+            r.registrati.map((p,i)=>`<div><b>${esc(p.ordine)} · ${esc(p.registrato.canale)}</b> · ${p.quantita} × ${esc(p.nome)}` +
+                `<small>${p.registrato.stato==='pagato'?'Pagato · '+eur(p.registrato.costo):'Ordinato, da pagare'} · ${esc(dataBreve(p.registrato.il))}` +
+                `${p.registrato.riferimento?' · '+esc(p.registrato.riferimento):''}</small>` +
+                (!p.congelato && p.registrato.stato==='ordinato' ? `<button class="acc-rf-azione" type="button" data-rf-paga="${i}">Segna pagato</button>` : '') +
+                (!p.congelato ? `<button class="acc-rf-azione" type="button" data-rf-annulla-acquisto="${i}">Rimetti da ordinare</button>` : '')+'</div>').join('')+
+            '</details>';
+    }
+
     function cambiDaProposte(righe) {
         return righe.flatMap(r => r.pezzi.map(p => {
             const a = p.proposta || r.proposta;
@@ -4804,7 +4993,7 @@
             el.hidden = !testo;
         }
         const selettore = '[data-rf-applica-fornitore],[data-rf-applica],[data-rf-cambia],[data-rf-cambia-gruppo],' +
-            '[data-rf-escludi],[data-rf-escludi-gruppo],[data-rf-ripristina],[data-rf-forn],[data-rf-cat],[data-rf-email],[data-rf-ricalcola]';
+            '[data-rf-escludi],[data-rf-escludi-gruppo],[data-rf-ripristina],[data-rf-forn],[data-rf-cat],[data-rf-email],[data-rf-ricalcola],[data-rf-registra],[data-rf-paga],[data-rf-annulla-acquisto]';
         for (const b of document.querySelectorAll(selettore)) {
             if (s && !b.disabled) {
                 b.disabled = true;

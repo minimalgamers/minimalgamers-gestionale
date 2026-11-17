@@ -15,6 +15,29 @@ const snapshot=()=>({righe:[{tipo:'SSD',ean:'OLD',fornitore:'ACTION',quantita:1,
 const calls={component:f=>f.s.dbUpsertSingleComponent('77-2','SSD','LEGACY','Legacy SSD','ACTION'),
   prices:f=>f.s.dbSetComponentPrices('77-2',[{type:'SSD',ean:'OLD',price:50}])};
 
+test('supplier purchases stay on their exact row, can be paid later, and protect their saved cost',async()=>{
+  const f=scope.fixture();
+  const prima={id:10,type:'SSD',ean:'OLD',supplier:'ACTION',quantity:1,canale:'GT'};
+  const ordered=await f.s.dbSavePartialPurchases('77-2',[{...prima,stato:'ordinato'}],2);
+  const p=ordered._acquisti_parziali_gestionale[10];
+  assert.equal(p.stato,'ordinato');assert.equal(p.canale,'GT');assert.equal(p.costo,null);
+  assert.equal(f.rows[1].price,null);assert.equal(f.writes.filter(w=>w.table==='processed_order_components').length,0);
+  const paid={...prima,stato:'pagato',costo:49.18,precedente:p.il};
+  await f.s.dbSavePartialPurchases('77-2',[paid],2);
+  await f.s.dbSavePartialPurchases('77-2',[paid],2);
+  assert.equal(f.order.custom_properties._acquisti_parziali_gestionale[10].costo,49.18);
+  await assert.rejects(()=>f.s.dbSavePartialPurchases('77-2',[{...prima,stato:'pagato',costo:50}],2),/già aggiornato/);
+  await assert.rejects(()=>f.s.dbSetComponentPrices('77-2',[{type:'SSD',ean:'OLD',price:50}]),/ordinato o pagato/);
+});
+
+test('partial confirmation cannot register a moved PC or a different SKU',async()=>{
+  const f=scope.fixture();
+  const p={id:10,type:'SSD',ean:'OTHER',supplier:'ACTION',quantity:1,stato:'pagato',costo:50};
+  await assert.rejects(()=>f.s.dbSavePartialPurchases('77-2',[p],1),/spostata/);
+  await assert.rejects(()=>f.s.dbSavePartialPurchases('77-2',[p],2),/cambiato/);
+  assert.equal(f.writes.length,0);
+});
+
 test('both legacy writers hold the parent intent while a concurrent purchase confirmation is rejected',async()=>{
   for(const [kind,call]of Object.entries(calls)){
     let f,entered=false,blocked;

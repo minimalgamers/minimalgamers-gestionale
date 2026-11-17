@@ -41,7 +41,7 @@
     function purchasePlan(input) {
         if (input.conti.confermato || input.auto?.solo_contabile || freshness(input,input.now).stale) return input;
         const used=[], righe=(input.conti.righe || []).map(r=>{
-            if (!['listino','stima','riferimento_altro','riferimento_excel','budget'].includes(r.fonte) || ['PSU','COOLER'].includes(r.tipo) ||
+            if (r.acquistato || r.esclusa || !['listino','stima','riferimento_altro','riferimento_excel','budget'].includes(r.fonte) || ['PSU','COOLER'].includes(r.tipo) ||
                 (input.montaggio || []).some(x=>x.tipo===r.tipo)) return r;
             const p=(input.proposte || []).find(p=>p.tipo===r.tipo && key(p.da.ean)===key(r.ean) && key(p.da.fornitore)===key(r.fornitore));
             if (!p || p.a?.ordinabile!==true || p.a?.daConfermare || !Number.isFinite(p.a?.costo) || p.a.costo<0) return r;
@@ -64,9 +64,10 @@
         const hardware = (input.conti.righe || []).map((r, i) => {
             const ref = reference(r.salvato || r,input.auto), delta = !referenceCost(r) && ref && Number.isFinite(r.costo) ? round(r.costo-ref.cost) : null;
             return {...r, index:i, kind:'hardware', title:r.descrizione || r.nome || r.ean, ref, delta,
-                replaced:replaced.has(r.tipo), locked:['acquistato','magazzino'].includes(r.fonte),
+                replaced:replaced.has(r.tipo), locked:!!r.acquistato || ['acquistato','magazzino'].includes(r.fonte),
                 customerPaid:!replaced.has(r.tipo) && (input.paidTypes || []).includes(r.tipo),
-                state:r.proposto ? 'Proposta da confermare' : r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
+                state:r.acquistato?.stato === 'ordinato' ? 'Ordinato, da pagare' : r.esclusa ? 'Escluso dagli acquisti' :
+                    r.proposto ? 'Proposta da confermare' : r.fonte === 'acquistato' ? 'Pagato' : r.fonte === 'magazzino' ? 'Prelevato' :
                     /DA ACQUISTARE/i.test(r.descrizione || r.nome || '') ? 'Da acquistare' : r.fonte==='fisso_utente' ? 'Costo fisso · gestione tua' :
                     referenceCost(r) ? referenceLabel(r) : input.auto?.solo_contabile ? 'Spedito · costo di riferimento' : r.verificaDisponibilita ? 'Da verificare' : r.fonte === 'inserito' ? 'Costo registrato' : 'Da ordinare'};
         });
@@ -97,6 +98,9 @@
         const rowHtml = r => {
             const q=Number(r.quantita)||1, lim=input.auto?.solo_contabile || stale ? null : budget(r.costo,input.utile,target,complete);
             const actionable=r.kind !== 'service' && r.ean && !r.locked;
+            const modificaDistinta=r.kind==='hardware' && r.componentId!=null &&
+                !r.replaced && !input.conti.confermato && !input.auto?.solo_contabile;
+            const n=list.indexOf(r);
             const costLabel=referenceCost(r) ? referenceLabel(r)+'; '+(r.riferimento?.nota || '') : ['acquistato','magazzino'].includes(r.fonte) ? 'Prezzo pagato / prelevato' : 'Costo netto della riga';
             return `<tr class="mg-ledger-row${r.delta > .01 ? ' mg-price-up' : ''}"><td data-label="Tipo"><b>${esc(r.labelTipo || r.tipo)}</b></td>` +
                 `<td class="mg-ledger-product" data-label="Componente"><strong>${esc(r.title)}</strong>` +
@@ -110,7 +114,11 @@
                 `<td class="mg-num" data-label="Oggi / pagato" title="${esc(costLabel)}"><b>${Number.isFinite(r.costo) ? (referenceCost(r)?'≈ ':'')+money(r.costo) : 'Manca costo'}</b></td>` +
                 `<td class="mg-num mg-delta" data-label="Scostamento">${Number.isFinite(r.delta) ? (r.delta>0?'+':'')+money(r.delta) : '—'}</td>` +
                 `<td data-label="Acquisto"><span class="mg-purchase-state${r.locked?' paid':''}">${esc(r.state)}</span></td>` +
-                `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' && !input.auto?.solo_contabile ? `<button type="button" data-glass-change="${list.indexOf(r)}" aria-label="Cambia ${esc(r.tipo)}">Cambia</button>` : ''}` +
+                `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' && !input.auto?.solo_contabile && !r.esclusa ? `<button type="button" data-glass-change="${n}" aria-label="Cambia ${esc(r.tipo)} dal Buyer Desk">Cambia</button>` : ''}` +
+                (modificaDistinta && !r.locked ? `<button type="button" data-glass-manual="${n}">Modifica a mano</button>` +
+                    `<button type="button" data-glass-exclude="${n}">${r.esclusa?'Rimetti da ordinare':'Escludi acquisto'}</button>` : '') +
+                (modificaDistinta && !r.esclusa && (!r.locked || r.acquistato?.stato==='ordinato') && !r.proposto ?
+                    `<button type="button" data-glass-purchase="${n}">${r.acquistato?'Segna pagato':'Registra acquisto'}</button>` : '') +
                 `${actionable && !r.proposto ? `<button type="button" data-glass-cost="${list.indexOf(r)}" aria-label="${r.costo==null?'Inserisci':'Modifica'} costo ${esc(r.tipo)}">${icon('pencil-simple')}</button>` : r.locked && r.kind!=='service' ? '<small>Conservato</small>' : ''}` +
                 (lim && !r.locked ? `<details class="mg-budget"><summary role="button" aria-label="Limiti di spesa ${esc(r.tipo)}">Limiti</summary><div><b>Massimo netto per questa riga</b><br>${lim.zero<0 ? 'Perdita non recuperabile cambiando solo questa riga' : `Per restare in positivo: ${money(lim.zero)}`}<br>` +
                     `${lim.target == null ? 'Obiettivo non disponibile' : lim.target<0 ? 'Obiettivo non raggiungibile cambiando solo questa riga' : `Per l’obiettivo: ${money(lim.target)}`}<br><small>A parità degli altri costi. ${q>1?'Totale per '+q+' pezzi.':''}</small></div></details>` : '') +
@@ -155,6 +163,11 @@
             actions.change({...r,ricerca:r.offertaAlternativa.mpn || r.offertaAlternativa.codice});
         });
         section.querySelectorAll('[data-glass-cost]').forEach(b=>b.onclick=()=>actions.cost(get(b)));
+        for (const action of ['manual','exclude','purchase'])
+            section.querySelectorAll(`[data-glass-${action}]`).forEach(b=>b.onclick=()=>{
+                const r=view.list[Number(b.getAttribute(`data-glass-${action}`))];
+                actions[action](r.salvato || r);
+            });
         section.querySelector('[data-glass-original]').onclick=e=>{
             const open=card.classList.toggle('mg-original-open');e.currentTarget.setAttribute('aria-expanded',String(open));
         };

@@ -9,6 +9,15 @@ const input=()=>({conti:{righe:[{tipo:'GPU',ean:'GPU',fornitore:'ACTION',nome:'D
  auto:{pezzi:[{tipo:'GPU',manuale:{codice:'GPU'},excel:{costo:100}}]},extraLista:[{tipo:'VENTOLE',nome:'5 ventole RGB',chiave:'FAN',costo:20}],
  custom:[{id:4,value:'Personalizzazione XYZ',costo:0}],montaggio:[],servizi:[{nome:'Montaggio',costo:10}]});
 
+test('the order row can be edited manually or excluded; once ordered it stays visible with only payment action',()=>{
+ const i=input(),row=i.conti.righe[0]; row.componentId=33;
+ let v=G.render(i);assert.match(v.html,/Modifica a mano/);assert.match(v.html,/Escludi acquisto/);
+ row.esclusa=true;v=G.render(i);assert.match(v.html,/Rimetti da ordinare/);assert.doesNotMatch(v.html,/data-glass-purchase/);
+ row.esclusa=false;row.acquistato={stato:'ordinato'};
+ v=G.render(i);assert.match(v.html,/Demo GPU/);assert.match(v.html,/Ordinato, da pagare/);
+ assert.match(v.html,/Segna pagato/);assert.doesNotMatch(v.html,/data-glass-manual/);
+});
+
 test('current purchase plan shows the cheaper supplier and correct VAT margin without mutating saved or paid rows',()=>{
  const i=input();i.vendita={totale:1935.92,imponibile:1935.92/1.04};
  i.proposte=[{tipo:'GPU',da:{ean:'GPU',fornitore:'ACTION'},a:{codice:'NEW',fornitore:'OMEGA',descrizione:'Compatible GPU',costo:100,ordinabile:true}},

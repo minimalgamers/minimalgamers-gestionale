@@ -64,6 +64,9 @@ body.mg-ios #processed-container .mg-glass-order .acc-utile {margin:0!important;
 .mg-ledger-actions button {font-size:11px;padding:5px 7px;margin:0 2px;vertical-align:middle;}
 .mg-ledger-actions button:has(img) {width:32px;padding:5px;}
 .mg-ledger-actions img {vertical-align:middle;}
+.acc-rf-email-row {display:flex;align-items:stretch;gap:6px;margin-block:6px;}
+.acc-rf-email-row .acc-rf-copia {flex:1;min-width:0;margin:0;}
+.acc-rf-email-row [data-rf-registra] {flex:0 0 auto;max-width:40%;line-height:1.15;}
 .mg-budget {display:inline-block;vertical-align:middle;position:relative;margin:2px;font-size:10px;color:#3c6082;}
 .mg-budget summary {cursor:pointer;}
 .mg-budget>div {position:absolute;right:0;top:22px;min-width:230px;z-index:4;background:#f7fbff;border:1px solid #b7cadb;border-radius:10px;padding:12px;box-shadow:0 8px 24px rgba(20,44,67,.15);font-size:12px;line-height:1.7;}

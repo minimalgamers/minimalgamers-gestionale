@@ -202,7 +202,8 @@ test('historical repair cannot save without preview confirmation and backup prec
 
 test('confirmed repair touches only accessory rows, rejects paid or concurrently edited records',async()=>{
  const dbSource=read('assets/js/supabase-config.js');
- const code=dbSource.slice(dbSource.indexOf('async function dbReconcileOrderAccessories('),dbSource.indexOf('// PUT: aggiorna SOLO'));
+ const code=dbSource.slice(dbSource.indexOf('async function dbReconcileOrderAccessories('),dbSource.indexOf('// PUT: aggiorna SOLO')) +
+   dbSource.slice(dbSource.indexOf('function purchaseSameComponent('),dbSource.indexOf('// One compare-and-swap'));
  const plan={previous:[{type:'KIT GAMING',ean:'K',quantity:2}],components:[{type:'TASTIERA',ean:'K',name:'Havit',quantity:1},{type:'MOUSE',ean:'M',name:'Logitech',quantity:1}]};
  function mock(rows){
   const writes=[];

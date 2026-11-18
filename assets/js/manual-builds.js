@@ -12,10 +12,11 @@
     const isPaid = (o,c) => {
         const cp = props(o), p = cp._acquisti_parziali_gestionale?.[c.id];
         return o?.stato === 'finalizzati' || !!cp._acquisto_confermato_gestionale || c.price != null && c.price !== '' ||
-            p && ['ordinato','pagato'].includes(p.stato) && p.ean === c.ean && p.supplier === c.supplier &&
+            p && ['ordinato','pagato'].includes(p.stato) && p.type === c.type && p.ean === c.ean && p.supplier === c.supplier &&
                 Number(p.quantity) === Number(c.quantity || 1) ||
             Object.values(cp._esclusioni_acquisto_gestionale || {}).some(x => (x.escluso || x.excluded) &&
-                String(x.componentId) === String(c.id) && x.ean === c.ean && x.fornitore === c.supplier);
+                String(x.componentId) === String(c.id) && x.tipo === c.type && x.ean === c.ean &&
+                x.fornitore === c.supplier && Number(x.quantita) === Number(c.quantity || 1));
     };
 
     function reserved(data, saved = {}) {

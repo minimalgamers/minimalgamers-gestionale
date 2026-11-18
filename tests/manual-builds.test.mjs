@@ -17,7 +17,7 @@ test('manual builds consume only stock left after all other orders and newly sav
     const d=data([a,b],{'77':{pc:[{quantita:2,pezzi:[{tipo:'CPU',auto:a}]}]}});
     const cache={MANUAL_1:{components:[{id:1,type:'CPU',ean:'TRAY',supplier:'ACTION',quantity:1,price:null}]}};
     assert.equal(M.propose(d,'VANGUARD',cache)[0].ean,'BOX');
-    cache.MANUAL_1.customProperties={_acquisti_parziali_gestionale:{1:{ean:'TRAY',supplier:'ACTION',quantity:1,stato:'pagato'}}};
+    cache.MANUAL_1.customProperties={_acquisti_parziali_gestionale:{1:{type:'CPU',ean:'TRAY',supplier:'ACTION',quantity:1,stato:'pagato'}}};
     assert.equal(M.propose(d,'VANGUARD',cache)[0].ean,'TRAY');
 });
 test('physical module quantities are checked before selecting the lowest-cost available reference',()=>{
@@ -43,4 +43,16 @@ test('explicit saved choices reserve their actual supplier and finalized or excl
     assert.equal(M.propose(d,'VANGUARD',saved)[0].ean,'B');
     saved['77'].stato='finalizzati';
     assert.equal(M.propose(d,'VANGUARD',saved)[0].ean,'A');
+});
+
+test('an old exclusion does not cover additional physical units or a different component type',()=>{
+    const M=env(),a=offer('A','ACTION',50,2),b=offer('B','OMEGA',60,10);
+    const c={id:9,type:'CPU',ean:'A',supplier:'ACTION',quantity:2,price:null};
+    const exclusion={componentId:9,tipo:'CPU',ean:'A',fornitore:'ACTION',quantita:1,escluso:true};
+    const saved={MANUAL_1:{components:[c],customProperties:{_esclusioni_acquisto_gestionale:{x:exclusion}}}};
+    assert.equal(M.propose(data([a,b]),'VANGUARD',saved)[0].ean,'B');
+    exclusion.quantita=2;
+    assert.equal(M.propose(data([a,b]),'VANGUARD',saved)[0].ean,'A');
+    exclusion.tipo='GPU';
+    assert.equal(M.propose(data([a,b]),'VANGUARD',saved)[0].ean,'B');
 });

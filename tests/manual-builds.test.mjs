@@ -56,3 +56,12 @@ test('an old exclusion does not cover additional physical units or a different c
     exclusion.tipo='GPU';
     assert.equal(M.propose(data([a,b]),'VANGUARD',saved)[0].ean,'B');
 });
+
+test('legacy manual EAN and MPN references consume the same stock as the supplier SKU',()=>{
+    const M=env(),a={...offer('SKU-A','ACTION',50,2),ean:'1234567890123',mpn:'PART-A'},b=offer('SKU-B','OMEGA',60,10);
+    const d=data([a,b]);d.offerte_ordinabili=[a,b];
+    for(const reference of ['1234567890123','PART-A','SKU-A']) {
+        const saved={MANUAL_OLD:{components:[{id:9,type:'CPU',ean:reference,supplier:'ACTION',quantity:2,price:null}]}};
+        assert.equal(M.propose(d,'VANGUARD',saved)[0].ean,'SKU-B');
+    }
+});

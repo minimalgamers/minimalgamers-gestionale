@@ -9,6 +9,13 @@
     const round = n => Math.round(n * 100) / 100;
     const cache = () => typeof processedOrdersCache === 'undefined' ? {} : processedOrdersCache;
     const props = o => o?.customProperties || o?.custom_properties || {};
+    function findOffer(data, supplier, code) {
+        const own = (data?.offerte_ordinabili || []).filter(a => normal(a.fornitore) === normal(supplier));
+        const exact = own.find(a => key(a.fornitore,a.codice) === key(supplier,code));
+        if (exact) return exact;
+        return own.filter(a => [a.ean,a.mpn].some(id => id && api().chiave(id) === api().chiave(code)))
+            .filter(a => api().offertaOrdinabile(a)).sort((a,b) => a.costo_unitario-b.costo_unitario)[0];
+    }
     const isPaid = (o,c) => {
         const cp = props(o), p = cp._acquisti_parziali_gestionale?.[c.id];
         return o?.stato === 'finalizzati' || !!cp._acquisto_confermato_gestionale || c.price != null && c.price !== '' ||
@@ -21,9 +28,21 @@
 
     function reserved(data, saved = {}) {
         const used = new Map(), seen = new Set();
+        const codes = new Set(), aliases = new Map();
+        for (const a of data.offerte_ordinabili || []) {
+            const canonical = key(a.fornitore,a.codice);
+            codes.add(canonical);
+            for (const id of [a.ean,a.mpn].filter(Boolean)) {
+                const alias = key(a.fornitore,id);
+                if (!aliases.has(alias)) aliases.set(alias,new Set());
+                aliases.get(alias).add(canonical);
+            }
+        }
         const add = (supplier, code, n) => {
             const k = key(supplier,code);
-            used.set(k,(used.get(k) || 0) + n);
+            // Uno storico con EAN/MPN consuma le stesse unità dello SKU del listino.
+            const references = codes.has(k) ? [k] : aliases.get(k) || [k];
+            for (const reference of references) used.set(reference,(used.get(reference) || 0) + n);
         };
         for (const [id,order] of Object.entries(data.ordini || {})) {
             let unit = 0;
@@ -177,7 +196,8 @@
         const type=input.dataset.component;
         const c=controls(type);
         if(!c.cost)return;
-        const offer=state.data?.offerte_ordinabili?.find(a=>key(a.fornitore,a.codice)===key(supplier,ean));
+        const offer=findOffer(state.data,supplier,ean);
+        if(offer)c.ean.value=offer.codice;
         c.cost.value=offer ? String(api().costoHardwareFisso(type,ean,supplier,state.data) ?? offer.costo_unitario).replace('.',',') : '';
         c.quantity.value=1;
         c.note.textContent=offer ? 'Scelta manuale · '+offer.disponibilita : 'Scelta manuale · verifica costo e disponibilità';
@@ -201,7 +221,8 @@
             p.quantity=quantity;p.ean=p.ean||p.name;p.supplier=normal(p.supplier);p.price=null;
             if(state.build && !p.supplier)throw new Error('Inserisci il fornitore di '+p.type);
             const original=state.rows.find(r=>r.type===p.type);
-            const offer=data?.offerte_ordinabili?.find(a=>key(a.fornitore,a.codice)===key(p.supplier,p.ean));
+            const offer=findOffer(data,p.supplier,p.ean);
+            if(offer)p.ean=offer.codice;
             if(original?.auto && key(original.supplier,original.ean)===key(p.supplier,p.ean) && !offer)
                 throw new Error(p.type+': offerta non più disponibile. Ricarica la build o scegli un altro componente.');
             if(offer) {

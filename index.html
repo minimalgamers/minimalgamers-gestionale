@@ -22,7 +22,7 @@
     <link rel="stylesheet" href="assets/css/ios-secondary.css?v=1">
     <link rel="stylesheet" href="assets/css/ios-responsive.css?v=1">
     <link rel="stylesheet" href="assets/css/ios-installable.css?v=1">
-    <link rel="stylesheet" href="assets/css/order-glass.css?v=6">
+    <link rel="stylesheet" href="assets/css/order-glass.css?v=7">
     <link rel="stylesheet" href="assets/css/navigation-lifecycle.css?v=1">
     <link rel="stylesheet" href="assets/css/purchase-summary.css?v=2">
     <script src="assets/js/navigation-lifecycle.js?v=1" defer></script>
@@ -336,6 +336,15 @@
             </div>
             
             
+            <div class="manual-build-picker">
+                <label for="manual-build-select">Parti da una build</label>
+                <div class="manual-build-select-row">
+                    <input id="manual-build-select" type="text" list="manual-build-options" placeholder="Cerca, per esempio, VANGUARD" autocomplete="off">
+                    <datalist id="manual-build-options"></datalist>
+                    <button id="manual-build-load" type="button">Carica distinta</button>
+                </div>
+                <p id="manual-build-status" role="status"></p>
+            </div>
             <div style="background: rgba(0,0,0,0.2); border-radius: 12px; padding: 16px; border: 1px solid rgba(255,255,255,0.1);">
                 <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 12px; display: block; font-weight: 600;">🖥️ Componenti Build <span style="color: #e74c3c; font-size: 0.8em;">(tutti obbligatori)</span></label>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -434,6 +443,7 @@
             <div id="manual-search-results" style="display: none; position: absolute; background: rgba(20,20,20,0.98); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; max-height: 200px; overflow-y: auto; z-index: 1010; width: calc(100% - 48px); box-shadow: 0 4px 16px rgba(0,0,0,0.5);"></div>
             
             
+            <div id="manual-build-extras"></div>
             <div>
                 <label style="color: rgba(255,255,255,0.8); font-size: 0.9em; margin-bottom: 6px; display: block; font-weight: 600;">📝 Voci Personalizzate (opzionale)</label>
                 <div id="manual-custom-items-container" style="display: flex; flex-direction: column; gap: 8px;">
@@ -897,8 +907,9 @@
     <script src="assets/js/message-template-engine.js?v=37"></script>
     <script src="assets/js/message-templates-page.js?v=33"></script>
     <script src="assets/js/upgrade-paid-sync.js?v=3"></script>
-    <script src="assets/js/app.js?v=90"></script>
+    <script src="assets/js/app.js?v=91"></script>
     <script src="assets/js/accoppiamento-auto.js?v=93"></script>
+    <script src="assets/js/manual-builds.js?v=1"></script>
     <script src="assets/js/order-glass.js?v=14"></script>
     <script src="assets/js/build-configuratore.js?v=1"></script>
     <script src="assets/js/supplier-summary.js?v=35"></script>

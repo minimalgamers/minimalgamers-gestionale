@@ -59,6 +59,10 @@ test('no business script, protected adapter, body markup or handler changes', ()
     // 05/10 (Claude): i controlli valgono per il lavoro dell'app iPhone (base -> appIphone); dopo, le correzioni del
     // gestionale possono cambiare gli script e il loro ?v= (cache), ma il markup del body resta identico.
     const bodyHash = source => createHash('sha256').update(source.slice(source.indexOf('<body')).replace(/\r\n/g, '\n')
+        // 18/11: authorized build selection in the manual-order dialog.
+        .replace(/ {12}<div class="manual-build-picker">[\s\S]*?<p id="manual-build-status"[^>]*><\/p>\n {12}<\/div>\n/, '')
+        .replace(/ {12}<div id="manual-build-extras"><\/div>\n/, '')
+        .replace(/ {4}<script src="assets\/js\/manual-builds\.js\?v=\d+"><\/script>\n/, '')
         // 13/10: authorized paid-upgrade monitor. Exclude only this explicit new script, not body/handlers.
         .replace(/\s*<script src="assets\/js\/upgrade-paid-sync\.js\?v=\d+"><\/script>/, '')
         // 15/10: vista di montaggio autorizzata (PDF, extra e colore case).

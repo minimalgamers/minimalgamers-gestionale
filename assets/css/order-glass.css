@@ -125,3 +125,20 @@ body.mg-glass-desk #processed-container > .order-card {scroll-margin-top:220px;m
  .acc-acq-riga>input{grid-column:1;grid-row:2;min-height:44px;}
  .acc-acq-riga>.acc-acq-matita{grid-column:2;grid-row:2;}
 }
+
+/* Distinta e costi modificabili prima di salvare un ordine manuale. */
+.manual-build-picker{display:grid;gap:8px;}
+.manual-build-select-row{display:flex;gap:8px;}
+.manual-build-select-row input{flex:1;min-width:0;}
+.manual-build-select-row button{flex:none;}
+.manual-build-costs{display:grid;grid-template-columns:80px minmax(0,1fr);gap:8px;margin-top:8px;}
+.manual-build-costs input,.manual-build-detail{box-sizing:border-box;display:block;width:100%;min-width:0;}
+.manual-build-costs label,.manual-build-detail-label{display:block;font-size:12px;margin-top:5px;}
+.manual-build-note{font-size:12px;margin:6px 0 0;line-height:1.4;color:#52617a;}
+#manual-build-extras{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+#manual-build-status{margin:0;font-size:13px;line-height:1.4;}
+@media(max-width:600px){
+ .manual-build-select-row{flex-direction:column;}
+ #add-manual-order-popup .manual-component-wrapper{min-width:0;}
+ #manual-build-extras{grid-template-columns:1fr;}
+}

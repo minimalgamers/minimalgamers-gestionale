@@ -11765,6 +11765,7 @@ document.getElementById('add-manual-order-btn')?.addEventListener('click', () =>
         document.getElementById('manual-custom-items-container').innerHTML = '';
         document.getElementById('manual-order-email').value = '';
         document.getElementById('manual-order-phone').value = '';
+        window.MGManualBuild?.open();
     }
 });
 
@@ -11774,6 +11775,7 @@ document.getElementById('cancel-manual-order')?.addEventListener('click', closeM
 document.getElementById('add-manual-order-overlay')?.addEventListener('click', closeManualOrderPopup);
 
 function closeManualOrderPopup() {
+    window.MGManualBuild?.close();
     const popup = document.getElementById('add-manual-order-popup');
     const overlay = document.getElementById('add-manual-order-overlay');
     const results = document.getElementById('manual-search-results');
@@ -12027,6 +12029,7 @@ function selectManualComponent(inputElement, name, ean, supplier) {
     
     inputElement.style.borderColor = 'rgba(46, 204, 113, 0.5)';
     inputElement.style.background = 'rgba(46, 204, 113, 0.1)';
+    window.MGManualBuild?.selected(inputElement, name, ean, supplier);
 }
 
 
@@ -12105,6 +12108,8 @@ document.addEventListener('click', (e) => {
 
 
 document.getElementById('save-manual-order')?.addEventListener('click', async () => {
+    const saveButton = document.getElementById('save-manual-order');
+    if (saveButton.disabled) return;
     const orderId = document.getElementById('manual-order-id').value.trim();
     
     if (!orderId) {
@@ -12200,8 +12205,12 @@ document.getElementById('save-manual-order')?.addEventListener('click', async ()
         components: components
     };
     
+    saveButton.disabled = true;
     try {
-        
+        if (window.MGManualBuild) {
+            const draft = await window.MGManualBuild.prepareSave(components);
+            Object.assign(orderData, draft);
+        }
         const success = await saveProcessedOrderToDB(manualOrderId, orderData);
         
         if (success) {
@@ -12223,7 +12232,9 @@ document.getElementById('save-manual-order')?.addEventListener('click', async ()
         }
     } catch (error) {
         console.error('Errore salvataggio ordine manuale:', error);
-        showNotification('Errore nel salvataggio', 'error');
+        showNotification(error.message || 'Errore nel salvataggio', 'error');
+    } finally {
+        saveButton.disabled = false;
     }
 });
 

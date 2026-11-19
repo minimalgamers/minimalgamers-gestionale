@@ -153,7 +153,7 @@ La rettifica modifica esclusivamente gli accessori, controlla eventuali modifich
 e si blocca se trova prezzi pagati o un ordine finalizzato.
 
 L'alimentatore lo decide la scheda video finale (`applyGpuPsuRule` in `app.js`, 26/09/2026):
-fino alla RX 9060 XT il DeepCool PF-600X 600W, dalla RX 7800 XT / 9070 / RTX 5070 alla RTX 5080
+fino alla RX 9060 XT il SAMA B850 850W Bronze (ABACO SAMAB850BK, dal 19/11/2026 al posto del DeepCool PF-600X 600W; la RX 9070 GRE dei BLACK FREEZER tiene questo), dalla RX 7800 XT / 9070 / RTX 5070 alla RTX 5080
 il DeepCool 850W Gold, con la RTX 5090 il PQ1000. Le build DeepCool e MSI tengono il loro
 alimentatore se basta. Le vecchie regole scheda madre → alimentatore sono spente.
 

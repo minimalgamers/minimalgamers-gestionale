@@ -24,14 +24,15 @@ function isProcessedTab(tabName) {
    PSU DEEPCOOL v34 — sostituzione centralizzata alimentatori
    -------------------------------------------------------------------------
    Regola concordata:
-     - ogni TACENS (750W/850W, qualsiasi)      -> DEEPCOOL PF-600X 80+ BRONZE
+     - ogni TACENS (750W/850W, qualsiasi)      -> SAMA B850 850W 80+ BRONZE ATX 3.1 (ABACO SAMAB850BK)
+       (Antonio 19/11/2026: al posto del DEEPCOOL PF-600X 600W in tutti i PC; gli 850W Gold restano)
      - ogni 80+ GOLD 850W                       -> DEEPCOOL PN850-D V2 80+ GOLD
      - MIRAGE (ex INFERNUS CUSTOM) / 1000W GOLD -> DEEPCOOL PQ1000-G 1000W 80+ GOLD
    Fornitore di tutti e tre: ABACO.
    Le build MSI (nascoste) hanno PSU [MSI] con EAN numerici: NON vengono toccate.
    ========================================================================= */
 const PSU_DEEPCOOL = {
-    BRONZE: { value: 'DEEPCOOL PF-600X 80+ BRONZE',      supplier: 'ABACO' },
+    BRONZE: { value: 'SAMAB850BK',                       supplier: 'ABACO' },
     GOLD:   { value: 'DEEPCOOL PN850-D V2 80+ GOLD',     supplier: 'ABACO' },
     PQ1000: { value: 'DEEPCOOL PQ1000-G 1000W 80+ GOLD', supplier: 'ABACO' }
 };
@@ -43,7 +44,7 @@ function mapPsuToDeepcool(psuValue, configKey) {
     const cfg = String(configKey || '').toUpperCase();
 
     // già convertito
-    if (v.includes('DEEPCOOL')) return null;
+    if (v.includes('DEEPCOOL') || v.includes('SAMAB850')) return null;
 
     // eccezione per nome config: MIRAGE (ex INFERNUS CUSTOM, RTX 5080) -> PQ1000-G
     if (/\bPC\s*GAMING\s*MIRAGE\b|INFERNUS\s*CUSTOM/.test(cfg)) return PSU_DEEPCOOL.PQ1000;
@@ -52,7 +53,7 @@ function mapPsuToDeepcool(psuValue, configKey) {
 
     // 80+ GOLD 850W -> PN850-D V2 GOLD
     if (/80\+?\s*GOLD\s*850W/.test(v)) return PSU_DEEPCOOL.GOLD;
-    // TACENS (qualsiasi wattaggio) -> PF-600X BRONZE
+    // TACENS (qualsiasi wattaggio) -> alimentatore base (SAMA B850)
     if (/TACENS/.test(v)) return PSU_DEEPCOOL.BRONZE;
 
     // build MSI o altri PSU con EAN numerico/sconosciuto: non toccare
@@ -237,7 +238,7 @@ console.log('✅ SINNER-GPU PSU v35 registrato');
    -------------------------------------------------------------------------
    Conta la scheda video FINALE dell'ordine (variante del cliente, altrimenti il
    titolo del prodotto nel suo ordine, altrimenti il pezzo GPU):
-     - fino alla RX 9060 XT (5060 Ti, B580, 7600, 3050, integrata...) -> PF-600X 600W BRONZE
+     - fino alla RX 9060 XT (5060 Ti, B580, 7600, 3050, integrata...) -> SAMA B850 850W BRONZE (dal 19/11/2026; prima PF-600X 600W)
      - RX 7800 XT, RX 9070 / 9070 XT, RTX 5070 / 5070 Ti, RTX 5080     -> PN850-D 850W GOLD
      - RTX 5090                                                        -> PQ1000-G 1000W GOLD
    Linea MINIMAL: sempre cosi'. Linea DEEPCOOL: resta il suo alimentatore se basta.
@@ -264,7 +265,7 @@ function detectOrderGpuTier(finalComponents, pcItem) {
         }
     }
     const title = String(pcItem?.name || pcItem?.title || '').toUpperCase();
-    const m = title.match(/RTX\s*\d{4}(\s*TI)?|RX\s*\d{4}(\s*XT)?|ARC\s*[AB]\d{3}/);
+    const m = title.match(/RTX\s*\d{4}(\s*TI)?|RX\s*\d{4}(\s*XT|\s*GRE)?|ARC\s*[AB]\d{3}/);
     if (m) return { tier: gpuTierFromText(m[0]), from: m[0] };
     const gpu = (finalComponents || []).find(c => String(c.type || '').toUpperCase() === 'GPU');
     if (gpu) {
@@ -278,6 +279,8 @@ function detectOrderGpuTier(finalComponents, pcItem) {
 function psuWatts(value) {
     const v = String(value || '').toUpperCase();
     let m = v.match(/(\d{3,4})\s*W\b/);
+    if (m) return parseInt(m[1], 10);
+    m = v.match(/SAMA\s*[BGP]\s*(\d{3,4})/);                 // SAMAB850BK, SAMA G850...
     if (m) return parseInt(m[1], 10);
     m = v.match(/(?:PF|PN|PQ|PL|PM|A|MAG\s*A|MPG\s*A)-?(\d{3,4})/);
     return m ? parseInt(m[1], 10) : 0;
@@ -297,6 +300,8 @@ window.applyGpuPsuRule = function(finalComponents, configKey, pcItem) {
     let target = null;
     if (line === 'MINIMAL') {
         target = { 1: PSU_DEEPCOOL.BRONZE, 2: PSU_DEEPCOOL.GOLD, 3: PSU_DEEPCOOL.PQ1000 }[tier];
+        // BLACK FREEZER (19/11): la RX 9070 GRE tiene l'alimentatore base, che ora e' un 850W
+        if (/RX\s*9070\s*GRE/i.test(String(from))) target = PSU_DEEPCOOL.BRONZE;
     } else if (line === 'DEEPCOOL') {
         if (tier === 3 && watts < 1000) target = PSU_DEEPCOOL.PQ1000;
         else if (tier === 2 && watts < 850) target = PSU_DEEPCOOL.GOLD;

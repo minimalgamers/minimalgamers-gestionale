@@ -80,6 +80,12 @@ test('SKU GPU storico: nome esatto senza riprendere prezzo, quantità o prodotto
     assert.equal(label.fonte,'identita_storica');assert.equal(label.prezzo,undefined);assert.equal(label.stock,undefined);
     assert.equal(A.nomeDaCodice(null,'VGAASUATI0473',{line_items:[]},'GPU'),null);
 });
+
+test('DPAG300 recupera il nome del modello originale senza confonderlo con G2',()=>{
+    const {A}=env({items:[]});const label=A.nomeDaCodice(null,'DPAG300',{line_items:[]},'COOLER');
+    assert.equal(label.nome,'DeepCool AG300 AIR (R-AG300-BKNNMN-G)');assert.equal(label.fornitore,'ABACO');
+    assert.equal(label.prezzo,undefined);assert.equal(label.stock,undefined);assert.doesNotMatch(label.nome,/G2/);
+});
 test('colore dalla sola riga PC: OPZIONI DeepCool e monitor MSI non oscurano CASE',()=>{
     const {M}=env();
     const items=[{name:'OPZIONI REX - CASE - DEEPCOOL CG530 BLACK'}, {name:'MSI MONITOR GAMING 24,5"'}, {name:'PC GAMING REX',customProperties:{CASE:'DEEPCOOL CG530 BLACK - 4x RGB'}}];

@@ -999,10 +999,13 @@
         const nome = li ? String(li.name || li.title || '').trim() : '';
         if (nome) return { nome, fornitore: pezzo ? pezzo.fornitore : '', fonte: 'ordine' };
         if (pezzo && pezzo.descrizione && chiave(pezzo.descrizione)!==k) return {nome:pezzo.descrizione,fornitore:pezzo.fornitore,fonte:'listino'};
-        // Identità documentata dal catalogo ACTION del 15/09/2026 (F186/R166).
+        // Identità documentate: ACTION del 15/09/2026 (F186/R166), ABACO DPAG300.
         // Solo etichetta: nessun recupero di prezzi, stock o offerta storici.
-        const nomiStorici={VGAASUATI0472:'Asus Dual RX 7800 XT 16G graphics card'};
-        if (nomiStorici[k]) return {nome:nomiStorici[k],fornitore:'ACTION',fonte:'identita_storica'};
+        const nomiStorici={
+            VGAASUATI0472:{nome:'Asus Dual RX 7800 XT 16G graphics card',fornitore:'ACTION'},
+            DPAG300:{nome:'DeepCool AG300 AIR (R-AG300-BKNNMN-G)',fornitore:'ABACO'}
+        };
+        if (nomiStorici[k]) return {...nomiStorici[k],fonte:'identita_storica'};
         return null;
     }
 

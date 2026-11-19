@@ -100,12 +100,87 @@ test('solo le schede elaborate entrano al banco, ciascun PC con il suo stato', a
     const { leggi } = await banco(), { unita } = await leggi();
     uguali(unita.map(u => u.id), ['6001', '6002', '6002.2']);
     const u = unita[0];
-    assert.equal(u.stato.codice, 'attesa');
+    assert.equal(u.stato.codice, 'acquisti');
     assert.equal(u.stato.totale, 5);
     assert.equal(u.stato.pronti, 2);                                   // alimentatore dal magazzino + software
     uguali(u.stato.mancanti.map(r => r.c.type), ['GPU', 'CPU', 'VENTOLE']);
     uguali(u.righe.map(r => r.acquisto), ['pagato', 'ordinato', 'magazzino', 'da_acquistare', 'da_acquistare']);
     assert.equal(riga(unita, '6002', 'GPU').r.acquisto, 'acquistato');
+});
+
+test('il banco parte da cio\' che e\' stato comprato: si conferma l\'arrivo, anche di piu\' pezzi insieme', async () => {
+    const { leggi, dati, db } = await banco();
+    let u = (await leggi()).unita;
+    const pc = id => u.find(x => x.id === id);
+    // un pezzo non ancora ordinato ferma il PC per gli acquisti; i pezzi comprati aspettano solo la conferma
+    assert.match(pc('6001').stato.etichetta, /^DA ORDINARE · 1 pezzo$/);
+    uguali(pc('6001').stato.daOrdinare.map(r => r.c.type), ['VENTOLE']);
+    uguali(pc('6001').stato.daConfermare.map(r => r.c.type), ['GPU', 'CPU']);
+    const tuttoComprato = B.costruisciUnita({ shopify_order_id: '7001' }, [{ id: 1, type: 'GPU', ean: 'A', supplier: 'ALFA', quantity: 1, price: 10 }], { piano: [] });
+    assert.equal(tuttoComprato.stato.codice, 'confermare');
+    assert.match(tuttoComprato.stato.etichetta, /^ARRIVI DA CONFERMARE · 1 pezzo$/);
+    // conferma senza lettore dei pezzi comprati di un PC
+    const voci = pc('6001').stato.daConfermare.map(r => ({ u: pc('6001'), r }));
+    const esito = await dati.segnaArrivi(voci, 'Prova');
+    assert.equal(esito.fatti.length, 2);
+    assert.equal(esito.falliti.length, 0);
+    assert.equal(db.banco_pezzi.filter(b => b.ordine_id === '6001' && b.arrivati === 1 && b.arrivato_da === 'Prova' && !b.codice_letto).length, 2);
+    u = (await leggi()).unita;
+    assert.equal(pc('6001').stato.daConfermare.length, 0);
+    assert.equal(pc('6001').stato.pronti, 4);
+    // la stessa conferma ripetuta da una schermata non aggiornata: ogni riga fallisce da sola, niente doppioni
+    const ripetuta = await dati.segnaArrivi(voci, 'Altro');
+    assert.equal(ripetuta.fatti.length, 0);
+    assert.equal(ripetuta.falliti.length, 2);
+    assert.match(ripetuta.falliti[0].errore, /altro operatore/);
+    assert.equal(db.banco_pezzi.filter(b => b.ordine_id === '6001').length, 2);
+});
+
+test('valori d\'acquisto: solo importi registrati in Acquisti, divisi per come si paga', () => {
+    const comp = (id, type, supplier, extra = {}) => ({ id, type, ean: 'C' + id, supplier, quantity: 1, price: null, ...extra });
+    // stessa regola «come si paga» del gestionale
+    assert.equal(B.regimeAcquisto(comp(1, 'GPU', 'action')), 'intermediario');
+    assert.equal(B.regimeAcquisto(comp(1, 'CPU', 'TIER ONE')), 'art17');
+    assert.equal(B.regimeAcquisto(comp(1, 'COOLER', 'ABACO')), 'iva');
+    assert.equal(B.regimeAcquisto(comp(1, 'CPU', 'ABACO')), 'iva');
+    assert.equal(B.regimeAcquisto(comp(1, 'CASE', 'ALTRO')), 'altro');
+    assert.equal(JSON.stringify(B.importi(100, 'intermediario')), JSON.stringify({ netto: 100, iva: 22, totale: 122 }));
+    assert.equal(JSON.stringify(B.importi(100, 'iva')), JSON.stringify({ netto: 100, iva: 22, totale: 122 }));
+    assert.equal(JSON.stringify(B.importi(100, 'art17')), JSON.stringify({ netto: 100, iva: 0, totale: 100 }));
+    assert.equal(B.importi(100, 'altro').totale, null);
+    // da dove viene l'importo, e quando resta mancante
+    const libro = voce => ({ _acquisti_parziali_gestionale: { 1: { type: 'GPU', ean: 'C1', supplier: 'ACTION', quantity: 1, ...voce } } });
+    const gpu = comp(1, 'GPU', 'ACTION');
+    assert.equal(B.costoNetto(gpu, {}), null);
+    assert.equal(B.costoNetto({ ...gpu, price: '' }, {}), null);                                  // vuoto = mancante
+    assert.equal(B.costoNetto({ ...gpu, price: 0 }, {}).netto, 0);                                // zero esplicito = valido
+    assert.equal(JSON.stringify(B.costoNetto(gpu, libro({ stato: 'pagato', costo: 188.5 }))), JSON.stringify({ netto: 188.5, fonte: 'pagato' }));
+    assert.equal(B.costoNetto(gpu, libro({ stato: 'ordinato', costo: null, costo_previsto: 50 })).fonte, 'concordato');
+    assert.equal(B.costoNetto(gpu, libro({ stato: 'ordinato', costo: null })), null);
+    assert.equal(B.costoNetto({ ...gpu, ean: 'ALTRO' }, libro({ stato: 'pagato', costo: 188.5 })), null);   // importo di un altro pezzo: non vale
+    assert.equal(B.costoNetto(gpu, { ...libro({ stato: 'pagato', costo: 188.5 }),
+        _acquisto_confermato_gestionale: { righe: [{ componentId: 1, tipo: 'GPU', ean: 'C1', costo: 190 }] } }).netto, 190);
+    // un PC con tutti i casi
+    const u = B.costruisciUnita({ shopify_order_id: '7100', custom_properties: { _acquisti_parziali_gestionale: {
+        1: { type: 'GPU', ean: 'C1', supplier: 'ACTION', quantity: 1, stato: 'pagato', costo: 500 },
+        2: { type: 'CPU', ean: 'C2', supplier: 'TIER ONE', quantity: 1, stato: 'pagato', costo: 200 },
+        3: { type: 'PSU', ean: 'C3', supplier: 'ABACO', quantity: 1, stato: 'ordinato', costo: null, costo_previsto: 30 },
+        5: { type: 'RAM', ean: 'C5', supplier: 'ACTION', quantity: 1, stato: 'ordinato', costo: null } } } },
+        [comp(1, 'GPU', 'ACTION'), comp(2, 'CPU', 'TIER ONE'), comp(3, 'PSU', 'ABACO'), comp(4, 'VENTOLE', 'ALTRO', { quantity: 3, price: 30 }), comp(5, 'RAM', 'ACTION')], { piano: [] });
+    const v = B.sommaValori(u.righe.map(r => ({ r, pezzi: r.quantita })));
+    assert.equal(JSON.stringify(v.regimi.intermediario), JSON.stringify({ pezzi: 1, netto: 500, iva: 110, totale: 610 }));
+    assert.equal(JSON.stringify(v.regimi.art17), JSON.stringify({ pezzi: 1, netto: 200, iva: 0, totale: 200 }));
+    assert.equal(JSON.stringify(v.regimi.iva), JSON.stringify({ pezzi: 1, netto: 30, iva: 6.6, totale: 36.6 }));
+    assert.equal(JSON.stringify(v.regimi.altro), JSON.stringify({ pezzi: 3, netto: 30, iva: null, totale: null }));
+    assert.equal(v.pezzi, 7);
+    assert.equal(v.senzaImporto, 1);                                    // la RAM ordinata senza importo non diventa zero
+    assert.equal(v.ivaDaDefinire, 3);
+    assert.equal(v.netto, 760);
+    assert.equal(v.iva, 116.6);
+    assert.equal(v.totale, 846.6);
+    // una ventola arrivata su tre vale un terzo della riga
+    assert.equal(B.sommaValori([{ r: u.righe[3], pezzi: 1 }]).netto, 10);
+    assert.equal(B.sommaValori([{ r: u.righe[3], pezzi: 0 }]).pezzi, 0);
 });
 
 test('un arrivo va al primo PC in coda, prima a chi ha l\'acquisto registrato', async () => {
@@ -267,6 +342,8 @@ test('il banco non scrive mai nelle tabelle del gestionale e non conserva costi'
     await dati.segnaMontato(x.u, riga((await leggi()).unita, '6001', 'GPU').r, 'SN', 'Prova', null);
     await dati.salvaPc('6001', { stato: 'assemblato' });
     uguali([...new Set(sb.registro.filter(r => r.op !== 'select').map(r => r.tabella))].sort(), ['banco_pc', 'banco_pezzi']);
+    // i valori si leggono da Acquisti e si mostrano: nelle tabelle del banco non c'e' nessuna colonna di costo
     assert.doesNotMatch(sql, /\b(costo|prezzo|price|unitario)\w*\s+(NUMERIC|INTEGER|TEXT)/i);
+    assert.doesNotMatch((sorgente.match(/const foto = [\s\S]*?\}\);/) || [''])[0], /netto|costo|prezzo|price/i);
     assert.doesNotMatch(sql, /ALTER TABLE (?!%I)|DROP TABLE|processed_orders\s*\(|warehouse_inventory\s*\(/i);
 });

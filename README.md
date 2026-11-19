@@ -165,9 +165,11 @@ riceve i pezzi e monta i PC. Mostra le stesse schede delle scrivanie E1–E4: el
 Il gestionale ordini resta l'unica fonte per pezzi, fornitori, acquisti, sostituzioni, costi e giacenze.
 Il banco li **legge soltanto** e registra tre fatti fisici:
 
-- **Arrivo**: si spara il codice a barre della scatola; il pezzo va al primo PC in coda che lo aspetta,
-  prima a chi ha l'acquisto registrato (ordinato o pagato). Un arrivo senza acquisto registrato viene accettato
-  con un avviso, perché l'arrivo è un fatto e la registrazione dell'acquisto resta nel riepilogo fornitori.
+- **Arrivo**: il banco parte da ciò che in Acquisti risulta comprato e lo elenca come «merce che il gestionale
+  si aspetta», fornitore per fornitore. L'arrivo si conferma in due modi: sparando il codice a barre della
+  scatola (il pezzo va al primo PC in coda che lo aspetta) oppure senza lettore, un prodotto alla volta o un
+  fornitore intero. I pezzi non ancora ordinati stanno a parte: non sono attesi. Un arrivo senza acquisto
+  registrato viene accettato con un avviso, perché la registrazione dell'acquisto resta nel riepilogo fornitori.
 - **Montaggio**: si spara il pezzo sul PC aperto, con il seriale se serve. Si monta solo il prodotto scritto
   in scheda: un pezzo di un altro ordine viene bloccato. Software e servizi si spuntano a mano.
 - **PC finito**: assemblato e poi collaudato, con il seriale del PC. «Spedito» resta quello di Shopify.
@@ -182,7 +184,11 @@ Regole rispettate (vedi [regole economiche](docs/regole-economiche.md)):
 - **Acquisti**: lo stato di ogni pezzo usa le stesse parole della pagina Acquisti («Ordinato, da pagare»,
   «Acquistato e pagato», «Da ordinare», «Fuori dagli acquisti») ed è letto dal database a ogni lettura del
   codice a barre e quando si torna sulla scheda del browser, come fa Acquisti. Il banco non registra acquisti.
-- **Costi**: il banco non legge, non mostra e non salva costi.
+- **Valori d'acquisto** (Antonio 19/11): la merce attesa e la sezione «Valore» mostrano il netto già registrato
+  in Acquisti (prezzo confermato, pagato o concordato), mai un listino o una stima. L'IVA segue la regola «come
+  si paga» del gestionale: intermediario (IVA inclusa), IVA normale 22%, art. 17 per le CPU dirette. Un pezzo
+  senza importo registrato resta mancante e il totale è dichiarato parziale. Il banco non salva costi e nella
+  scheda di montaggio del PC i valori non compaiono.
 - **Upgrade pagati**: il pezzo sostituito da un upgrade è «NON MONTARE» e il PC non si chiude senza la spunta
   dell'upgrade montato. Se i dati della Panoramica non sono caricati nella sessione, la verifica è dichiarata
   «non fatta» e si rimanda alla scheda o al PDF di montaggio.

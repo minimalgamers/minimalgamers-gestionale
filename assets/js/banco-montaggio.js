@@ -50,6 +50,58 @@
         return 'da_acquistare';
     }
 
+    // ---- Valori d'acquisto: solo importi gia' registrati in Acquisti, mai stime o listini. ----
+    // Stesse regole di «come si paga» del gestionale (accoppiamento-auto.js): ACTION, OMEGA, TIER ONE e CASEKING
+    // passano dall'intermediario (pagato IVA inclusa, netto = pagato / 1,22); le loro CPU sono dirette in reverse
+    // charge (art. 17: nessuna IVA versata al fornitore); i distributori italiani fatturano con IVA 22%.
+    const IVA = 1.22, CANALE_INT = ['ACTION', 'OMEGA', 'TIER ONE', 'CASEKING'],
+        CANALE_DIST = ['ABACO', 'RUNNER', 'ESPRINET', 'BREVI', 'FOCELDA', 'NAVY BLUE'];
+    const REGIMI = { intermediario: 'Intermediario · IVA inclusa', iva: 'IVA normale 22%', art17: 'Art. 17 · reverse charge', altro: 'IVA da definire' };
+    const tonda = n => Math.round(n * 100) / 100;
+    const importo = v => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) || Number(v) < 0 ? null : Number(v));
+    function regimeAcquisto(c) {
+        const fornitore = su(c.supplier);
+        if (CANALE_INT.includes(fornitore)) return tipoMotore(c.type) === 'CPU' ? 'art17' : 'intermediario';
+        return CANALE_DIST.includes(fornitore) ? 'iva' : 'altro';
+    }
+    // Netto dell'intera riga (quantita' compresa) con la sua fonte; null = importo non registrato.
+    // Zero esplicito e' un importo valido; un campo vuoto resta mancante.
+    function costoNetto(c, cp) {
+        const p = proprieta(cp), righe = (p[K_CONFERMATO] && p[K_CONFERMATO].righe) || [];
+        const fissato = righe.find(r => r && (r.componentId != null ? String(r.componentId) === String(c.id)
+            : r.tipo === c.type && norm(r.ean) === norm(c.ean)));
+        if (fissato && importo(fissato.costo) != null) return { netto: tonda(importo(fissato.costo)), fonte: 'confermato' };
+        if (importo(c.price) != null) return { netto: tonda(importo(c.price)), fonte: 'confermato' };
+        const a = c.id == null ? null : (p[K_ACQUISTI] || {})[c.id];
+        if (a && a.type === c.type && String(a.ean || '') === String(c.ean || '') &&
+            String(a.supplier || '') === String(c.supplier || '') && Number(a.quantity) === quanti(c)) {
+            if (a.stato === 'pagato' && importo(a.costo) != null) return { netto: tonda(importo(a.costo)), fonte: 'pagato' };
+            if (a.stato === 'ordinato' && importo(a.costo_previsto) != null) return { netto: tonda(importo(a.costo_previsto)), fonte: 'concordato' };
+        }
+        return null;
+    }
+    function importi(netto, regime) {
+        if (regime === 'art17') return { netto, iva: 0, totale: netto };
+        if (regime === 'intermediario' || regime === 'iva') { const totale = tonda(netto * IVA); return { netto, iva: tonda(totale - netto), totale }; }
+        return { netto, iva: null, totale: null };                      // regime sconosciuto: solo il netto
+    }
+    // Somma per regime. voci: [{ r, pezzi }], pezzi = quanti pezzi della riga contare.
+    // Un pezzo senza importo registrato non vale zero: viene contato a parte e il totale e' dichiarato parziale.
+    function sommaValori(voci) {
+        const out = { regimi: {}, pezzi: 0, netto: 0, iva: 0, totale: 0, senzaImporto: 0, ivaDaDefinire: 0 };
+        for (const { r, pezzi } of voci || []) {
+            if (!(pezzi > 0)) continue;
+            out.pezzi += pezzi;
+            if (!r.costo) { out.senzaImporto += pezzi; continue; }
+            const g = out.regimi[r.regime] || (out.regimi[r.regime] = { pezzi: 0, netto: 0, iva: 0, totale: 0 });
+            const v = importi(tonda(r.costo.netto * pezzi / r.quantita), r.regime);
+            g.pezzi += pezzi; g.netto = tonda(g.netto + v.netto); out.netto = tonda(out.netto + v.netto);
+            if (v.totale == null) { out.ivaDaDefinire += pezzi; g.iva = null; g.totale = null; }
+            else { g.iva = tonda(g.iva + v.iva); g.totale = tonda(g.totale + v.totale); out.iva = tonda(out.iva + v.iva); out.totale = tonda(out.totale + v.totale); }
+        }
+        return out;
+    }
+
     // Software e servizi non arrivano in una scatola: si spuntano a mano, senza codice a barre.
     function rigaFisica(c, categoriaVoce) {
         if (/^(SERVIZIO|SOFTWARE|MONTAGGIO|SPEDIZIONE)\b/.test(su(c.type))) return false;
@@ -135,7 +187,7 @@
             const arrivati = cambiato || !b ? 0 : Math.min(quantita, Number(b.arrivati) || 0);
             const montato = !cambiato && !!(b && b.montato_il);
             return { c, b, cambiato, fisica, quantita, prelievo, arrivati, montato,
-                acquisto: prelievo ? 'magazzino' : statoAcquisto(c, cp),
+                acquisto: prelievo ? 'magazzino' : statoAcquisto(c, cp), costo: costoNetto(c, cp), regime: regimeAcquisto(c),
                 nonMontare: up ? { scelta: up.scelta || '', descrizione: up.descrizione || up.scelta || '', ordine: up.ordine || '' } : null,
                 pronto: montato || !fisica || !!prelievo || arrivati >= quantita };
         });
@@ -151,15 +203,20 @@
         const vive = u.righe.filter(r => !r.nonMontare);
         const montati = vive.filter(r => r.montato).length, pronti = vive.filter(r => r.pronto).length, totale = vive.length;
         const mancanti = vive.filter(r => !r.pronto);
+        // «da ordinare»: in Acquisti non risulta ne' ordinato ne' pagato. «da confermare»: comprato (o gia' in casa
+        // secondo Acquisti) ma l'arrivo non e' ancora stato confermato al banco.
+        const daOrdinare = mancanti.filter(r => r.acquisto === 'da_acquistare'), daConfermare = mancanti.filter(r => r.acquisto !== 'da_acquistare');
+        const pz = n => `${n} ${n === 1 ? 'pezzo' : 'pezzi'}`;
         let codice, etichetta;
         if (!totale) { codice = 'vuoto'; etichetta = 'SENZA PEZZI'; }
         else if (montati === totale && u.pc && u.pc.stato === 'collaudato') { codice = 'collaudato'; etichetta = 'COLLAUDATO'; }
         else if (montati === totale && u.pc && u.pc.stato === 'assemblato') { codice = 'assemblato'; etichetta = 'ASSEMBLATO'; }
         else if (montati === totale) { codice = 'montato'; etichetta = 'MONTATO · da chiudere'; }
         else if (montati > 0) { codice = 'montaggio'; etichetta = 'IN MONTAGGIO'; }
-        else if (pronti === totale) { codice = 'pronto'; etichetta = 'PRONTO'; }
-        else { codice = 'attesa'; etichetta = `IN ATTESA · ${mancanti.length} ${mancanti.length === 1 ? 'pezzo' : 'pezzi'}`; }
-        return { codice, etichetta, montati, pronti, totale, mancanti, daRivedere: u.daRivedere.length > 0 };
+        else if (pronti === totale) { codice = 'pronto'; etichetta = 'PRONTO DA MONTARE'; }
+        else if (!daOrdinare.length) { codice = 'confermare'; etichetta = `ARRIVI DA CONFERMARE · ${pz(daConfermare.length)}`; }
+        else { codice = 'acquisti'; etichetta = `DA ORDINARE · ${pz(daOrdinare.length)}`; }
+        return { codice, etichetta, montati, pronti, totale, mancanti, daOrdinare, daConfermare, daRivedere: u.daRivedere.length > 0 };
     }
 
     // codici della scheda a cui puo' corrispondere il codice letto: se' stesso + quelli imparati
@@ -237,6 +294,16 @@
             return scrivi(u, r, { arrivati, arrivato_il: ora(), arrivato_da: chi || null, codice_letto: letto ? String(letto).trim() : (r.b && r.b.codice_letto) || null },
                 x => x.eq('arrivati', prima));
         }
+        // Conferma senza lettore di piu' pezzi insieme (merce attesa da un fornitore, pezzi comprati di un PC).
+        // Ogni riga ha la sua guardia: una riga cambiata nel frattempo fallisce da sola, senza fermare le altre.
+        async function segnaArrivi(voci, chi) {
+            const fatti = [], falliti = [];
+            for (let i = 0; i < voci.length; i += 8) await Promise.all(voci.slice(i, i + 8).map(async x => {
+                try { fatti.push(await segnaArrivo(x.u, x.r, x.r.quantita, null, chi)); }
+                catch (e) { falliti.push({ u: x.u, r: x.r, errore: (e && e.message) || String(e) }); }
+            }));
+            return { fatti, falliti };
+        }
         async function annullaArrivo(u, r) {
             if (!r.b) return null;
             if (r.montato) throw new Error('Pezzo montato: prima smontalo');
@@ -271,11 +338,11 @@
             return esegui(sb.from('banco_pc').insert({ ordine_id: String(ordineId), ...dati, creato_il: ora() }).select().maybeSingle());
         }
         const riapriPc = ordineId => esegui(sb.from('banco_pc').delete().eq('ordine_id', String(ordineId)));
-        return { leggi, segnaArrivo, annullaArrivo, segnaMontato, smonta, togli, ricollega, associa, salvaPc, riapriPc };
+        return { leggi, segnaArrivo, segnaArrivi, annullaArrivo, segnaMontato, smonta, togli, ricollega, associa, salvaPc, riapriPc };
     }
 
     const logica = { K_ACQUISTI, K_CONFERMATO, K_ESCLUSIONI, PREFISSO_USO, norm, su, unita, tipoMotore, proprieta, identita, identitaBanco, statoAcquisto,
-        rigaFisica, prelieviDellUnita, assegnaPrelievi, collega, costruisciUnita, statoUnita, codiciPossibili,
+        REGIMI, regimeAcquisto, costoNetto, importi, sommaValori, rigaFisica, prelieviDellUnita, assegnaPrelievi, collega, costruisciUnita, statoUnita, codiciPossibili,
         candidatiArrivo, candidatiMontaggio, creaDati };
     if (typeof module !== 'undefined') module.exports = logica;
     if (typeof window === 'undefined') return;
@@ -290,7 +357,12 @@
     const ACQUISTO = { acquistato: 'Acquistato', pagato: 'Acquistato e pagato', ordinato: 'Ordinato, da pagare', magazzino: 'Dal magazzino',
         da_acquistare: 'Da ordinare', escluso: 'Fuori dagli acquisti' };
     const COLORE_ACQUISTO = { da_acquistare: 'rosso', ordinato: 'giallo', escluso: 'grigio' };
-    const PESO_STATO = { pronto: 0, montaggio: 1, montato: 2, attesa: 3, assemblato: 4, collaudato: 5, vuoto: 6 };
+    const PESO_STATO = { pronto: 0, montaggio: 1, montato: 2, confermare: 3, acquisti: 4, assemblato: 5, collaudato: 6, vuoto: 7 };
+    const comprato = a => a === 'acquistato' || a === 'pagato' || a === 'ordinato';
+    const eur = n => (n == null ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' }));
+    const daContare = l => l.map(x => ({ r: x.r, pezzi: x.r.quantita - x.r.arrivati }));      // pezzi ancora da confermare
+    const daArrivare = l => l.reduce((n, x) => n + x.r.quantita - x.r.arrivati, 0);
+    const gruppiAperti = new Set(), gruppiVisibili = new Map();   // gruppi della merce attesa: aperti / disegnati ora
     let root = null, dati = null, modello = { unita: [], codici: [] }, sezione = 'arrivi', aperta = null;
     const registro = { di: null, righe: [] };      // registro del montaggio del PC aperto
 
@@ -343,6 +415,19 @@
     .bm-modal .bm-chk{display:flex;align-items:center;gap:8px;margin-top:10px}.bm-modal .bm-chk input{width:auto}
     .bm-modal .bm-chk label{margin:0;font-size:16px;color:#1d2029}
     .bm-modal-azioni{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+    .bm-numeri{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0 0 14px}
+    .bm-numero{background:#fff;border:1px solid rgba(29,32,41,.12);border-left:6px solid #c9ccd3;border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+    .bm-numero b{font-size:30px;line-height:1.1}.bm-numero span{font-size:14px;color:#626773}
+    .bm-numero.verde{border-left-color:#1f8a4c}.bm-numero.viola{border-left-color:#7a46b8}.bm-numero.giallo{border-left-color:#d9a400}.bm-numero.rosso{border-left-color:#c0392b}
+    .bm-sez{margin:18px 0 4px;font-size:18px}
+    .bm-numero.blu{border-left-color:#005bd5}
+    .bm-table tr.bm-totale td{border-top:2px solid rgba(29,32,41,.35);font-weight:700;background:#f5f4f1}
+    .bm-avviso{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:#fff6dc;border:1px solid #e8cf7a;color:#7a5200;font-size:14px}
+    .bm-gruppo{border:1px solid rgba(29,32,41,.12);border-radius:10px;margin:8px 0;background:#fff}
+    .bm-gruppo>summary{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;list-style:none;font-size:17px}
+    .bm-gruppo>summary::-webkit-details-marker{display:none}
+    .bm-gruppo>summary>span::before{content:'\\25B8  ';color:#626773}.bm-gruppo[open]>summary>span::before{content:'\\25BE  '}
+    .bm-gruppo[open]>summary{border-bottom:1px solid rgba(29,32,41,.1)}
     @media (max-width:700px){.bm-page{padding:12px}.bm-scan{min-width:0;width:100%}.bm-wrap{max-height:none}.bm-table{font-size:14px}.bm-table td.bm-nome{font-size:15px}}
     `;
 
@@ -501,21 +586,23 @@
             <button id="bm-aggiorna" class="bm-btn">Aggiorna</button><span id="bm-status" class="bm-status"></span></div>
           <div class="bm-muted" style="margin-bottom:10px">Qui si registra solo ciò che succede al banco: arrivo dei pezzi, montaggio e seriali.
             Pezzi, fornitori, acquisti, sostituzioni e costi restano nelle schede degli ordini; le quantità a scorta nella pagina Inventario.</div>
-          <div class="bm-subnav"><button data-bm="arrivi" class="active">Arrivi</button><button data-bm="pc">PC da montare</button><button data-bm="banco">Banco</button></div>
+          <div id="bm-riepilogo" class="bm-numeri"></div>
+          <div class="bm-subnav"><button data-bm="arrivi" class="active">Arrivi</button><button data-bm="pc">PC da montare</button><button data-bm="banco">Banco</button><button data-bm="valore">Valore</button></div>
           <div class="bm-panel active" data-bmp="arrivi">
-            <div class="bm-card"><h3>È arrivato un pezzo — spara il codice a barre</h3>
-              <div class="bm-row"><input id="bm-arr-codice" class="bm-scan" placeholder="Codice a barre" autocomplete="off">
+            <div class="bm-card"><h3>È arrivata merce</h3>
+              <div class="bm-row"><input id="bm-arr-codice" class="bm-scan" placeholder="Spara il codice a barre" autocomplete="off">
                 <input id="bm-arr-ordine" placeholder="Ordine (facoltativo, es. #4776)" style="min-width:210px">
                 <button id="bm-arr-btn" class="bm-btn primary">Registra arrivo</button></div>
-              <div class="bm-muted">Il pezzo va al primo PC in coda che lo aspetta. Se il codice sulla scatola è diverso da quello in scheda, ti chiedo una volta sola a quale pezzo corrisponde.</div></div>
-            <div class="bm-card"><h3>Ultimi arrivi di questa sessione</h3><div id="bm-arr-log" class="bm-log"></div></div>
-            <div class="bm-card"><div class="bm-row" style="justify-content:space-between"><h3 style="margin:0">Pezzi che devono ancora arrivare</h3>
+              <div class="bm-muted">Due modi per confermare un arrivo: spari le scatole con il lettore, oppure qui sotto confermi senza lettore la merce che il gestionale si aspetta.</div>
+              <div id="bm-arr-log" class="bm-log" style="margin-top:8px"></div></div>
+            <div class="bm-card"><div class="bm-row" style="justify-content:space-between"><h3 style="margin:0">Merce che il gestionale si aspetta</h3>
               <input id="bm-arr-cerca" placeholder="Cerca ordine, pezzo, codice, fornitore" style="min-width:260px"></div>
-              <div class="bm-wrap"><table class="bm-table" id="bm-arr-tab"></table></div></div>
+              <div id="bm-arr-gruppi"></div></div>
           </div>
           <div class="bm-panel" data-bmp="pc"><div class="bm-card"><h3>PC da montare</h3>
-            <div class="bm-muted" style="margin-bottom:8px">PRONTO = tutti i pezzi sono arrivati (o presi dal magazzino): si può montare.</div>
+            <div class="bm-muted" style="margin-bottom:8px">In cima i PC più vicini a essere montati. «Da confermare» = pezzi comprati di cui manca solo la conferma dell'arrivo. «Da ordinare» = pezzi che in Acquisti non risultano ancora ordinati.</div>
             <div class="bm-wrap"><table class="bm-table" id="bm-pc-tab"></table></div></div></div>
+          <div class="bm-panel" data-bmp="valore"><div id="bm-valore"></div></div>
           <div class="bm-panel" data-bmp="banco">
             <div class="bm-card"><div class="bm-row"><input id="bm-banco-ordine" placeholder="Ordine (es. #4776)" style="min-width:200px">
               <button id="bm-banco-apri" class="bm-btn primary">Apri PC</button></div></div>
@@ -537,8 +624,10 @@
         disegna();
     }
     function disegna() {
+        disegnaRiepilogo();
         if (sezione === 'arrivi') { disegnaAttesa(); setTimeout(() => el('bm-arr-codice') && el('bm-arr-codice').focus(), 50); }
         else if (sezione === 'pc') disegnaPc();
+        else if (sezione === 'valore') disegnaValore();
         else disegnaBanco();
     }
     async function aggiorna(avvisa) {
@@ -546,15 +635,117 @@
     }
 
     /* ------------------------------- ARRIVI ------------------------------- */
+    // I numeri che contano, sempre in alto.
+    function disegnaRiepilogo() {
+        const box = el('bm-riepilogo');
+        if (!box) return;
+        const conta = (...codici) => modello.unita.filter(u => codici.includes(u.stato.codice)).length;
+        const attesa = inAttesa();
+        const carte = [[conta('pronto'), 'PC pronti da montare', 'verde'], [conta('montaggio', 'montato'), 'PC in montaggio', 'viola'],
+            [conta('confermare'), 'PC a cui manca solo la conferma degli arrivi', 'giallo'], [conta('acquisti'), 'PC fermi per pezzi da ordinare', 'rosso'],
+            [daArrivare(attesa.filter(x => x.r.acquisto !== 'da_acquistare')), 'pezzi comprati, arrivo da confermare', 'giallo'],
+            [daArrivare(attesa.filter(x => x.r.acquisto === 'da_acquistare')), 'pezzi ancora da ordinare', 'rosso']];
+        const casa = sommaValori(inCasa());
+        carte.push([eur(casa.netto), 'valore netto della merce in casa' + (casa.senzaImporto ? ' · parziale' : ''), 'blu']);
+        box.innerHTML = carte.map(([n, t, c]) => `<div class="bm-numero ${c}"><b>${n}</b><span>${esc(t)}</span></div>`).join('');
+    }
+
+    // Merce che il gestionale si aspetta: cio' che in Acquisti risulta comprato, fornitore per fornitore.
     function disegnaAttesa() {
-        const t = el('bm-arr-tab'), q = su(el('bm-arr-cerca').value);
-        const righe = inAttesa().filter(x => !q || su([x.u.nome, x.r.c.type, x.r.c.name, x.r.c.ean, x.r.c.supplier].join(' ')).includes(q));
-        if (!righe.length) { t.innerHTML = `<tr><td class="bm-muted">${modello.unita.length ? 'Nessun pezzo in attesa di arrivo.' : 'Nessuna scheda elaborata da spedire. Se hai appena aperto il gestionale, passa prima dalla pagina Ordini e premi Aggiorna.'}</td></tr>`; return; }
-        t.innerHTML = '<tr><th>Ordine</th><th>Tipo</th><th>Pezzo in scheda</th><th>Codice</th><th>Fornitore</th><th>Acquisto</th><th>Arrivati</th><th></th></tr>' +
-            righe.map(({ u, r }) => `<tr><td><b>${esc(u.nome)}</b></td><td>${esc(r.c.type)}</td><td class="bm-nome">${esc(nomePezzo(r.c))}</td><td class="bm-muted">${esc(r.c.ean)}</td>
-              <td>${esc(r.c.supplier)}</td><td><span class="bm-pill ${COLORE_ACQUISTO[r.acquisto] || 'blu'}">${esc(ACQUISTO[r.acquisto])}</span></td>
-              <td>${r.arrivati}/${r.quantita}</td><td><button class="bm-btn sm" data-arr="${esc(u.id)}|${esc(r.c.id)}">Arrivato</button></td></tr>`).join('');
-        t.querySelectorAll('[data-arr]').forEach(b => { b.onclick = () => arrivoAMano(b.dataset.arr); });
+        const box = el('bm-arr-gruppi'), q = su(el('bm-arr-cerca').value);
+        gruppiVisibili.clear();
+        if (!modello.unita.length) { box.innerHTML = '<p class="bm-muted">Nessuna scheda elaborata da spedire. Se hai appena aperto il gestionale, passa prima dalla pagina Ordini e premi Aggiorna.</p>'; return; }
+        const voci = inAttesa().filter(x => !q || su([x.u.nome, x.r.c.type, x.r.c.name, x.r.c.ean, x.r.c.supplier].join(' ')).includes(q));
+        const fornitori = new Map(), inCasa = [], daOrdinare = [];
+        for (const x of voci) {
+            if (comprato(x.r.acquisto)) { const nome = su(x.r.c.supplier) || 'SENZA FORNITORE'; if (!fornitori.has(nome)) fornitori.set(nome, []); fornitori.get(nome).push(x); }
+            else if (x.r.acquisto === 'escluso') inCasa.push(x);
+            else daOrdinare.push(x);
+        }
+        const pz = n => `${n} ${n === 1 ? 'pezzo' : 'pezzi'}`;
+        const blocco = (chiave, titolo, lista, bottone) => {
+            const prodotti = new Map();
+            for (const x of lista) { const k = identita(x.r.c); if (!prodotti.has(k)) prodotti.set(k, []); prodotti.get(k).push(x); }
+            gruppiVisibili.set(chiave, { titolo, voci: lista });
+            const valore = sommaValori(daContare(lista));
+            const righe = [...prodotti].map(([k, l]) => {
+                const c = l[0].r.c, kp = `${chiave}|${k}`, n = daArrivare(l);
+                gruppiVisibili.set(kp, { titolo: nomePezzo(c), voci: l });
+                return `<tr><td><b>${n} ×</b></td><td class="bm-nome">${esc(nomePezzo(c))}<div class="bm-muted">${esc(c.type)} · ${esc(c.ean)}</div></td>
+                  <td>${esc([...new Set(l.map(x => x.u.nome))].join(', '))}</td>
+                  <td>${[...new Set(l.map(x => x.r.acquisto))].map(a => `<span class="bm-pill ${COLORE_ACQUISTO[a] || 'blu'}">${esc(ACQUISTO[a])}</span>`).join(' ')}</td>
+                  <td>${valoreProdotto(l)}</td>
+                  <td style="text-align:right"><button type="button" class="bm-btn sm" data-conferma="${esc(kp)}">${n === 1 ? 'Arrivato' : `Arrivati tutti e ${n}`}</button></td></tr>`;
+            }).join('');
+            return `<details class="bm-gruppo" data-gruppo="${esc(chiave)}"${q || gruppiAperti.has(chiave) ? ' open' : ''}>
+              <summary><span><b>${esc(titolo)}</b> · ${pz(daArrivare(lista))}${valore.pezzi > valore.senzaImporto ? ` · ${eur(valore.netto)} netti${valore.senzaImporto ? ` <span class="bm-muted">(parziale: ${pz(valore.senzaImporto)} senza importo)</span>` : ''}` : ''}</span>
+                <button type="button" class="bm-btn sm ok" data-conferma="${esc(chiave)}">${esc(bottone)}</button></summary>
+              <table class="bm-table"><tr><th>Q.tà</th><th>Pezzo in scheda</th><th>Per gli ordini</th><th>Acquisto</th><th>Valore netto</th><th></th></tr>${righe}</table></details>`;
+        };
+        const comprati = [...fornitori].sort((a, b) => daArrivare(b[1]) - daArrivare(a[1]));
+        box.innerHTML =
+            `<h4 class="bm-sez">Comprata, arrivo da confermare · ${pz(comprati.reduce((n, x) => n + daArrivare(x[1]), 0))}</h4>
+             <p class="bm-muted">In Acquisti risulta ordinata o pagata. Quando arriva: sparala con il lettore, oppure confermala qui (un prodotto alla volta o tutto il fornitore).</p>` +
+            (comprati.map(([nome, l]) => blocco('forn:' + nome, nome, l, 'È arrivato tutto')).join('') || '<p class="bm-muted">Nessun pezzo comprato in attesa di conferma.</p>') +
+            (inCasa.length ? `<h4 class="bm-sez">Già in casa secondo Acquisti · ${pz(daArrivare(inCasa))}</h4>
+             <p class="bm-muted">In Acquisti sono «fuori dagli acquisti», cioè non vanno comprati: conferma che ci sono davvero.</p>` + blocco('casa', 'Fuori dagli acquisti', inCasa, 'Ci sono tutti') : '') +
+            (daOrdinare.length ? `<h4 class="bm-sez">Ancora da ordinare · ${pz(daArrivare(daOrdinare))}</h4>
+             <p class="bm-muted">Non sono attesi: in Acquisti non risultano né ordinati né pagati. Se un pezzo è già in casa puoi confermarlo lo stesso.</p>` + blocco('ordinare', 'Da ordinare', daOrdinare, 'Li ho già tutti') : '');
+        box.querySelectorAll('details.bm-gruppo').forEach(d => d.addEventListener('toggle', () => {
+            if (su(el('bm-arr-cerca').value)) return;                 // con una ricerca i gruppi sono aperti per mostrare i risultati
+            if (d.open) gruppiAperti.add(d.dataset.gruppo); else gruppiAperti.delete(d.dataset.gruppo);
+        }));
+        box.querySelectorAll('[data-conferma]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); confermaGruppo(b.dataset.conferma); }));
+    }
+    // Valore di un prodotto della merce attesa: netto registrato e come si paga. Senza importo resta «non registrato».
+    function valoreProdotto(l) {
+        const v = sommaValori(daContare(l)), regime = l[0].r.regime;
+        if (v.pezzi === v.senzaImporto) return '<span class="bm-muted">importo non registrato</span>';
+        const comeSiPaga = regime === 'art17' ? 'senza IVA' : v.totale && !v.ivaDaDefinire ? `${eur(v.totale)} con IVA` : '';
+        return `<b>${eur(v.netto)}</b>${v.senzaImporto ? ' <span class="bm-muted">(parziale)</span>' : ''}<div class="bm-muted">${esc(REGIMI[regime])}${comeSiPaga ? ' · ' + comeSiPaga : ''}</div>`;
+    }
+    // Merce in casa: arrivo confermato al banco, per PC non ancora spediti. I pezzi presi dalla scorta
+    // dell'Inventario non sono inclusi: il loro costo e' quello del prelievo, gia' nei conti dell'ordine.
+    const inCasa = () => tutte().filter(x => x.r.fisica && !x.r.prelievo && x.r.arrivati > 0).map(x => ({ r: x.r, pezzi: x.r.arrivati }));
+    const inArrivo = () => daContare(inAttesa().filter(x => comprato(x.r.acquisto)));
+    function tabellaValore(titolo, nota, v) {
+        const righe = Object.keys(REGIMI).filter(k => v.regimi[k]).map(k => { const g = v.regimi[k]; return `<tr><td><b>${esc(REGIMI[k])}</b></td>
+            <td>${g.pezzi}</td><td>${eur(g.netto)}</td><td>${eur(g.iva)}</td><td><b>${eur(g.totale)}</b></td></tr>`; }).join('');
+        const avvisi = [v.senzaImporto ? `${v.senzaImporto} ${v.senzaImporto === 1 ? 'pezzo non ha' : 'pezzi non hanno'} un importo registrato in Acquisti: il totale è parziale.` : '',
+            v.ivaDaDefinire ? `${v.ivaDaDefinire} ${v.ivaDaDefinire === 1 ? 'pezzo è' : 'pezzi sono'} di un fornitore senza regola IVA nel gestionale: contato solo il netto.` : ''].filter(Boolean);
+        return `<div class="bm-card"><h3>${esc(titolo)}</h3><p class="bm-muted" style="margin:0 0 8px">${esc(nota)}</p>` +
+            (righe ? `<table class="bm-table"><tr><th>Come si paga</th><th>Pezzi</th><th>Netto</th><th>IVA</th><th>Totale con IVA</th></tr>${righe}
+              <tr class="bm-totale"><td>Totale${v.senzaImporto ? ' parziale' : ''}</td><td>${v.pezzi - v.senzaImporto}</td><td>${eur(v.netto)}</td><td>${eur(v.iva)}</td><td>${eur(v.totale)}</td></tr></table>`
+                : '<p class="bm-muted">Nessun pezzo con un importo registrato.</p>') +
+            avvisi.map(a => `<p class="bm-avviso">${esc(a)}</p>`).join('') + '</div>';
+    }
+    function disegnaValore() {
+        el('bm-valore').innerHTML =
+            tabellaValore('Merce in casa', 'Pezzi con l\'arrivo confermato al banco, per PC non ancora spediti (anche se già montati).', sommaValori(inCasa())) +
+            tabellaValore('Merce comprata, arrivo da confermare', 'Pezzi ordinati o pagati che il banco non ha ancora visto arrivare.', sommaValori(inArrivo())) +
+            `<p class="bm-muted">Gli importi sono quelli già registrati in Acquisti (prezzo confermato, pagato o concordato), netti di IVA; l'IVA segue la regola «come si paga» del gestionale.
+              I pezzi presi dalla scorta dell'Inventario non sono inclusi. Nella scheda di montaggio del PC i valori non compaiono.</p>`;
+    }
+    // Conferma senza lettore: un prodotto, un fornitore intero o i pezzi comprati di un PC.
+    async function confermaVoci(titolo, voci) {
+        const n = daArrivare(voci);
+        if (!n) return;
+        const ok = await finestra(`${titolo}: confermi l'arrivo di ${n === 1 ? '1 pezzo' : n + ' pezzi'}?`, [
+            { name: 'sicuro', label: n === 1 ? 'Il pezzo è qui' : `Ho controllato: ci sono tutti e ${n}`, type: 'checkbox', required: true }],
+            { nota: 'Conferma senza lettore. Se manca qualcosa, annulla e conferma un prodotto alla volta.', ok: 'Conferma arrivo' });
+        if (!ok) return;
+        await azione(async () => {
+            const esito = await db().segnaArrivi(voci, operatore());
+            const fatti = esito.fatti.reduce((t, b) => t + (Number(b && b.arrivati) || 0), 0);
+            if (esito.fatti.length) log('bm-arr-log', `Confermato senza lettore: ${titolo} · ${fatti === 1 ? '1 pezzo' : fatti + ' pezzi'}`, 'o');
+            if (esito.falliti.length) log('bm-arr-log', `${titolo}: ${esito.falliti.length} non confermati (${esito.falliti[0].errore})`, 'e');
+            stato(esito.falliti.length ? `Confermati ${esito.fatti.length}, da rivedere ${esito.falliti.length}` : `Arrivo confermato: ${titolo}`, esito.falliti.length ? 'err' : 'ok');
+            await carica(); disegna();
+        });
+    }
+    function confermaGruppo(chiave) {
+        const g = gruppiVisibili.get(chiave);
+        return g ? confermaVoci(g.titolo, g.voci) : undefined;
     }
     const trova = chiave => { const [id, cid] = String(chiave).split('|'); const u = modello.unita.find(x => x.id === id); const r = u && u.righe.find(x => String(x.c.id) === cid); return u && r ? { u, r } : null; };
     function avvisoAcquisto(r) {
@@ -609,16 +800,20 @@
     }
 
     /* ---------------------------- PC DA MONTARE ---------------------------- */
-    const coloreStato = c => ({ pronto: 'blu', montaggio: 'viola', montato: 'verde', assemblato: 'verde', collaudato: 'verde', attesa: 'rosso', vuoto: 'grigio' }[c] || 'grigio');
+    const coloreStato = c => ({ pronto: 'verde', montaggio: 'viola', montato: 'verde', assemblato: 'verde', collaudato: 'verde', confermare: 'giallo', acquisti: 'rosso', vuoto: 'grigio' }[c] || 'grigio');
     function disegnaPc() {
         const t = el('bm-pc-tab');
-        const lista = modello.unita.slice().sort((a, b) => PESO_STATO[a.stato.codice] - PESO_STATO[b.stato.codice]);
+        const lista = modello.unita.slice().sort((a, b) => PESO_STATO[a.stato.codice] - PESO_STATO[b.stato.codice] ||
+            a.stato.daOrdinare.length - b.stato.daOrdinare.length || a.stato.daConfermare.length - b.stato.daConfermare.length);
         if (!lista.length) { t.innerHTML = '<tr><td class="bm-muted">Nessuna scheda elaborata da spedire.</td></tr>'; return; }
-        t.innerHTML = '<tr><th>Ordine</th><th>Build</th><th>Scrivania</th><th>Stato</th><th>Pronti</th><th>Montati</th><th>Cosa manca</th><th></th></tr>' +
+        const tipi = l => esc(l.map(r => r.c.type).join(', '));
+        t.innerHTML = '<tr><th>Ordine</th><th>Build</th><th>Scrivania</th><th>Stato</th><th>Arrivati</th><th>Arrivo da confermare</th><th>Da ordinare</th><th>Montati</th><th></th></tr>' +
             lista.map(u => `<tr><td><b>${esc(u.nome)}</b></td><td>${esc(u.build)}</td><td>E${u.foglio}</td>
               <td><span class="bm-pill ${coloreStato(u.stato.codice)}">${esc(u.stato.etichetta)}</span>${u.stato.daRivedere ? ' <span class="bm-pill rosso">pezzo cambiato</span>' : ''}</td>
-              <td>${u.stato.pronti}/${u.stato.totale}</td><td>${u.stato.montati}/${u.stato.totale}</td>
-              <td class="bm-muted">${esc(u.stato.mancanti.map(r => `${r.c.type} (${ACQUISTO[r.acquisto].toLowerCase()})`).join(', '))}</td>
+              <td>${u.stato.pronti}/${u.stato.totale}</td>
+              <td>${u.stato.daConfermare.length ? `<b>${u.stato.daConfermare.length}</b> <span class="bm-muted">${tipi(u.stato.daConfermare)}</span>` : ''}</td>
+              <td>${u.stato.daOrdinare.length ? `<b>${u.stato.daOrdinare.length}</b> <span class="bm-muted">${tipi(u.stato.daOrdinare)}</span>` : ''}</td>
+              <td>${u.stato.montati}/${u.stato.totale}</td>
               <td><button class="bm-btn sm primary" data-pc="${esc(u.id)}">Apri</button></td></tr>`).join('');
         t.querySelectorAll('[data-pc]').forEach(b => { b.onclick = () => { aperta = b.dataset.pc; vai('banco'); }; });
     }
@@ -644,6 +839,7 @@
         if (!u) { corpo.innerHTML = '<div class="bm-card bm-muted">Apri un PC scrivendo il numero dell\'ordine, oppure sceglilo da «PC da montare».</div>'; return; }
         if (registro.di !== u.id) { registro.di = u.id; registro.righe = []; }
         const s = u.stato, finito = s.totale > 0 && s.montati === s.totale;
+        const comprati = u.righe.filter(r => r.fisica && !r.nonMontare && !r.montato && !r.prelievo && r.arrivati < r.quantita && r.acquisto !== 'da_acquistare');
         const avvisi = [];
         if (u.daRivedere.length) avvisi.push(`<div class="bm-card rosso"><h3>Pezzi a banco che la scheda non chiede più</h3>
             <div class="bm-muted" style="margin-bottom:8px">La scheda è cambiata dopo l'arrivo (sostituzione o modifica nel gestionale). Metti da parte il pezzo e toglilo dal banco; per rimetterlo a scorta usa la pagina Inventario.</div>` +
@@ -661,7 +857,8 @@
             else if (!r.fisica) arrivo = '<span class="bm-pill grigio">Da fare al banco</span>';
             else if (r.prelievo) arrivo = '<span class="bm-pill blu">Dal magazzino</span>';
             else if (r.arrivati >= r.quantita) arrivo = '<span class="bm-pill blu">Arrivato</span>';
-            else arrivo = `<span class="bm-pill ${COLORE_ACQUISTO[r.acquisto] || 'giallo'}">${r.arrivati ? `Arrivati ${r.arrivati}/${r.quantita}` : 'Non arrivato'} · ${esc(ACQUISTO[r.acquisto].toLowerCase())}</span>`;
+            else if (r.acquisto === 'da_acquistare') arrivo = `<span class="bm-pill rosso">${r.arrivati ? `Arrivati ${r.arrivati}/${r.quantita} · ` : ''}Da ordinare</span>`;
+            else arrivo = `<span class="bm-pill ${COLORE_ACQUISTO[r.acquisto] || 'giallo'}">${r.arrivati ? `Arrivati ${r.arrivati}/${r.quantita}` : 'Arrivo da confermare'} · ${esc(ACQUISTO[r.acquisto].toLowerCase())}</span>`;
             const montaggio = r.nonMontare ? `<span class="bm-muted">monta: ${esc(r.nonMontare.descrizione)}</span>`
                 : r.montato ? `<span class="bm-pill verde">Montato</span>${r.b.seriale ? ` <span class="bm-muted">S/N ${esc(r.b.seriale)}</span>` : ''}` : '';
             const azioni = r.nonMontare ? '' : r.montato ? `<button class="bm-btn sm danger" data-smo="${k}">Smonta</button>`
@@ -675,6 +872,7 @@
               <span class="bm-muted">scrivania E${u.foglio} · montati ${s.montati}/${s.totale}</span></div>
             ${finito ? '' : `<div class="bm-row"><input id="bm-mon-codice" class="bm-scan" placeholder="Spara il pezzo che stai montando" autocomplete="off">
               <input id="bm-mon-seriale" placeholder="Seriale del pezzo (facoltativo)" style="min-width:200px"><button id="bm-mon-btn" class="bm-btn ok">Monta</button></div>`}
+            ${comprati.length ? `<div class="bm-row"><button id="bm-pc-arrivati" class="bm-btn">Sono arrivati tutti i pezzi comprati di questo PC (${daArrivare(comprati.map(r => ({ u, r })))})</button></div>` : ''}
             <div id="bm-mon-log" class="bm-log" style="max-height:110px">${registro.righe.map(x => `<div class="${x.cls}">${esc(x.testo)}</div>`).join('')}</div></div>
           <div class="bm-card"><div class="bm-wrap"><table class="bm-table"><tr><th>Tipo</th><th>Pezzo in scheda</th><th>Codice</th><th>Fornitore</th><th>Arrivo</th><th>Montaggio</th><th></th></tr>${righe}</table></div></div>` +
           (finito ? chiusura(u) : '');
@@ -691,6 +889,7 @@
         corpo.querySelectorAll('[data-togli]').forEach(b => { b.onclick = () => togliDalBanco(u, b.dataset.togli); });
         const bAss = el('bm-pc-assemblato'), bCol = el('bm-pc-collaudato'), bRia = el('bm-pc-riapri');
         if (bAss) bAss.onclick = () => chiudiPc(u);
+        if (el('bm-pc-arrivati')) el('bm-pc-arrivati').onclick = () => confermaVoci(u.nome, comprati.map(r => ({ u, r })));
         if (bCol) bCol.onclick = () => azione(async () => { await db().salvaPc(u.id, { stato: 'collaudato', collaudato_il: new Date().toISOString() }); stato(`${u.nome}: collaudato`, 'ok'); await carica(); disegna(); });
         if (bRia) bRia.onclick = () => azione(async () => { await db().riapriPc(u.id); stato(`${u.nome}: riaperto`, 'info'); await carica(); disegna(); });
     }

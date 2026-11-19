@@ -203,8 +203,49 @@ test('PDF verifica Shopify prima di leggere la distinta e blocca un pagamento ap
 });
 test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file helper locale prima degli utilizzatori',()=>{
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
-    assert.match(exportSource,/doc\.splitTextToSize\(r\.nome/);
-    assert.match(exportSource,/splitTextToSize\(r\.nome, colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=4')<html.indexOf('excel-export.js?v=42'));
+    assert.match(exportSource,/doc\.splitTextToSize\(window\.MontaggioExport\.testoPdf\(r\.nome\)/);
+    assert.match(exportSource,/testoPdf\(r\.nome\), colConfigW - 2\)\.join\('\\n'\)/);
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=5')<html.indexOf('excel-export.js?v=43'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
+});
+
+test('Excel usa tutti i record del PDF e verifica il pagamento prima di scrivere',async()=>{
+    const {s}=collector(),written=[];
+    s.console.error=()=>{};
+    s.document.getElementById=()=>null;
+    s.XLSX={utils:{book_new:()=>({}),aoa_to_sheet:rows=>{written.push(rows);return {};},encode_cell:({r,c})=>`${r}:${c}`,book_append_sheet(){}},writeFile(){}};
+    vm.runInContext(exportSource.slice(exportSource.indexOf('async function exportProcessedOrdersToExcel'),exportSource.indexOf('const componentDataLookupCache')),s);
+    await s.exportProcessedOrdersToExcel();assert.equal(written.length,0);
+    s.window.UpgradePaidSync={verifica:async()=>({ok:true})};
+    const expected=(await s.collectOrdersForExport()).orders[0].records;
+    await s.exportProcessedOrdersToExcel();assert.equal(written.length,1);
+    assert.deepEqual(JSON.parse(JSON.stringify(written[0].slice(2).map(r=>({tipo:r[1],nome:r[2]})))),JSON.parse(JSON.stringify(expected.map(r=>({tipo:r.tipo,nome:r.nome})))));
+    assert.ok(written[0].some(r=>r[1]==='VENTOLE'));assert.ok(written[0].some(r=>r[2].includes('360MM')));
+    s.window.AccoppiamentoAuto.upgradeDaAllineare=()=>true;
+    await s.exportProcessedOrdersToExcel();assert.equal(written.length,1);
+});
+
+test('nome leggibile salvato non viene degradato a codice dal mapping; base sconosciuta segnalata',async()=>{
+    const {s}=collector();s.getComponentDataFromDB=async code=>({nome:code});
+    const r=(await s.collectOrdersForExport()).orders[0].records;
+    assert.equal(r.find(x=>x.tipo==='CPU').nome,'Intel Core Ultra 5');
+    assert.doesNotMatch(r.find(x=>x.tipo==='CASE').nome,/CASE-COD/);
+    const {s:u,comps}=collector();comps.push({type:'GPU',ean:'VGA-IGNOTA',name:'VGA-IGNOTA'});
+    const unknown=(await u.collectOrdersForExport()).orders[0].records.find(x=>x.tipo==='GPU');
+    assert.match(unknown.nome,/DA VERIFICARE/);assert.equal(unknown.avviso,true);
+});
+
+test('testo del PDF resta leggibile per le descrizioni polacche senza toccare il modello',()=>{
+    const {M}=env();assert.equal(M.testoPdf('Pamięć PNY XLR8 DDR5 16 GB 6000MHz CL36'),'Pamiec PNY XLR8 DDR5 16 GB 6000MHz CL36');
+    assert.equal(M.testoPdf('CONNETTIVITÀ — Wi-Fi + Bluetooth'),'CONNETTIVITÀ — Wi-Fi + Bluetooth');
+});
+
+test('servizi prodotti separati e quantità: Booster incluso, accessorio già associato non duplicato',()=>{
+    const {M}=env();
+    const items=[{name:'PC GAMING VANGUARD'},{name:'MINIMAL BOOSTER — Ottimizzazione PC su misura',quantity:2},
+        {name:'Monitor scelto',sku:'MON-1',quantity:1},{name:'OPZIONI VANGUARD - RAM - 32GB',quantity:1},
+        {name:'Kit annullato',current_quantity:0,quantity:1},{name:'Accessori da preparare',quantity:1}];
+    const r=M.extraOrdine({items},[],[{ean:'MON-1',name:'Monitor completo'}]);
+    assert.equal(r.length,2);assert.match(r[0].nome,/2 × MINIMAL BOOSTER/);assert.equal(r[1].nome,'Accessori da preparare');
+    assert.equal(M.extraOrdine({items:[{name:'Accessori da preparare'}]},[{nome:'Accessori da preparare'}]).length,0);
 });

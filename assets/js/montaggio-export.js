@@ -25,11 +25,22 @@
     };
     const chiaveSoftware = s => key(s).replace(/^SOFTWARE/, '').replace(/^PACCHETTO/, '');
     function categoriaVoce(tipo, nome) {
+        if (key(tipo) === 'ACCESSORIO') {
+            if (/KIT\s+GAMING|KIT\s+(?:4\s*IN\s*1|4\s*[- ]?IN\s*[- ]?1)/i.test(nome)) return 'KIT GAMING';
+            if (/^SEDIA\b/i.test(nome)) return 'SEDIA';
+            if (/^SCRIVANIA\b/i.test(nome)) return 'SCRIVANIA';
+        }
         // SERVIZIO non significa sempre scatole: una voce sconosciuta resta EXTRA.
         return key(tipo) === 'SERVIZIO' && /^CONSEGNASCATOLE(?:ORIGINALI(?:DISPONIBILI)?)?$/.test(key(nome)) ? 'SCATOLE' : categoria(tipo);
     }
     function codiceNonRisolto(nome, codice) {
-        return Boolean(key(codice)) && key(String(nome || '').replace(/\s*\((?:ACTION|OMEGA|TIER ONE|ABACO|RUNNER|ESPRINET)\)\s*$/i, '')) === key(codice);
+        // I manuali possono usare la descrizione completa come identificativo.
+        // È un codice non risolto solo se l'identificativo ha forma di SKU, non
+        // quando coincide con un nome leggibile (CASE ATX WHITE, HDD 1TB...).
+        const code = String(codice || '').trim();
+        if (!code || /\s/.test(code)) return false;
+        const label = String(nome || '').replace(/\s*\((?:ACTION|OMEGA|TIER ONE|ABACO|RUNNER|ESPRINET)\)\s*$/i, '');
+        return key(label) === key(code) || key(label.replace(/\s+(?:WHITE|BLACK|BIANCO|NERO)$/i,'')) === key(code);
     }
     function colore(testo) {
         const s = String(testo || '').toUpperCase();
@@ -130,8 +141,16 @@
                 parti.forEach(s=>add(tipo,s,s)); return;
             }
             const sw = cat === 'SOFTWARE' && software[chiaveSoftware(scelta || testo)] ? chiaveSoftware(scelta || testo) : null;
-            const id = cat + '|' + (sw || key(scelta || testo));
-            if (seen.has(id)) return;
+            const rawKit=String(scelta || testo).replace(/^\d+\s*[×x]\s*/i,'');
+            const kit=cat==='KIT GAMING' && /^KITGAMINGMINIMALGAMERS4IN1/.test(key(rawKit)) ? 'MG4IN1'+colore(rawKit) : null;
+            const id = cat + '|' + (sw || kit || key(scelta || testo));
+            if (seen.has(id)) {
+                if (kit && /^\d+\s*[×x]\s*/i.test(testo)) {
+                    const record=records.find(r=>r.tipo===cat && /^KITGAMINGMINIMALGAMERS4IN1/.test(key(r.scelta)) && colore(r.scelta)===colore(rawKit));
+                    if(record) {record.nome=testo;record.scelta=scelta || testo;}
+                }
+                return;
+            }
             const etichetta = String(tipo || '').trim();
             const leggibile = cat === 'EXTRA' && key(etichetta) !== 'EXTRA' && !key(testo).includes(key(etichetta))
                 ? etichetta + ': ' + testo : testo;

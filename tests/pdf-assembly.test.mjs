@@ -205,7 +205,7 @@ test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file 
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(window\.MontaggioExport\.testoPdf\(r\.nome\)/);
     assert.match(exportSource,/testoPdf\(r\.nome\), colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=6')<html.indexOf('excel-export.js?v=44'));
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=6')<html.indexOf('excel-export.js?v=45'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });
 

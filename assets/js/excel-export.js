@@ -165,7 +165,8 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
             // Risoluzione per identità esatta; nessuna ricerca di un prodotto alternativo.
             if (ean) {
                 const esatto = A.nomeDaCodice?.(dati, ean, {line_items: order.line_items || order.items || []}, compType);
-                if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, ean)) descrizione = esatto.nome;
+                if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, ean) &&
+                    (esatto.fonte!=='identita_storica' || !descrizione || M.codiceNonRisolto(descrizione,ean))) descrizione = esatto.nome;
                 if (!descrizione || M.codiceNonRisolto(descrizione, ean)) {
                     const fixed = (auto?.pezzi || []).find(p=>M.categoria(p.tipo)===compType &&
                         [p.manuale?.codice,p.auto?.codice,p.fisso?.codice].some(c=>c && String(c).trim().toUpperCase()===ean.toUpperCase()));

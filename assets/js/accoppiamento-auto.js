@@ -3473,7 +3473,7 @@
         'SSD ADDON': '#16a085', HDD: '#16a085', PSU: '#e74c3c', COOLER: '#2980b9', CASE: '#2ecc71', MONITOR: '#8e44ad',
         'KIT GAMING': '#d35400', SEDIA: '#c0392b', SCRIVANIA: '#8e6e53' };
     const SENZA_PEZZO = /^(GENERICO|INTEGRATA|N\/?A|-)?$/i;          // come il riepilogo manuale: righe senza un pezzo
-    const riepilogo = { n: null, ids: [], nomi: {}, modo: null, token: 0, ultimo: null, quando: '', solo: null };
+    const riepilogo = { n: null, ids: [], nomi: {}, modo: null, token: 0, ultimo: null, quando: '', solo: null, fase: 'pronti', inCaricamento: false };
 
     function categoriaScheda(tipo) {
         const t = String(tipo || '').toUpperCase().trim();
@@ -3763,7 +3763,9 @@
                 if (SENZA_PEZZO.test(String(r.ean || '').trim())) continue;
                 const categoria = categoriaScheda(r.tipo);
                 const salvatiUguali = salvati.filter(x => x.type === r.tipo && chiave(x.ean) === chiave(r.ean) && (!r.fornitore || String(x.supplier || '').toUpperCase() === String(r.fornitore).toUpperCase()));
-                const salvato = salvatiUguali.length === 1 ? salvatiUguali[0] : null;
+                const salvato = r.componentId != null
+                    ? salvatiUguali.find(c => String(c.id) === String(r.componentId)) || null
+                    : salvatiUguali.length === 1 ? salvatiUguali[0] : null;
                 const quantita = Math.max(1, parseInt(salvato?.quantity ?? r.quantita, 10) || 1);
                 const registrato = acquistoParziale(salvato, s.acquisti || proprietaOrdine(s.id)[K_ACQUISTI_PARZIALI]);
                 if (registrato) {
@@ -3992,18 +3994,20 @@
         stile();
         return new Promise(resolve=>{
             const ov=document.createElement('div');ov.className='acc-finestra';
-            ov.innerHTML=`<div class="acc-finestra-box" role="dialog" aria-label="Ordine incompleto"><h3>Ordine incompleto · ${esc(x.nome)}</h3>`+
-                `<div class="acc-finestra-corpo"><p><strong>${c.pronti} pezzi pronti · ${c.sospesi} pezzi ancora esclusi dalla bozza</strong></p>`+
-                '<p>Questa mail non copre tutto il fabbisogno del canale. Prima risolvi le righe sotto oppure scegli esplicitamente un ordine parziale.</p>'+
+            const titolo = c.pronti ? 'Ordine incompleto' : 'Pezzi da verificare';
+            ov.innerHTML=`<div class="acc-finestra-box" role="dialog" aria-label="${titolo}"><h3>${titolo} · ${esc(x.nome)}</h3>`+
+                `<div class="acc-finestra-corpo"><p><strong>${c.pronti} ${c.pronti === 1 ? 'pezzo pronto' : 'pezzi pronti'} · ${c.sospesi} ${c.sospesi === 1 ? 'pezzo ancora escluso' : 'pezzi ancora esclusi'} dalla bozza</strong></p>`+
+                (c.pronti ? '<p>Risolvi le righe qui sotto oppure prepara una bozza parziale con i soli pezzi pronti.</p>'
+                    : '<p>Verifica le righe qui sotto prima di preparare una bozza.</p>')+
                 c.righe.map(r=>`<p><strong>${r.quantita} × ${esc(r.descrizione || r.codice)}</strong><br>${esc(r.fornitore || '')} · ${esc(r.codice || '')}<br>`+
                     `${r.daApplicare?'Proposta da confermare nelle distinte':'Prezzo, disponibilità o quantità da verificare'}</p>`).join('')+
                 '</div><div class="acc-finestra-bottoni"><button type="button" data-no>Annulla</button>'+
-                `<button type="button" data-parziale${c.pronti?'':' disabled'}>Prepara SOLO ${c.pronti} pronti · ordine PARZIALE</button>`+
-                (proposte?`<button type="button" data-rivedi>Rivedi e conferma ${proposte} pezzi</button>`:'')+'</div></div>';
+                (c.pronti ? `<button type="button" data-parziale>Prepara ${c.pronti} pezzi · ordine parziale</button>` : '')+
+                (proposte?`<button type="button" data-rivedi>Rivedi e conferma ${proposte} ${proposte === 1 ? 'pezzo' : 'pezzi'}</button>`:'')+'</div></div>';
             document.body.appendChild(ov);
             const fine=azione=>{ov.remove();resolve(azione);};
             ov.querySelector('[data-no]').addEventListener('click',()=>fine('annulla'));
-            ov.querySelector('[data-parziale]').addEventListener('click',()=>fine('parziale'));
+            ov.querySelector('[data-parziale]')?.addEventListener('click',()=>fine('parziale'));
             ov.querySelector('[data-rivedi]')?.addEventListener('click',()=>fine('rivedi'));
         });
     }
@@ -4143,20 +4147,23 @@
         return out;
     }
 
-    function htmlEmailOrdini(r, contatti) {
+    function htmlEmailOrdini(r, contatti, fase, vista) {
         const em = ordiniEmail(r, contatti);
         if (!em.contatti) return '';
-        const canali=[...em.invii,...em.incompleti.filter(x=>!em.invii.includes(x))];
-        if (!canali.length && !em.senza.length) return '';
-        return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Prepara l’ordine: controlli e conferme fanno parte dello stesso percorso. Le righe mancanti vengono mostrate prima della bozza.</div>` +
+        const canali = fase === 'pronti' ? em.invii : fase === 'verifica' ? em.incompleti :
+            [...em.invii,...em.incompleti.filter(x=>!em.invii.includes(x))];
+        const senza = fase === 'verifica' ? [] : em.senza;
+        if (!canali.length && !senza.length) return '';
+        return `<details class="acc-rf-email"${!fase || window.matchMedia?.('(min-width: 761px)').matches ? ' open' : ''}><summary>Ordini via email</summary>` +
             canali.map(x => `<div class="acc-rf-email-row"><button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
                 `✉️ ${x.pezziSospesi?'Rivedi ordine · ':condizioniEmail(x).richiesta ? 'Richiesta · ' : ''}${esc(x.nome)} · ${x.pezzi} pronti`+
-                `${x.pezziSospesi?` · ${x.pezziSospesi} da risolvere`:''}${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
+                `${x.pezziSospesi?` · ${x.pezziSospesi} da risolvere`:''}${x.intermediario && x.gruppi.length ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
                 `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>` +
-                (pezziPerRegistrazione(x).length ? `<button type="button" class="acc-rf-azione" data-rf-registra="${esc(x.id)}" aria-label="Registra acquisto da ${esc(x.nome)}">✓ Registra acquisto</button>` : '') +
+                ((!fase || vista === 'categorie' || x.intermediario || x.solo_categorie?.length) && pezziPerRegistrazione(x).length
+                    ? `<button type="button" class="acc-rf-azione" data-rf-registra="${esc(x.id)}" aria-label="Registra acquisto da ${esc(x.nome)}">Registra acquisto</button>` : '') +
                 '</div>').join('') +
-            (em.senza.length ? `<div class="acc-nota">Senza email: ${em.senza.map(z => `${esc(z.nome)} ${z.pezzi} pz (${esc(z.motivo)})`).join(' · ')}</div>` : '') +
-            `</div>`;
+            (senza.length ? `<div class="acc-nota">Senza email: ${senza.map(z => `${esc(z.nome)} ${z.pezzi} pz (${esc(z.motivo)})`).join(' · ')}</div>` : '') +
+            `</details>`;
     }
 
     async function apriEmailOrdine(id, r, {parziale=false}={}) {
@@ -4179,13 +4186,7 @@
         if (typeof loadProcessedOrdersFromDB === 'function') {
             const ordini=await loadProcessedOrdersFromDB();
             if (token!==riepilogo.token || navigation!==undefined && !window.MGNavigation.valid(navigation)) return;
-            if (pezziPerRegistrazione(x).some(p=>{
-                const c=componenteDistinta(p.id,p), cp=proprietaOrdine(p.id);
-                return !ordini?.[p.id] || Number(ordini[p.id].foglioDiLavoro || 1)!==p.foglio ||
-                    c?.id==null || String(c.id)!==String(p.componentId) ||
-                    Number(c.quantity || 1)!==p.quantita || c.price!=null || acquistoConfermato(p.id) ||
-                    acquistoParziale(c,cp[K_ACQUISTI_PARZIALI]) || esclusioneAcquisto(p,cp[K_ESCLUSIONI_ACQUISTO]);
-            })) {
+            if (pezziPerRegistrazione(x).some(p=>!pezzoAncoraDaOrdinare(p,ordini))) {
                 await renderRiepilogoAuto();
                 throw new Error('La lista acquisti è cambiata: apri la bozza aggiornata');
             }
@@ -4265,7 +4266,7 @@
         return gruppi.length === 1 ? gruppi[0] : null;
     }
 
-    function htmlRigaDaOrdinare(r, colore, magazzino, categoria) {
+    function htmlRigaDaOrdinare(r, colore, magazzino, categoria, compatta = false) {
         const membri = r.vistaRighe || [r], aggregata = membri.length > 1;
         const indici = membri.map(x=>x.n).join(',');
         const statoRiga = x => rigaOrdinabile(x) ? 'Pronti per la copia' : propostaConfermabile(x) ? 'Da confermare nelle distinte' : 'Bloccati: da verificare';
@@ -4287,12 +4288,15 @@
         };
         const modificabili = (r.pezzi || []).filter(p => !p.personalizzato);
         const incompatibili = [...new Set(membri.map(x => x.categoriaIncoerente).filter(Boolean))];
-        const azioni = [
+        const proposte = membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${propostaConfermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join('');
+        const altreAzioni = [
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
-            membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${propostaConfermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join(''),
             modificabili.length && !magazzino ? `<button type="button" class="acc-rf-azione" ${aggregata?`data-rf-cambia-gruppo="${indici}"`:`data-rf-cambia="${r.n}"`} title="La sostituzione confermata si salva anche nella distinta di montaggio dei PC selezionati">🔁 Cambia dal Buyer Desk</button>` : '',
             r.pezzi?.length && !magazzino ? `<button type="button" class="acc-rf-azione acc-rf-trash" ${aggregata?`data-rf-escludi-gruppo="${indici}"`:`data-rf-escludi="${r.n}"`} title="Esclude questi ${r.quantita} pezzi solo dagli acquisti. La distinta di montaggio resta invariata.">🗑 Escludi dagli acquisti</button>` : ''
         ].filter(Boolean).join('');
+        const azioni = proposte + (compatta && altreAzioni
+            ? `<details class="acc-rf-menu"><summary>Altre azioni</summary><div class="acc-rf-azioni">${altreAzioni}</div></details>`
+            : altreAzioni);
         const info = r.statoVisivo?.livello === 'info' && !r.nonDisponibile && r.poco == null;
         const specifiche = [...(r.requisiti || []), ...(r.politiche || []), ...(r.motivi || [])].filter(Boolean);
         const quantitaStock = (r.stock || []).map(x => x.disponibile).filter(x => Number.isFinite(x));
@@ -4315,7 +4319,7 @@
                     `${motivoScadenzaOfferta(x.proposta)?`<p>${esc(motivoScadenzaOfferta(x.proposta))}</p>`:''}</div>`).join('') + '</details>' : '') +
             (stock ? `<div class="acc-rf-stock">${esc(stock)} · assegnati a questa riga: ${r.quantita}</div>` : '') +
             (specifiche.length ? `<details class="acc-rf-rationale"><summary>Perché questo pezzo</summary>${specifiche.map(x => `<p>${esc(x)}</p>`).join('')}</details>` : '') +
-            (r.daApplicare ? `<div class="acc-rf-split">${aggregata?`${pendenti} pezzi da confermare nelle distinte${bloccati?' · verifica anche le quantità bloccate':''}`:`Proposta per ${r.pezzi.length} PC: da confermare nelle distinte`}. ${aggregata?'Le proposte non confermate sono escluse':'Esclusa'} da copia e bozze d’ordine fino alla conferma.</div>` : '') +
+            (r.daApplicare ? `<div class="acc-rf-split">${compatta ? 'Proposta da confermare prima di ordinare.' : `${aggregata?`${pendenti} pezzi da confermare nelle distinte${bloccati?' · verifica anche le quantità bloccate':''}`:`Proposta per ${r.pezzi.length} PC: da confermare nelle distinte`}. ${aggregata?'Le proposte non confermate sono escluse':'Esclusa'} da copia e bozze d’ordine fino alla conferma.`}</div>` : '') +
             (r.daDecidere ? `<div class="acc-rf-avviso">Quantità ancora da coprire: ${r.quantita}. Non inclusa nelle bozze d’ordine.</div>` : '') +
             incompatibili.map(m => `<div class="acc-rf-avviso">⚠ ${esc(m)} Riga esclusa da copia e bozze d’ordine.</div>`).join('') +
             (r.poco != null ? `<div class="acc-rf-avviso">Stock verificato ${r.poco} / richiesti ${r.quantita}: riga bloccata. Ricalcola per vedere le altre assegnazioni disponibili.</div>` : '') +
@@ -4426,9 +4430,83 @@
             `<button type="button" class="acc-rf-copia" data-rf-ricalcola="1">🔄 Ricalcola con gli ultimi dati</button>`;
     }
 
+    function fasiAcquisti(r) {
+        const totale = righe => righe.reduce((n, riga) => n + riga.quantita, 0);
+        const attive = (r.righe || []).filter(x => x.fornitore !== 'MAGAZZINO' && !x.esclusa);
+        const pronte = attive.filter(rigaOrdinabile);
+        const visibili = new Set(pronte);
+        return [
+            {id:'pronti', nome:'Pronti da ordinare', numero:totale(pronte), righe:pronte},
+            {id:'verifica', nome:'Da verificare', numero:totale(attive)-totale(pronte), righe:attive.filter(x => !visibili.has(x))},
+            {id:'storico', nome:'Acquisti registrati', numero:totale(r.registrati || [])+totale(r.giaAcquistati || [])},
+            {id:'esclusi', nome:'Fuori dagli acquisti', numero:totale(r.esclusioni || [])+totale((r.righe || []).filter(x => x.fornitore === 'MAGAZZINO'))}
+        ];
+    }
+
+    function htmlFasiAcquisti(fasi, fase, r, quando) {
+        return `<section class="acc-rf-quadro" aria-label="Stati degli acquisti"><div class="acc-rf-fasi" role="group" aria-label="Mostra acquisti">` +
+            fasi.map(x => `<button type="button" data-rf-fase="${x.id}" aria-pressed="${x.id === fase}"><span>${x.nome}</span><strong>${x.numero}</strong></button>`).join('') +
+            `</div><p class="acc-rf-dati"><strong>${eur(r.prontoTotale || 0)} netti pronti da ordinare</strong>${quando ? `<span>Listini delle ${esc(quando)}</span>` : ''}</p></section>`;
+    }
+
+    function htmlStoricoAcquisti(r) {
+        const registrati = fornitoriConStorico(r).filter(f => f.registrati.length);
+        const pagati = r.giaAcquistati || [];
+        const schede = r.esclusi || [];
+        const gruppi = registrati.map(f => `<details class="acc-rf-storico"><summary>${esc(f.nome)} <span>${f.quantitaRegistrata} pz</span></summary>` +
+            htmlRegistratiFornitore(f.registrati,'ordinato','Ordinati, da pagare') +
+            htmlRegistratiFornitore(f.registrati,'pagato','Acquistati e pagati') + '</details>').join('');
+        return gruppi + (pagati.length ? `<details class="acc-rf-storico"><summary>Acquisti salvati nelle distinte <span>${pagati.length} righe</span></summary><ul>` +
+            pagati.map(x => `<li>${esc(x.nome)} · ${esc(x.tipo)} · ${esc(x.ean)}</li>`).join('') + '</ul></details>' : '') +
+            (schede.length ? `<details class="acc-rf-storico"><summary>PC con acquisto interamente confermato <span>${schede.length}</span></summary><p>${esc(schede.join(' '))}</p></details>` : '') ||
+            '<p class="acc-rf-vuoto">Nessun acquisto registrato per questa scrivania.</p>';
+    }
+
+    function htmlFuoriAcquisti(r) {
+        const magazzino = r.fornitori.find(f => f.nome === 'MAGAZZINO');
+        return htmlEsclusioniAcquisto(r) + (magazzino ? '<h3>Già disponibili a magazzino</h3>' +
+            raggruppaReferenzeAcquisto(magazzino.righe).map(x=>htmlRigaDaOrdinare(x,'#d8e8df',true,x.categoria,true)).join('') : '') ||
+            '<p class="acc-rf-vuoto">Nessun pezzo fuori dagli acquisti.</p>';
+    }
+
+    function htmlAcquistiAttivi(r, selezione, fase, vista, solo) {
+        const perCategoria = vista === 'categorie';
+        const gruppi = new Map();
+        for (const riga of selezione) {
+            if (solo && riga.fornitore !== solo) continue;
+            const nome = perCategoria ? riga.categoria : riga.fornitore;
+            if (!gruppi.has(nome)) gruppi.set(nome, []);
+            gruppi.get(nome).push(riga);
+        }
+        if (!gruppi.size) return `<p class="acc-rf-vuoto">${fase === 'pronti' ? 'Nessun pezzo pronto da ordinare.' : 'Nessun pezzo da verificare.'}</p>`;
+        return [...gruppi].map(([nome, righe]) => {
+            const pezzi = righe.reduce((n, x) => n + x.quantita, 0);
+            const fornitore = perCategoria ? null : r.fornitori.find(f => f.nome === nome);
+            const complete = perCategoria ? r.categorie.find(x=>x.nome === nome)?.fornitori.flatMap(f=>f.righe) : fornitore?.righe;
+            const copia = fase === 'pronti' && complete?.every(rigaOrdinabile)
+                ? `<button type="button" class="acc-rf-copia" data-rf-${perCategoria?'cat':'forn'}="${esc(nome)}">Copia elenco</button>` : '';
+            const registra = fornitore && pezziDaRegistrareFornitore({...fornitore, righe}).length
+                ? `<button type="button" class="acc-rf-copia" data-rf-registra-fornitore="${esc(nome)}">Registra acquisto</button>` : '';
+            const applica = fornitore && fase === 'verifica' ? htmlApplicaProposteFornitore({...fornitore, righe}) : '';
+            return `<section class="acc-rf-gruppo"><header><h3>${esc(nome)} <span>${pezzi} pz</span></h3><div>${copia}${registra}${applica}</div></header>` +
+                raggruppaReferenzeAcquisto(righe,nome).map(x => htmlRigaDaOrdinare(x,COLORI[x.fornitore] || '#dce6f1',false,perCategoria ? x.fornitore : x.categoria,true)).join('') + '</section>';
+        }).join('');
+    }
+
+    function htmlFiltriAcquisti(selezione, vista, solo) {
+        const fornitori = new Map();
+        for (const x of selezione) fornitori.set(x.fornitore, (fornitori.get(x.fornitore) || 0) + x.quantita);
+        return `<div class="acc-rf-filtri"><label>Fornitore<select data-rf-filtro><option value="">Tutti i fornitori</option>` +
+            [...fornitori].sort(([a],[b])=>a.localeCompare(b,'it')).map(([nome, q]) =>
+                `<option value="${esc(nome)}"${solo === nome ? ' selected' : ''}>${esc(nome)} · ${q} pz</option>`).join('') +
+            `</select></label><label>Raggruppa per<select data-rf-raggruppa><option value="fornitori"${vista === 'fornitori' ? ' selected' : ''}>Fornitore</option><option value="categorie"${vista === 'categorie' ? ' selected' : ''}>Categoria</option></select></label></div>`;
+    }
+
     // PC visibili della scrivania aperta (stessi del riepilogo manuale: filtro operatore compreso)
     function catturaScrivania() {
         const n = scrivaniaAttiva();
+        riepilogo.fase = 'pronti';
+        riepilogo.solo = null;
         if (!n) {                                  // tab gia' cambiata: la scrivania che ha visto il riepilogo manuale
             let c = null;
             try { c = typeof lastSupplierSummaryContext !== 'undefined' ? lastSupplierSummaryContext : null; } catch (e) { c = null; }
@@ -4455,9 +4533,20 @@
         return true;
     }
 
-    function righeDaScheda(id) {
-        if (ultimiConti[id] && ultimiConti[id].righe) return ultimiConti[id].righe;
-        return righe(id).map(row => ({ tipo: row.dataset.componentType, ...manualeDellaRiga(row), costo: null, fonte: null }));
+    function righeDaScheda(id, correnti) {
+        const lette = ultimiConti[id]?.righe ||
+            righe(id).map(row => ({ tipo: row.dataset.componentType, ...manualeDellaRiga(row), costo: null, fonte: null }));
+        if (!correnti) return lette;
+        const componenti = correnti.filter(c => !c.isCustom);
+        // Su una scheda già aperta il DOM può mostrare il vecchio SKU.
+        // Costi e dettagli sono riutilizzabili solo quando corrispondono alla distinta appena letta.
+        return componenti.map(c => {
+            const precedente = lette.find(r => r.tipo === c.type && chiave(r.ean) === chiave(c.ean) &&
+                testoStockAcquisto(r.fornitore) === testoStockAcquisto(c.supplier) &&
+                Number(r.quantita || 1) === Number(c.quantity || 1));
+            return {...(precedente || {tipo:c.type, ean:c.ean, fornitore:c.supplier, nome:c.name,
+                quantita:c.quantity, costo:null, fonte:null}), componentId:c.id};
+        });
     }
 
     function vociDaScheda(id) {
@@ -4480,8 +4569,8 @@
             barra = document.createElement('div');
             barra.className = 'acc-rf-barra';
             barra.innerHTML = `<div class="acc-rf-scrivania"></div><div class="acc-rf-modi">` +
-                `<button type="button" data-rf-modo="manuale" title="Pezzi per categoria con i nomi generici, come nel PDF per chi assembla">📋 Manuale<small>per chi assembla</small></button>` +
-                `<button type="button" data-rf-modo="auto" title="Pezzi da comprare oggi, per categoria e fornitore">🤖 Automatico<small>da ordinare</small></button></div>` +
+                `<button type="button" data-rf-modo="auto">Acquisti</button>` +
+                `<button type="button" data-rf-modo="manuale">Montaggio</button></div>` +
                 `<div class="acc-rf-lato"></div>`;
             const ora = testa.querySelector('.update-time');           // sotto il sottotitolo, prima dell'ora
             if (ora) testa.insertBefore(barra, ora); else testa.appendChild(barra);
@@ -4529,9 +4618,14 @@
             if (lato) { lato.style.display = m === 'auto' ? '' : 'none'; if (m !== 'auto') lato.innerHTML = ''; }
         }
         const testa = document.getElementById('suppliers-header');
+        testa?.parentElement.classList.toggle('acc-rf-layout', m === 'auto');
+        const titolo = testa?.querySelector('h1');
+        if (titolo) titolo.textContent = m === 'auto' ? 'Acquisti' : 'Riepilogo montaggio';
         const sotto = testa ? testa.querySelector('h1 ~ p') : null;
-        if (sotto) sotto.textContent = m === 'auto' ? 'Pezzi da comprare oggi, categoria per categoria e fornitore per fornitore'
-            : 'Pezzi per categoria con i nomi generici, come nel PDF per chi assembla';
+        if (sotto) {
+            sotto.hidden = m === 'auto';
+            sotto.textContent = 'Pezzi per categoria per chi assembla';
+        }
         for (const sel of ['.suppliers-log-section', '.update-time']) {            // cronologia e ora del riepilogo manuale
             const el = testa ? testa.querySelector(sel) : null;
             if (el) el.style.display = m === 'auto' ? 'none' : '';
@@ -4541,14 +4635,50 @@
         if (auto) auto.style.display = m === 'auto' ? '' : 'none';
         if (m === 'auto') {
             if (pdf) pdf.style.display = 'none';
-            return renderRiepilogoAuto();
+            return renderRiepilogoAuto(false, true);
         }
+        riepilogo.token++;
+        riepilogo.inCaricamento = false;
         const suTab = document.querySelector('.tab-button.active[data-tab="suppliers"]');
         if (pdf && suTab && typeof window !== 'undefined' && window.currentSupplierData && Object.keys(window.currentSupplierData).length) pdf.style.display = 'block';
         return Promise.resolve();
     }
 
-    async function renderRiepilogoAuto(forza) {
+    async function rendiCorrenteAcquisti() {
+        if (typeof loadProcessedOrdersFromDB !== 'function' || !riepilogo.ids.length) return null;
+        const ordini = await loadProcessedOrdersFromDB();
+        if (!Object.keys(ordini || {}).length) throw new Error('Il registro acquisti non è disponibile. Riprova per rileggere gli stati salvati.');
+        return ordini;
+    }
+
+    function pezzoAncoraDaOrdinare(p, ordini) {
+        const c = componenteDistinta(p.id,p), cp = proprietaOrdine(p.id);
+        return ordini?.[p.id] && Number(ordini[p.id].foglioDiLavoro || 1) === p.foglio &&
+            c?.id != null && String(c.id) === String(p.componentId) && Number(c.quantity || 1) === p.quantita &&
+            c.price == null && !acquistoConfermato(p.id) && !acquistoParziale(c,cp[K_ACQUISTI_PARZIALI]) &&
+            !esclusioneAcquisto(p,cp[K_ESCLUSIONI_ACQUISTO]);
+    }
+
+    async function copiaAcquistiVerificati(righe, testo, button) {
+        if (salvataggioAcquisti || riepilogo.inCaricamento) return;
+        const token = riepilogo.token;
+        button.disabled = true;
+        try {
+            const ordini = await rendiCorrenteAcquisti();
+            if (token !== riepilogo.token || riepilogo.modo !== 'auto' || !button.isConnected) return;
+            const pezzi = pezziPerRegistrazione({gruppi:[{righe}]});
+            if (ordini && pezzi.some(p => !pezzoAncoraDaOrdinare(p,ordini))) {
+                await renderRiepilogoAuto();
+                avvisa('Gli acquisti sono cambiati. Controlla l’elenco aggiornato.', 'warning');
+                return;
+            }
+            if (righe.every(rigaOrdinabile)) copia(testo());
+            else avvisa('Prezzi o disponibilità da verificare. Aggiorna il riepilogo.', 'warning');
+        } catch (e) { avvisa(e.message,'error'); }
+        finally { button.disabled = false; }
+    }
+
+    async function renderRiepilogoAuto(forza, aggiornaAcquisti = !!forza) {
         const box = contenitoreAuto();
         const barra = barraRiepilogo();
         const lato = barra ? barra.querySelector('.acc-rf-lato') : null;
@@ -4559,28 +4689,44 @@
             if (lato) lato.innerHTML = '';
             return;
         }
-        box.innerHTML = `<div class="suppliers-empty-state"><h2>⏳ Calcolo i pezzi da ordinare…</h2><p>Scrivania E${riepilogo.n}: listini di oggi e disponibilità dei fornitori.</p></div>`;
+        riepilogo.inCaricamento = true;
+        box.setAttribute('aria-busy','true');
+        box.innerHTML = '<div class="acc-rf-vuoto" role="status">Aggiornamento acquisti e listini…</div>';
         if (lato) lato.innerHTML = htmlStatoConfermaProposte();
-        let dati;
         try {
-            dati = await carica(forza);
+            const [dati, ordini] = await Promise.all([carica(forza), aggiornaAcquisti ? rendiCorrenteAcquisti() : null]);
+            if (tok !== riepilogo.token) return;
+            const ids = ordini ? riepilogo.ids.filter(id => ordini[id] &&
+                Number(ordini[id].foglioDiLavoro || 1) === riepilogo.n && ordini[id].stato !== 'finalizzati') : riepilogo.ids;
+            riepilogo.ids = ids;
+            const scrivania = barra?.querySelector('.acc-rf-scrivania');
+            if (scrivania) scrivania.textContent = `Scrivania E${riepilogo.n} · ${ids.length} PC`;
+            await Promise.all(ids.filter(id => contesti[id]).map(id => aggiornaOrdine(id).catch(() => {})));
+            if (tok !== riepilogo.token) return;
+            const schede = ids.map(id => {
+                const cp = proprietaOrdine(id);
+                const salvati = componentiSalvati(id);
+                return {
+                    id, foglio:riepilogo.n, esclusioni:cp[K_ESCLUSIONI_ACQUISTO] || {}, acquisti:cp[K_ACQUISTI_PARZIALI] || {},
+                    confermato:acquistoConfermato(id), righe:righeDaScheda(id,salvati.length || ordini?.[id] ? salvati : null),
+                    salvati, voci:vociDaScheda(id),
+                    nome:riepilogo.nomi[id] || ((dati.ordini || {})[String(id).split('.')[0]] || {}).nome || `#${id}`
+                };
+            });
+            riepilogo.ultimo = daOrdinare(dati, schede, leggiLS(K_FISSI, {}));
+            riepilogo.quando = oraBreve(dati.listini || dati.generato);
+            disegnaRiepilogo();
         } catch (e) {
             if (tok !== riepilogo.token) return;
-            box.innerHTML = `<div class="suppliers-empty-state"><h2>Automatico non disponibile</h2><p>${esc(stato.errore || (e && e.message) || e)}</p></div>`;
-            return;
+            riepilogo.ultimo = null;
+            box.innerHTML = `<div class="acc-rf-vuoto" role="alert"><p>${esc(e?.message || e)}</p><button type="button" data-rf-riprova>Riprova</button></div>`;
+            box.querySelector('[data-rf-riprova]').addEventListener('click', () => renderRiepilogoAuto(forza,true));
+        } finally {
+            if (tok === riepilogo.token) {
+                riepilogo.inCaricamento = false;
+                box.removeAttribute('aria-busy');
+            }
         }
-        // riquadri dell'utile ricalcolati: costi dei pezzi della scheda con i listini appena letti
-        await Promise.all(riepilogo.ids.filter(id => contesti[id]).map(id => aggiornaOrdine(id).catch(() => {})));
-        if (tok !== riepilogo.token) return;
-        const schede = riepilogo.ids.map(id => ({
-            id, foglio: riepilogo.n, esclusioni: proprietaOrdine(id)[K_ESCLUSIONI_ACQUISTO] || {}, acquisti: proprietaOrdine(id)[K_ACQUISTI_PARZIALI] || {},
-            confermato: acquistoConfermato(id), righe: righeDaScheda(id), salvati: componentiSalvati(id), voci: vociDaScheda(id),
-            nome: riepilogo.nomi[id] || ((dati.ordini || {})[String(id).split('.')[0]] || {}).nome || `#${id}`
-        }));
-        const r = daOrdinare(dati, schede, leggiLS(K_FISSI, {}));
-        riepilogo.ultimo = r;
-        riepilogo.quando = oraBreve(dati.listini || dati.generato);
-        disegnaRiepilogo();
     }
 
     const K_VISTA_RIEPILOGO = 'riepilogo_fornitori_vista';
@@ -4592,9 +4738,19 @@
         const barra = barraRiepilogo();
         const lato = barra ? barra.querySelector('.acc-rf-lato') : null;
         if (!r || !box) return;
-        const vista = riepilogo.solo ? 'fornitori' : leggiLS(K_VISTA_RIEPILOGO, 'categorie');
-        box.innerHTML = vista === 'fornitori' ? htmlFornitoriDaOrdinare(r, riepilogo.solo) : htmlCategorieDaOrdinare(r);
-        if (lato) lato.innerHTML = htmlLatoDaOrdinare(r, riepilogo.n, riepilogo.quando, vista, riepilogo.solo);
+        const vista = leggiLS(K_VISTA_RIEPILOGO, 'fornitori');
+        const fasi = fasiAcquisti(r), fase = fasi.find(x=>x.id === riepilogo.fase) || fasi[0];
+        const righe = fase.righe;
+        if (!righe?.some(x=>x.fornitore === riepilogo.solo)) riepilogo.solo = null;
+        const corpo = righe ? htmlFiltriAcquisti(righe,vista,riepilogo.solo) +
+            htmlAcquistiAttivi(r,righe,fase.id,vista,riepilogo.solo)
+            : fase.id === 'storico' ? htmlStoricoAcquisti(r) : htmlFuoriAcquisti(r);
+        box.innerHTML = htmlFasiAcquisti(fasi,fase.id,r,riepilogo.quando) +
+            `<section class="acc-rf-contenuto" aria-label="${fase.nome}">${corpo}</section>`;
+        if (lato) lato.innerHTML = htmlStatoConfermaProposte() +
+            (righe ? htmlEmailOrdini(r,undefined,fase.id,vista) : '') +
+            `<details class="acc-rf-contatti"><summary>Contatti commerciali</summary>${htmlContattiLato(r)}</details>
+             <button type="button" class="acc-rf-copia" data-rf-ricalcola="1">Aggiorna riepilogo</button>`;
         aggiornaStatoConfermaProposte();
         const dove = [box, lato].filter(Boolean);
         const tutti = (sel) => dove.flatMap(x => Array.from(x.querySelectorAll(sel)));
@@ -4603,25 +4759,29 @@
             const c = r.categorie.find(x => x.nome === b.dataset.rfCat);
             if (c?.fornitori.some(f=>f.righe.some(row=>!row.esclusa && !rigaOrdinabile(row))))
                 return avvisa('Elenco incompleto: prepara l’ordine dal relativo canale email per vedere e confermare le righe mancanti.','warning');
-            if (c) copia(testoCategoria(c));
+            if (c) await copiaAcquistiVerificati(c.fornitori.flatMap(f=>f.righe),()=>testoCategoria(c),b);
         }));
         tutti('[data-rf-forn]').forEach(b => b.addEventListener('click', async () => {
             const f = r.fornitori.find(x => x.nome === b.dataset.rfForn);
             if (f?.righe.some(row=>!row.esclusa && !rigaOrdinabile(row)))
                 return avvisa('Ordine incompleto: usa il canale email del fornitore per rivedere le righe mancanti o scegliere un ordine parziale.','warning');
-            if (f) copia(testoOrdineFornitore(f));
+            if (f) await copiaAcquistiVerificati(f.righe,()=>testoOrdineFornitore(f),b);
         }));
-        tutti('[data-rf-vista]').forEach(b => b.addEventListener('click', () => {
-            scriviLS(K_VISTA_RIEPILOGO, b.dataset.rfVista);
+        tutti('[data-rf-fase]').forEach(b => b.addEventListener('click', () => {
+            riepilogo.fase = b.dataset.rfFase;
             riepilogo.solo = null;
             disegnaRiepilogo();
+            box.querySelector(`[data-rf-fase="${riepilogo.fase}"]`)?.focus();
         }));
-        tutti('[data-rf-vedi]').forEach(b => b.addEventListener('click', () => {
-            const f = b.dataset.rfVedi || null;
-            riepilogo.solo = f && riepilogo.solo !== f ? f : null;
-            if (riepilogo.solo) scriviLS(K_VISTA_RIEPILOGO, 'fornitori');
+        tutti('[data-rf-filtro]').forEach(s => s.addEventListener('change', () => {
+            riepilogo.solo = s.value || null;
             disegnaRiepilogo();
-            if (box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            box.querySelector('[data-rf-filtro]')?.focus();
+        }));
+        tutti('[data-rf-raggruppa]').forEach(s => s.addEventListener('change', () => {
+            scriviLS(K_VISTA_RIEPILOGO,s.value);
+            disegnaRiepilogo();
+            box.querySelector('[data-rf-raggruppa]')?.focus();
         }));
         tutti('[data-rf-escludi]').forEach(b => b.addEventListener('click', () => modificaEsclusioneAcquisto(r.righe[Number(b.dataset.rfEscludi)], true).catch(e => avvisa(e.message,'error'))));
         tutti('[data-rf-escludi-gruppo]').forEach(b => b.addEventListener('click', () => {
@@ -4652,7 +4812,7 @@
         }));
         tutti('[data-rf-registra-fornitore]').forEach(b => b.addEventListener('click', () => {
             const f = r.fornitori.find(x => x.nome === b.dataset.rfRegistraFornitore);
-            if (f) registraAcquisti(f.nome, pezziDaRegistrareFornitore(f)).catch(e => avvisa(e.message,'error'));
+            if (f && righe) registraAcquisti(f.nome, pezziDaRegistrareFornitore({...f,righe:righe.filter(x=>x.fornitore===f.nome)})).catch(e => avvisa(e.message,'error'));
         }));
         tutti('[data-rf-paga]').forEach(b=>b.addEventListener('click',()=>{
             const p=r.registrati[Number(b.dataset.rfPaga)];
@@ -5352,8 +5512,15 @@
         // in fase di cattura: si legge la scrivania prima che il riepilogo manuale passi alla pagina dei fornitori
         b.addEventListener('click', () => {
             if (!catturaScrivania()) return;
-            setTimeout(() => { mostraModo(leggiLS(K_MODO_RIEPILOGO, 'manuale')).catch(e => console.warn('[ACCOPPIAMENTO] riepilogo', e)); }, 0);
+            setTimeout(() => { mostraModo(leggiLS(K_MODO_RIEPILOGO, 'auto')).catch(e => console.warn('[ACCOPPIAMENTO] riepilogo', e)); }, 0);
         }, true);
+    }
+
+    function aggiornaRiepilogoAlRitorno() {
+        if (document.visibilityState !== 'visible' || riepilogo.modo !== 'auto' || riepilogo.inCaricamento ||
+            salvataggioAcquisti || confermaFornitoreInCorso || document.querySelector('.acc-finestra') ||
+            !document.querySelector('#suppliers-container.active')) return;
+        renderRiepilogoAuto(false,true);
     }
 
     function apriAutomatico(idOrdine) {
@@ -5375,6 +5542,7 @@
     if (typeof document !== 'undefined' && document.addEventListener) {
         if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', collega);
         else collega();
+        document.addEventListener('visibilitychange', aggiornaRiepilogoAlRitorno);
     }
 
     // ================================================================ PAGINA UPGRADE DEL CLIENTE (Antonio 07/10)
@@ -5528,6 +5696,7 @@
         bersaglioCambioPreciso, sostituisciAcquisto, modificaEsclusioneAcquisto, htmlEsclusioniAcquisto, confermaPropostaAcquisto, confermaProposteFornitore, statoConfermaProposte,
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
+        fasiAcquisti, htmlFasiAcquisti, htmlAcquistiAttivi, htmlStoricoAcquisti, htmlFuoriAcquisti,
         htmlFornitoriDaOrdinare, pezziDaRegistrareFornitore, stessoArticoloRegistrazione, canaleSostituzioneRegistrata, registraAcquisti, salvaSostituzioneRegistrata, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
         cambio, ricercaPerCambio, ordiniEmail, completezzaOrdine, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
         righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, rigaUpgradePagati, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,

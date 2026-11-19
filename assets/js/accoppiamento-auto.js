@@ -998,7 +998,12 @@
         }
         const nome = li ? String(li.name || li.title || '').trim() : '';
         if (nome) return { nome, fornitore: pezzo ? pezzo.fornitore : '', fonte: 'ordine' };
-        return pezzo && pezzo.descrizione ? { nome: pezzo.descrizione, fornitore: pezzo.fornitore, fonte: 'listino' } : null;
+        if (pezzo && pezzo.descrizione && chiave(pezzo.descrizione)!==k) return {nome:pezzo.descrizione,fornitore:pezzo.fornitore,fonte:'listino'};
+        // Identità documentata dal catalogo ACTION del 15/09/2026 (F186/R166).
+        // Solo etichetta: nessun recupero di prezzi, stock o offerta storici.
+        const nomiStorici={VGAASUATI0472:'Asus Dual RX 7800 XT 16G graphics card'};
+        if (nomiStorici[k]) return {nome:nomiStorici[k],fornitore:'ACTION',fonte:'identita_storica'};
+        return null;
     }
 
     // Ultima stima: il pezzo dello stesso tipo che l'automatico sceglie oggi per quest'ordine (stesso chip)

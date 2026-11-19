@@ -278,7 +278,7 @@ assert.match(draft.corpo,/3 x RAM DDR5 8 GB .*RAM-2X8/);
 assert.match(draft.corpo,/Totale: 3 pezzi/);
 assert.doesNotMatch(draft.corpo,/RAM-1X16/);
 const emailButtons=A.htmlEmailOrdini(afterChange,emailContacts);
-assert.match(emailButtons,/ABACO · 3 pz/);
+assert.match(emailButtons,/ABACO · 3 pronti/);
 assert.doesNotMatch(emailButtons,/data-rf-email="caseking"/);
 assert.equal(afterChange.pronti,3);
 assert.equal(afterChange.daApplicare,0);

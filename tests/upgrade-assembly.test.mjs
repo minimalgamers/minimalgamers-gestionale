@@ -97,6 +97,24 @@ test('post-acquisto anche senza prezzi registrati: riepilogo limitato ai soli up
     assert.equal(summary.righe.length, 2);
     assert.ok(!summary.righe.some(r => /AG300|RTX5070/.test(r.codice)));
 });
+
+test('upgrade pagato non nasconde CPU, componenti e voci ancora da acquistare', () => {
+    const { A } = fresh(), automatic = pc();
+    automatic.pezzi.push({tipo:'CPU', auto:{codice:'CPU-9600', fornitore:'TIER ONE',
+        descrizione:'Ryzen 5 9600X', costo:133.5, quantita:1, disponibilita:'100 pz'}});
+    const cpu={id:7,type:'CPU',ean:'CPU-9600',supplier:'TIER ONE',name:'Ryzen 5 9600X',quantity:1,price:null};
+    const scheda={id:'4777',nome:'#4777',confermato:false,salvati:[cpu],
+        righe:[...rows(),{tipo:'CPU',ean:cpu.ean,fornitore:cpu.supplier,nome:cpu.name,costo:133.5,fonte:'listino'}],
+        voci:[{name:'KIT',value:'Tastiera e mouse',supplier:'AMAZON',price:30}]};
+    const before=JSON.stringify(scheda);
+    const result=A.daOrdinare({ordini:{'4777':{pc:[automatic]}}},[scheda],{});
+    assert.deepEqual(Array.from(result.righe,r=>r.codice).sort(),['','AIO360-BLK','CPU-9600']);
+    assert.equal(result.righe.find(r=>r.categoria==='CPU').quantita,1);
+    assert.equal(result.righe.some(r=>/DPAG300|RTX5070/.test(r.codice)),false,'acquisti già pagati restano esclusi');
+    assert.equal(JSON.stringify(scheda),before);
+    scheda.acquisti={'7':{id:7,type:cpu.type,ean:cpu.ean,supplier:cpu.supplier,quantity:1,stato:'ordinato'}};
+    assert.equal(A.daOrdinare({ordini:{'4777':{pc:[automatic]}}},[scheda],{}).righe.some(r=>r.categoria==='CPU'),false);
+});
 test('DOM idempotente e reversibile, nessun dato d’acquisto sovrascritto', () => {
     const { A, context } = fresh();
     const span = { dataset: { ean: 'DPAG300' }, textContent: 'AG300 AIR', title: 'originale' };

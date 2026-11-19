@@ -56,7 +56,8 @@ test('la colonna sinistra mostra OMEGA in proposta e gli altri recapiti indipend
     assert.match(html, /OMEGA · solo CPU \(diretto\)/);
     assert.match(html, /Intermediario GT Officine del Computer · altro hardware/);
     assert.equal(A.ordiniEmail(piano, contatti).invii.length, 0);
-    assert.doesNotMatch(html, /data-rf-email=/);
+    assert.match(html, /Rivedi ordine/);
+    assert.match(html, /0 pronti/);
 
     const links = linkOutlook(html);
     assert.deepEqual(links.map(url => url.searchParams.get('to')).sort(),

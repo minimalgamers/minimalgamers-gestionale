@@ -72,6 +72,14 @@ test('CG530 nero: riconosce MPN e codice esatti, nessun nero dedotto da codici s
     assert.equal(M.coloreCase([{type:'CASE',ean:'DPCG530WH4F'}]),'WHITE');
     assert.equal(M.coloreCase([{type:'CASE',ean:'ALTRO-BK-123'}]),'');
 });
+
+test('SKU GPU storico: nome esatto senza riprendere prezzo, quantità o prodotto alternativo',()=>{
+    const {A}=env({items:[]});
+    const label=A.nomeDaCodice(null,'VGAASUATI0472',{line_items:[]},'GPU');
+    assert.equal(label.nome,'Asus Dual RX 7800 XT 16G graphics card');
+    assert.equal(label.fonte,'identita_storica');assert.equal(label.prezzo,undefined);assert.equal(label.stock,undefined);
+    assert.equal(A.nomeDaCodice(null,'VGAASUATI0473',{line_items:[]},'GPU'),null);
+});
 test('colore dalla sola riga PC: OPZIONI DeepCool e monitor MSI non oscurano CASE',()=>{
     const {M}=env();
     const items=[{name:'OPZIONI REX - CASE - DEEPCOOL CG530 BLACK'}, {name:'MSI MONITOR GAMING 24,5"'}, {name:'PC GAMING REX',customProperties:{CASE:'DEEPCOOL CG530 BLACK - 4x RGB'}}];

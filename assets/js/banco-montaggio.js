@@ -359,7 +359,7 @@
     const COLORE_ACQUISTO = { da_acquistare: 'rosso', ordinato: 'giallo', escluso: 'grigio' };
     const PESO_STATO = { pronto: 0, montaggio: 1, montato: 2, confermare: 3, acquisti: 4, assemblato: 5, collaudato: 6, vuoto: 7 };
     const comprato = a => a === 'acquistato' || a === 'pagato' || a === 'ordinato';
-    const eur = n => (n == null ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' }));
+    const eur = n => (n == null ? '—' : Number(n).toLocaleString('it-IT', { style: 'currency', currency: 'EUR', useGrouping: 'always' }));
     const daContare = l => l.map(x => ({ r: x.r, pezzi: x.r.quantita - x.r.arrivati }));      // pezzi ancora da confermare
     const daArrivare = l => l.reduce((n, x) => n + x.r.quantita - x.r.arrivati, 0);
     const gruppiAperti = new Set(), gruppiVisibili = new Map();   // gruppi della merce attesa: aperti / disegnati ora

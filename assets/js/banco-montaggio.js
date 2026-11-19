@@ -643,7 +643,8 @@
         const attesa = inAttesa();
         const carte = [[conta('pronto'), 'PC pronti da montare', 'verde'], [conta('montaggio', 'montato'), 'PC in montaggio', 'viola'],
             [conta('confermare'), 'PC a cui manca solo la conferma degli arrivi', 'giallo'], [conta('acquisti'), 'PC fermi per pezzi da ordinare', 'rosso'],
-            [daArrivare(attesa.filter(x => x.r.acquisto !== 'da_acquistare')), 'pezzi comprati, arrivo da confermare', 'giallo'],
+            [daArrivare(attesa.filter(x => comprato(x.r.acquisto))), 'pezzi comprati, arrivo da confermare', 'giallo'],
+            [daArrivare(attesa.filter(x => x.r.acquisto === 'escluso')), 'pezzi già in casa secondo Acquisti, da confermare', 'giallo'],
             [daArrivare(attesa.filter(x => x.r.acquisto === 'da_acquistare')), 'pezzi ancora da ordinare', 'rosso']];
         const casa = sommaValori(inCasa());
         carte.push([eur(casa.netto), 'valore netto della merce in casa' + (casa.senzaImporto ? ' · parziale' : ''), 'blu']);

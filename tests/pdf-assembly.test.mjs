@@ -205,7 +205,7 @@ test('PDF ha tre colonne, categorie esplicite e dimensionamento del testo; file 
     assert.match(exportSource,/content: 'CATEGORIA'/);assert.match(exportSource,/content: 'COMPONENTE \/ EXTRA'/);
     assert.match(exportSource,/doc\.splitTextToSize\(window\.MontaggioExport\.testoPdf\(r\.nome\)/);
     assert.match(exportSource,/testoPdf\(r\.nome\), colConfigW - 2\)\.join\('\\n'\)/);
-    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=5')<html.indexOf('excel-export.js?v=43'));
+    const html=read('index.html');assert.ok(html.indexOf('montaggio-export.js?v=6')<html.indexOf('excel-export.js?v=44'));
     assert.doesNotMatch(moduleSource,/\bfetch\s*\(|localStorage\.setItem|price\s*=/);
 });
 
@@ -248,4 +248,30 @@ test('servizi prodotti separati e quantità: Booster incluso, accessorio già as
     const r=M.extraOrdine({items},[],[{ean:'MON-1',name:'Monitor completo'}]);
     assert.equal(r.length,2);assert.match(r[0].nome,/2 × MINIMAL BOOSTER/);assert.equal(r[1].nome,'Accessori da preparare');
     assert.equal(M.extraOrdine({items:[{name:'Accessori da preparare'}]},[{nome:'Accessori da preparare'}]).length,0);
+});
+
+test('descrizioni usate come identificativi non sono SKU irrisolti; un vero codice resta segnalato',()=>{
+    const {M}=env();
+    for(const name of ['CASE ATX WHITE','DEEPCOOL PF-600X 80+ BRONZE','DARK CAVE AKU CURVED BLACK','HDD 1TB AGGIUNTIVO','SEDIA GAMING NOUA GRID']) assert.equal(M.codiceNonRisolto(name,name),false,name);
+    assert.equal(M.codiceNonRisolto('VGAASUATI0472 WHITE','VGAASUATI0472'),true);
+});
+
+test('codice esatto recupera GRE e il fisso AG300; nessun cambio di distinta',async()=>{
+    const {s,comps}=collector();comps.push({type:'GPU',ean:'VGASAPATI0621',name:'RX 9070 12GB BLACK'});
+    const a=s.window.AccoppiamentoAuto, data=await a.carica();
+    data.ordini['4824'].pc[0].pezzi.push({tipo:'CPU',manuale:{codice:'CPU-COD'},fisso:{descrizione:'CPU da riferimento esatto'}});
+    a.nomeDaCodice=(_d,c)=>c==='VGASAPATI0621'?{nome:'SAPPHIRE PULSE RX 9070 GRE 12GB'}:null;
+    s.getComponentDataFromDB=async c=>({nome:c});comps[0].name='CPU-COD';
+    const before=JSON.stringify(comps),r=(await s.collectOrdersForExport()).orders[0].records;
+    assert.match(r.find(x=>x.tipo==='GPU').nome,/GRE/);assert.equal(r.find(x=>x.tipo==='CPU').nome,'CPU da riferimento esatto');
+    assert.equal(JSON.stringify(comps),before);
+});
+
+test('accessori del setup già nella scheda non tornano come righe budget doppie',async()=>{
+    const {s,comps}=collector();comps.push({type:'SEDIA',ean:'SEDIA GAMING NOUA GRID',name:'SEDIA GAMING NOUA GRID'});
+    const a=s.window.AccoppiamentoAuto, data=await a.carica();
+    data.ordini['4824'].pc[0].pezzi.push({tipo:'ACCESSORIO',fisso:{descrizione:'Sedia gaming NOUA Grid (Meemo, 50 euro)'}});
+    const r=(await s.collectOrdersForExport()).orders[0].records;
+    assert.equal(r.filter(x=>x.tipo==='SEDIA').length,1);
+    assert.ok(!r.some(x=>x.nome.includes('Meemo')));
 });

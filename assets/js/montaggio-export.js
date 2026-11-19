@@ -25,11 +25,22 @@
     };
     const chiaveSoftware = s => key(s).replace(/^SOFTWARE/, '').replace(/^PACCHETTO/, '');
     function categoriaVoce(tipo, nome) {
+        if (key(tipo) === 'ACCESSORIO') {
+            if (/KIT\s+GAMING|KIT\s+(?:4\s*IN\s*1|4\s*[- ]?IN\s*[- ]?1)/i.test(nome)) return 'KIT GAMING';
+            if (/^SEDIA\b/i.test(nome)) return 'SEDIA';
+            if (/^SCRIVANIA\b/i.test(nome)) return 'SCRIVANIA';
+        }
         // SERVIZIO non significa sempre scatole: una voce sconosciuta resta EXTRA.
         return key(tipo) === 'SERVIZIO' && /^CONSEGNASCATOLE(?:ORIGINALI(?:DISPONIBILI)?)?$/.test(key(nome)) ? 'SCATOLE' : categoria(tipo);
     }
     function codiceNonRisolto(nome, codice) {
-        return Boolean(key(codice)) && key(String(nome || '').replace(/\s*\((?:ACTION|OMEGA|TIER ONE|ABACO|RUNNER|ESPRINET)\)\s*$/i, '')) === key(codice);
+        // I manuali possono usare la descrizione completa come identificativo.
+        // È un codice non risolto solo se l'identificativo ha forma di SKU, non
+        // quando coincide con un nome leggibile (CASE ATX WHITE, HDD 1TB...).
+        const code = String(codice || '').trim();
+        if (!code || /\s/.test(code)) return false;
+        const label = String(nome || '').replace(/\s*\((?:ACTION|OMEGA|TIER ONE|ABACO|RUNNER|ESPRINET)\)\s*$/i, '');
+        return key(label) === key(code) || key(label.replace(/\s+(?:WHITE|BLACK|BIANCO|NERO)$/i,'')) === key(code);
     }
     function colore(testo) {
         const s = String(testo || '').toUpperCase();

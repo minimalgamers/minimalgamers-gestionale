@@ -162,10 +162,15 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
                 }
             }
 
-            // Risoluzione esatta del codice, senza sostituire una descrizione manuale leggibile.
-            if (ean && (!descrizione || M.codiceNonRisolto(descrizione, ean))) {
+            // Risoluzione per identità esatta; nessuna ricerca di un prodotto alternativo.
+            if (ean) {
                 const esatto = A.nomeDaCodice?.(dati, ean, {line_items: order.line_items || order.items || []}, compType);
                 if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, ean)) descrizione = esatto.nome;
+                if (!descrizione || M.codiceNonRisolto(descrizione, ean)) {
+                    const fixed = (auto?.pezzi || []).find(p=>M.categoria(p.tipo)===compType &&
+                        [p.manuale?.codice,p.auto?.codice,p.fisso?.codice].some(c=>c && String(c).trim().toUpperCase()===ean.toUpperCase()));
+                    if (fixed?.fisso?.descrizione && !M.codiceNonRisolto(fixed.fisso.descrizione,ean)) descrizione=fixed.fisso.descrizione;
+                }
             }
             if (M.codiceNonRisolto(descrizione || ean, ean)) {
                 pushLine((descrizione || ean) + ' - DA VERIFICARE: modello del codice non risolto; identificare il prodotto prima del montaggio.', compType);
@@ -272,8 +277,10 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
         // Opzioni derivate (ventole, software, scatole...) non hanno data-ean e
         // prima erano escluse. Il motore copre anche schede non ancora renderizzate.
         const presenti = new Set(componentRecords.map(x => M.categoria(x.tipo)));
-        const opzioni = (auto?.pezzi || []).filter(p => !M.base.includes(M.categoria(p.tipo)) &&
-            (!presenti.has(M.categoria(p.tipo)) || ['EXTRA','SOFTWARE'].includes(M.categoria(p.tipo)))).map(p => ({
+        const opzioni = (auto?.pezzi || []).filter(p => {
+            const cat=M.categoriaVoce(p.tipo,p.cliente || p.fisso?.descrizione || '');
+            return !M.base.includes(cat) && (!presenti.has(cat) || ['EXTRA','SOFTWARE'].includes(cat));
+        }).map(p => ({
             tipo:p.tipo, nome:p.cliente || p.fisso?.descrizione || p.manuale?.codice || p.auto?.descrizione || '',
             scelta:p.cliente || p.fisso?.descrizione || ''
         }));
@@ -467,6 +474,7 @@ async function exportProcessedOrdersToExcel() {
         for(let c=0;c<3;c++) style(0,c,heading);
         for(let r=1;r<rows.length;r++) for(let c=0;c<3;c++) style(r,c,{font:{bold:c===0 || headers.includes(r)},alignment:{vertical:'top',wrapText:true}});
         ws['!merges']=merges; ws['!cols']=[{wch:18},{wch:27},{wch:95}];
+        ws['!rows']=rows.map((r,i)=>({hpt:i===0?26:headers.includes(i)?23:Math.max(23,Math.ceil(String(r[2] || '').length/85)*14+8)}));
         const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,`Tavolo ${worksheetNumber}`);
         const now=new Date();
         XLSX.writeFile(wb,`Ordini_E${worksheetNumber}_${now.getDate()}-${now.getMonth()+1}-${now.getFullYear()}_${now.getHours()}-${now.getMinutes()}.xlsx`);

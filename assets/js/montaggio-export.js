@@ -141,8 +141,16 @@
                 parti.forEach(s=>add(tipo,s,s)); return;
             }
             const sw = cat === 'SOFTWARE' && software[chiaveSoftware(scelta || testo)] ? chiaveSoftware(scelta || testo) : null;
-            const id = cat + '|' + (sw || key(scelta || testo));
-            if (seen.has(id)) return;
+            const rawKit=String(scelta || testo).replace(/^\d+\s*[×x]\s*/i,'');
+            const kit=cat==='KIT GAMING' && /^KITGAMINGMINIMALGAMERS4IN1/.test(key(rawKit)) ? 'MG4IN1'+colore(rawKit) : null;
+            const id = cat + '|' + (sw || kit || key(scelta || testo));
+            if (seen.has(id)) {
+                if (kit && /^\d+\s*[×x]\s*/i.test(testo)) {
+                    const record=records.find(r=>r.tipo===cat && /^KITGAMINGMINIMALGAMERS4IN1/.test(key(r.scelta)) && colore(r.scelta)===colore(rawKit));
+                    if(record) {record.nome=testo;record.scelta=scelta || testo;}
+                }
+                return;
+            }
             const etichetta = String(tipo || '').trim();
             const leggibile = cat === 'EXTRA' && key(etichetta) !== 'EXTRA' && !key(testo).includes(key(etichetta))
                 ? etichetta + ': ' + testo : testo;

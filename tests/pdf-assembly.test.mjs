@@ -275,3 +275,11 @@ test('accessori del setup già nella scheda non tornano come righe budget doppie
     assert.equal(r.filter(x=>x.tipo==='SEDIA').length,1);
     assert.ok(!r.some(x=>x.nome.includes('Meemo')));
 });
+
+test('kit Minimal 4in1: descrizione breve e titolo completo dello stesso acquisto non raddoppiano',()=>{
+    const {M}=env(),short='KIT GAMING MINIMAL GAMERS 4IN1 NERO',long='KIT GAMING MINIMAL GAMERS 4IN1 – MOUSE RGB + TASTIERA RGB + TAPPETINO + CUFFIE - NERO';
+    let r=M.distinta([{tipo:'KIT GAMING',nome:short}],[{tipo:'KIT GAMING',nome:long}],[],[],'BLACK');assert.equal(r.length,1);
+    r=M.distinta([{tipo:'KIT GAMING',nome:short}],[{tipo:'KIT GAMING',nome:'2 × '+long}],[],[],'BLACK');
+    assert.equal(r.length,1);assert.match(r[0].nome,/2 ×/);
+    r=M.distinta([{tipo:'KIT GAMING',nome:short}],[{tipo:'KIT GAMING',nome:long.replace('NERO','BIANCO')}],[],[],'BLACK');assert.equal(r.length,2);
+});

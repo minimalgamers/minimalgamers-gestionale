@@ -63,7 +63,8 @@ test('la proposta CPU OMEGA espone i due canali di contatto senza creare una boz
         }
     }
     assert.equal(A.ordiniEmail(r, contatti).invii.length, 0);
-    assert.doesNotMatch(A.htmlEmailOrdini(r, contatti), /data-rf-email=/);
+    assert.match(A.htmlEmailOrdini(r, contatti), /Rivedi ordine/);
+    assert.match(A.htmlEmailOrdini(r, contatti), /0 pronti/);
 });
 
 test('i recapiti da verificare, i fornitori senza recapito e gli acquisti sul sito restano distinti', () => {

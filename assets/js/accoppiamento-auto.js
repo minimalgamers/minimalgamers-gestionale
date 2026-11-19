@@ -3746,7 +3746,7 @@
             const sceltePagate = scelteUpgradeMontaggio(auto);
             const extraPagati = extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi)
                 .filter(x => sceltePagate.has(x.tipo) && !x.personalizzata && x.costo !== 0);
-            const mirato = montaggio.length > 0 || sceltePagate.size > 0;
+            const sostituitiDaUpgrade = new Set(montaggio.map(x => x.tipo));
             const chiuso = s.confermato && !montaggio.length && !extraPagati.length;
             if (chiuso) out.esclusi.push(s.nome); else out.pc++;
             for (const x of montaggio) {
@@ -3771,7 +3771,9 @@
                         registrato,congelato:s.confermato});
                     continue;
                 }
-                if (s.confermato || mirato) continue;
+                // Un pagamento del cliente non prova l'acquisto dei componenti.
+                // Solo la categoria sostituita esce: CPU e altri pezzi aperti restano.
+                if (s.confermato || sostituitiDaUpgrade.has(TIPI[r.tipo] || r.tipo)) continue;
                 if (r.fonte === 'acquistato' || salvato && salvato.price !== null && salvato.price !== undefined && salvato.price !== '') {
                     out.giaAcquistati.push({id:s.id,nome:s.nome,tipo:r.tipo,ean:r.ean,quantita});
                     continue;
@@ -3844,7 +3846,7 @@
                     daConfermare: !!(uguale && uguale.auto.da_confermare),
                     offerta: offertaDelPezzo(dati,r.ean,r.fornitore) || uguale?.auto || listino, pezzo }, s.nome);
             }
-            for (const x of (mirato || s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
+            for (const x of (s.confermato ? extraPagati : extraOrdine(auto, (s.righe || []).map(r => r.tipo), s.voci, salvatiFissi))) {
                 if (x.personalizzata || x.costo === 0) continue;          // gia' tra le voci personalizzate o senza costo
                 aggiungi(CATEGORIA_EXTRA[x.tipo] || x.tipo, { fornitore: x.fornitore || 'FUORI LISTINO', codice: '',
                     descrizione: x.descrizione || x.nome, quantita: 1, costo: x.costo,
@@ -3854,7 +3856,7 @@
             let indiceVoce = -1;
             for (const v of s.voci || []) {
                 indiceVoce++;
-                if (s.confermato || mirato) continue;
+                if (s.confermato) continue;
                 const q = Math.max(1, parseInt(v.quantity != null ? v.quantity : v.quantita, 10) || 1);
                 const prezzo = parseFloat(v.price != null ? v.price : v.prezzo);
                 aggiungi(categoriaVoce(v), { fornitore: v.supplier, codice: v.ean || '', descrizione: v.value || v.name || v.ean,
@@ -3951,14 +3953,18 @@
     // Righe del riepilogo divise per email: il primo invio che corrisponde (fornitore e categoria) vince
     function ordiniEmail(r, contatti) {
         const c = contattiOrdini(contatti);
-        const invii = c ? c.invii.map(x => ({ ...x, gruppi: [], pezzi: 0 })) : [];
+        const invii = c ? c.invii.map(x => ({ ...x, gruppi: [], pezzi: 0, sospese: [], pezziSospesi: 0 })) : [];
         const senza = {};
         for (const f of (r && r.fornitori) || []) {
             if (f.nome === 'MAGAZZINO' || f.nome === DA_SCEGLIERE) continue;
             for (const riga of f.righe || []) {
-                if (!rigaOrdinabile(riga)) continue;
+                if (riga.esclusa) continue;
                 const cat = riga.categoria || '';
                 const x = invii.find(i => contattoDelFornitore(i, f.nome) && contattoPerCategoria(i, cat));
+                if (!rigaOrdinabile(riga)) {
+                    if (x) { x.sospese.push(riga); x.pezziSospesi += riga.quantita; }
+                    continue;
+                }
                 if (!x) {
                     const z = senza[f.nome] || (senza[f.nome] = { nome: f.nome, pezzi: 0,
                         motivo: (c && c.senza_email && c.senza_email[f.nome]) || 'contatto da indicare' });
@@ -3972,7 +3978,34 @@
                 x.pezzi += riga.quantita;
             }
         }
-        return { contatti: c, invii: invii.filter(x => x.pezzi), senza: Object.values(senza) };
+        return { contatti: c, invii: invii.filter(x => x.pezzi), incompleti: invii.filter(x => x.pezziSospesi), senza: Object.values(senza) };
+    }
+
+    function completezzaOrdine(x) {
+        const sospese=(x.sospese || []).filter(r=>!r.esclusa);
+        return {pronti:x.pezzi || 0, sospesi:sospese.reduce((n,r)=>n+r.quantita,0),
+            confermabili:sospese.filter(propostaConfermabile), righe:sospese};
+    }
+
+    function rivediOrdineIncompleto(x) {
+        const c=completezzaOrdine(x), proposte=c.confermabili.reduce((n,r)=>n+r.quantita,0);
+        stile();
+        return new Promise(resolve=>{
+            const ov=document.createElement('div');ov.className='acc-finestra';
+            ov.innerHTML=`<div class="acc-finestra-box" role="dialog" aria-label="Ordine incompleto"><h3>Ordine incompleto · ${esc(x.nome)}</h3>`+
+                `<div class="acc-finestra-corpo"><p><strong>${c.pronti} pezzi pronti · ${c.sospesi} pezzi ancora esclusi dalla bozza</strong></p>`+
+                '<p>Questa mail non copre tutto il fabbisogno del canale. Prima risolvi le righe sotto oppure scegli esplicitamente un ordine parziale.</p>'+
+                c.righe.map(r=>`<p><strong>${r.quantita} × ${esc(r.descrizione || r.codice)}</strong><br>${esc(r.fornitore || '')} · ${esc(r.codice || '')}<br>`+
+                    `${r.daApplicare?'Proposta da confermare nelle distinte':'Prezzo, disponibilità o quantità da verificare'}</p>`).join('')+
+                '</div><div class="acc-finestra-bottoni"><button type="button" data-no>Annulla</button>'+
+                `<button type="button" data-parziale${c.pronti?'':' disabled'}>Prepara SOLO ${c.pronti} pronti · ordine PARZIALE</button>`+
+                (proposte?`<button type="button" data-rivedi>Rivedi e conferma ${proposte} pezzi</button>`:'')+'</div></div>';
+            document.body.appendChild(ov);
+            const fine=azione=>{ov.remove();resolve(azione);};
+            ov.querySelector('[data-no]').addEventListener('click',()=>fine('annulla'));
+            ov.querySelector('[data-parziale]').addEventListener('click',()=>fine('parziale'));
+            ov.querySelector('[data-rivedi]')?.addEventListener('click',()=>fine('rivedi'));
+        });
     }
 
     function rigaEmail(r, lingua) {
@@ -4113,10 +4146,12 @@
     function htmlEmailOrdini(r, contatti) {
         const em = ordiniEmail(r, contatti);
         if (!em.contatti) return '';
-        if (!em.invii.length && !em.senza.length) return '';
-        return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Le bozze includono i pezzi pronti da ordinare. Apri la bozza in Outlook (info@), controllala e premi Invia.</div>` +
-            em.invii.map(x => `<div class="acc-rf-email-row"><button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
-                `✉️ ${condizioniEmail(x).richiesta ? 'Richiesta · ' : ''}${esc(x.nome)} · ${x.pezzi} pz${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
+        const canali=[...em.invii,...em.incompleti.filter(x=>!em.invii.includes(x))];
+        if (!canali.length && !em.senza.length) return '';
+        return `<div class="acc-rf-email"><div class="acc-nota" style="margin-top:8px">✉️ Prepara l’ordine: controlli e conferme fanno parte dello stesso percorso. Le righe mancanti vengono mostrate prima della bozza.</div>` +
+            canali.map(x => `<div class="acc-rf-email-row"><button type="button" class="acc-rf-copia" data-rf-email="${esc(x.id)}" title="${esc((x.a || []).join(', '))}">` +
+                `✉️ ${x.pezziSospesi?'Rivedi ordine · ':condizioniEmail(x).richiesta ? 'Richiesta · ' : ''}${esc(x.nome)} · ${x.pezzi} pronti`+
+                `${x.pezziSospesi?` · ${x.pezziSospesi} da risolvere`:''}${x.intermediario ? ` <small>(${esc(x.gruppi.map(g => g.nome).join(', '))})</small>` : ''}` +
                 `${x.da_confermare ? ' <small>· contatto da confermare</small>' : ''}</button>` +
                 (pezziPerRegistrazione(x).length ? `<button type="button" class="acc-rf-azione" data-rf-registra="${esc(x.id)}" aria-label="Registra acquisto da ${esc(x.nome)}">✓ Registra acquisto</button>` : '') +
                 '</div>').join('') +
@@ -4124,11 +4159,22 @@
             `</div>`;
     }
 
-    async function apriEmailOrdine(id, r) {
+    async function apriEmailOrdine(id, r, {parziale=false}={}) {
         const em = ordiniEmail(r);
-        const x = em.invii.find(i => i.id === id);
+        const x = em.invii.find(i => i.id === id) || em.incompleti.find(i=>i.id===id);
         if (!x) return avvisa('Niente da ordinare per questo contatto', 'warning');
         if (salvataggioAcquisti) throw new Error('Attendi il salvataggio degli acquisti');
+        if (x.pezziSospesi && !parziale) {
+            const scelta=await rivediOrdineIncompleto(x);
+            if (scelta==='annulla') return;
+            if (scelta==='rivedi') {
+                const esito=await confermaProposteFornitore({nome:x.nome,righe:completezzaOrdine(x).righe});
+                if (!esito || esito.falliti?.length) return;
+                return apriEmailOrdine(id,riepilogo.ultimo || r);
+            }
+            return apriEmailOrdine(id,r,{parziale:true});
+        }
+        if (!x.pezzi) return avvisa('Nessuna riga pronta: risolvi i pezzi indicati prima di preparare la bozza','warning');
         const token=riepilogo.token, navigation=window.MGNavigation?.current();
         if (typeof loadProcessedOrdersFromDB === 'function') {
             const ordini=await loadProcessedOrdersFromDB();
@@ -4146,6 +4192,12 @@
         }
         stile();
         const t = testoEmail(x, em.contatti);
+        if (x.pezziSospesi) {
+            const inglese=x.lingua==='en';
+            t.oggetto=(inglese?'PARTIAL ORDER — ':'ORDINE PARZIALE — ')+t.oggetto;
+            t.corpo=(inglese?`PARTIAL ORDER: only the ${x.pezzi} listed items are requested.\n\n`:
+                `ORDINE PARZIALE: vengono richiesti esclusivamente i ${x.pezzi} pezzi elencati.\n\n`)+t.corpo;
+        }
         const avvisi = avvisiEmail(x, r);
         const ov = document.createElement('div');
         ov.className = 'acc-finestra';
@@ -4155,7 +4207,7 @@
             `<label class="acc-nota">Oggetto</label><input data-em-oggetto type="text" style="width:100%;box-sizing:border-box;margin:2px 0 8px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff">` +
             `<label class="acc-nota">Testo (modificabile)</label><textarea data-em-corpo style="width:100%;box-sizing:border-box;min-height:46vh;margin-top:2px;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff;font-family:monospace;font-size:.85em"></textarea>` +
             `</div><div class="acc-finestra-bottoni"><button type="button" data-no>Annulla</button><button type="button" data-copia-em>📋 Copia testo</button>` +
-            `<button type="button" data-si>✉️ Apri in Outlook</button></div></div>`;
+            `<button type="button" data-si>✉️ Apri in Outlook${x.pezziSospesi?' · ordine PARZIALE':''}</button></div></div>`;
         document.body.appendChild(ov);
         ov.querySelector('[data-em-a]').value = t.a;
         ov.querySelector('[data-em-oggetto]').value = t.oggetto;
@@ -4547,12 +4599,16 @@
         const dove = [box, lato].filter(Boolean);
         const tutti = (sel) => dove.flatMap(x => Array.from(x.querySelectorAll(sel)));
         tutti('[data-copia]').forEach(el => el.addEventListener('click', () => { if (el.dataset.copia) copia(el.dataset.copia); }));
-        tutti('[data-rf-cat]').forEach(b => b.addEventListener('click', () => {
+        tutti('[data-rf-cat]').forEach(b => b.addEventListener('click', async () => {
             const c = r.categorie.find(x => x.nome === b.dataset.rfCat);
+            if (c?.fornitori.some(f=>f.righe.some(row=>!row.esclusa && !rigaOrdinabile(row))))
+                return avvisa('Elenco incompleto: prepara l’ordine dal relativo canale email per vedere e confermare le righe mancanti.','warning');
             if (c) copia(testoCategoria(c));
         }));
-        tutti('[data-rf-forn]').forEach(b => b.addEventListener('click', () => {
+        tutti('[data-rf-forn]').forEach(b => b.addEventListener('click', async () => {
             const f = r.fornitori.find(x => x.nome === b.dataset.rfForn);
+            if (f?.righe.some(row=>!row.esclusa && !rigaOrdinabile(row)))
+                return avvisa('Ordine incompleto: usa il canale email del fornitore per rivedere le righe mancanti o scegliere un ordine parziale.','warning');
             if (f) copia(testoOrdineFornitore(f));
         }));
         tutti('[data-rf-vista]').forEach(b => b.addEventListener('click', () => {
@@ -5473,7 +5529,7 @@
         pezzoDellaRiga, daOrdinare, testoOrdineFornitore, testoCategoria, htmlCategorieDaOrdinare, htmlLatoDaOrdinare,
         categoriaScheda, categoriaVoce, catturaScrivania, mostraModo, renderRiepilogoAuto, riepilogo,
         htmlFornitoriDaOrdinare, pezziDaRegistrareFornitore, stessoArticoloRegistrazione, canaleSostituzioneRegistrata, registraAcquisti, salvaSostituzioneRegistrata, htmlRigaDaOrdinare, raggruppaReferenzeAcquisto, bersaglioReferenzaVista, linkAmazon, disegnaRiepilogo, apriCambio, sceltaValida, applicaScelta,
-        cambio, ricercaPerCambio, ordiniEmail, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
+        cambio, ricercaPerCambio, ordiniEmail, completezzaOrdine, testoEmail, rigaEmail, urlOutlook, avvisiEmail, htmlEmailOrdini, apriEmailOrdine,
         righeOpzioniScheda, corpoPezzi, sezioniAperte, rigaNonPagate, rigaUpgradePagati, fornitoreVago, mostraUtile, pezzoDelCodice, nomeDaCodice,
         comeSiPaga, righePezziConto, chiaveEquivalenza, pezziSimili, schedeElaborate, apriCambioPezzo, htmlSceltaScheda, pcDaCambiare, salvaCambio,
         ricercaProposta, differenzaProposta, sceltaDaBuyerDesk, righeUguali, sommaScelte, testoSomma, htmlProposteScelta,

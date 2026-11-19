@@ -50,6 +50,27 @@ test('lo stato d\'acquisto viene letto dal gestionale, mai dedotto', () => {
     assert.equal(B.statoAcquisto(c, { _acquisto_confermato_gestionale: { righe: [1] } }), 'acquistato');
 });
 
+test('«fuori dagli acquisti» vale solo per la stessa riga, come nella pagina Acquisti (#155)', () => {
+    const c = { id: 11, type: 'GPU', ean: 'X1', supplier: 'ALFA', quantity: 1, price: null };
+    const esclusa = (extra = {}) => ({ _esclusioni_acquisto_gestionale: { k: { excluded: true, tipo: 'GPU', ean: 'X1', fornitore: 'alfa', quantita: 1, componentId: 11, ...extra } } });
+    assert.equal(B.statoAcquisto(c, esclusa()), 'escluso');
+    assert.equal(B.statoAcquisto(c, esclusa({ excluded: undefined, escluso: true })), 'escluso');       // forma precedente del campo
+    assert.equal(B.statoAcquisto(c, esclusa({ excluded: false })), 'da_acquistare');                   // rimessa da ordinare
+    assert.equal(B.statoAcquisto(c, esclusa({ componentId: 99 })), 'da_acquistare');                   // riga reinserita
+    assert.equal(B.statoAcquisto(c, esclusa({ quantita: 2 })), 'da_acquistare');                       // quantita' cambiata
+    assert.equal(B.statoAcquisto({ ...c, ean: 'X2' }, esclusa()), 'da_acquistare');                    // pezzo sostituito
+    assert.equal(B.statoAcquisto(c, esclusa({ personalizzato: true })), 'da_acquistare');
+    // un acquisto registrato prevale su una vecchia esclusione
+    const cp = esclusa(); cp._acquisti_parziali_gestionale = { 11: { type: 'GPU', ean: 'X1', supplier: 'ALFA', quantity: 1, stato: 'pagato' } };
+    assert.equal(B.statoAcquisto(c, cp), 'pagato');
+    // un pezzo fuori dagli acquisti deve comunque esserci fisicamente: resta atteso, ma dopo quelli comprati
+    const u = (id, acquisti) => B.costruisciUnita({ shopify_order_id: id, custom_properties: acquisti }, [{ ...c }], { piano: [] });
+    const coda = B.candidatiArrivo('X1', [u('7001', esclusa()), u('7002', cp)], []);
+    assert.equal(coda.length, 2);
+    assert.equal(coda[0].u.id, '7002');
+    assert.equal(coda[1].r.acquisto, 'escluso');
+});
+
 test('software e servizi non si aspettano in una scatola', () => {
     assert.equal(B.rigaFisica({ type: 'GPU', name: 'x' }), true);
     assert.equal(B.rigaFisica({ type: 'SOFTWARE', name: 'x' }), false);

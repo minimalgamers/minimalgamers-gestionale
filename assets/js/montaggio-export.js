@@ -160,7 +160,27 @@
                 : r.tipo === 'VENTOLE' ? descrizioneVentole(nome, c) : preparazione.nome };
         });
     }
-    const api = { categoria, categoriaVoce, codiceNonRisolto, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, descrizioneExtra, distinta, rigaPc, monitorIncluso, base, software };
+    function extraOrdine(ordine, presenti = [], componenti = []) {
+        const out = [];
+        for (const item of ordine?.items || ordine?.line_items || []) {
+            const nome = String(item.name || item.title || '').trim();
+            const q = Number(item.current_quantity ?? item.quantity ?? 1);
+            if (!nome || !Number.isFinite(q) || q <= 0 || rigaPc(item) || /^\s*(?:OPZIONI|AGGIORNAMENTO ORDINE)\b/i.test(nome)) continue;
+            const sku = key(item.sku);
+            if (sku && componenti.some(c=>key(c.ean || c.value) === sku)) continue;
+            if (presenti.some(r=>key(r.nome) === key(nome) || key(r.scelta) === key(nome))) continue;
+            const tipo = /\bMONITOR\b/i.test(nome) ? 'MONITOR' : /\bKIT\s+GAMING\b/i.test(nome) ? 'KIT GAMING' : 'EXTRA';
+            out.push({tipo, nome:(q > 1 ? q+' × ' : '')+nome, scelta:(q > 1 ? q+' × ' : '')+nome});
+        }
+        return out;
+    }
+    // Helvetica standard jsPDF non supporta il polacco dei listini: traslittera soltanto
+    // i caratteri fuori WinAnsi. Modelli, capacità e dati salvati restano identici.
+    function testoPdf(testo) {
+        return String(testo || '').replace(/[^\x00-\xFF\u20AC\u2013\u2014\u2018\u2019\u201C\u201D\u2022]/g,
+            c => ({'ł':'l','Ł':'L','×':'x'}[c] || c.normalize('NFKD').replace(/[\u0300-\u036f]/g,'')));
+    }
+    const api = { extraOrdine, testoPdf, categoria, categoriaVoce, codiceNonRisolto, colore, coloreCase, nomeColore, descrizioneCase, descrizioneVentole, descrizioneHardware, descrizioneExtra, distinta, rigaPc, monitorIncluso, base, software };
     if (typeof window !== 'undefined') window.MontaggioExport = api;
     if (typeof module !== 'undefined') module.exports = api;
 })();

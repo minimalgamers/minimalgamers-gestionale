@@ -119,6 +119,7 @@ test('PDF ed Excel: stesso monitor incluso anche con nome PC persistito, note co
     assert.equal(records.find(x=>x.tipo==='COOLER').nome,'DeepCool AG300 AIR | ABACO DPAG300 | MPN R-AG300-BKNNMN-G');
     assert.match(records.find(x=>x.tipo==='CASE').nome,/COLORE: NERO/);
     vm.runInContext(ex.slice(ex.indexOf('async function exportProcessedOrdersToExcel'),ex.indexOf('const componentDataLookupCache')),s);
+    s.window.UpgradePaidSync={verifica:async()=>({ok:true})};
     await s.exportProcessedOrdersToExcel();
     assert.equal(written.length,1);const text=JSON.stringify(written[0]);
     assert.match(text,/ACER NITRO KG242YX1BMIIPX 200Hz 0,5ms/);assert.doesNotMatch(text,/Antonio|al posto del Wraith|SETUP VOLT - PC GAMING/);

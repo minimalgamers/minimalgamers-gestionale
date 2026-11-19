@@ -343,10 +343,10 @@ console.log('✅ Alimentatore per scheda video (26/09) registrato');
             const ti = m[2] ? ' Ti' : '';
             return `RTX ${m[1]}${ti}${gb ? ' ' + gb + 'GB' : ''}${colorSuffix}`.trim();
         }
-        m = s.match(/RX\s*(\d{3,4})\s*(XT)?/i);
+        m = s.match(/RX\s*(\d{3,4})\s*(XT|GRE)?/i);
         if (m) {
             const gb = (s.match(/(\d{1,2})\s*GB/i) || [])[1];
-            const xt = m[2] ? ' XT' : '';
+            const xt = m[2] ? ' ' + m[2].toUpperCase() : '';
             return `RX ${m[1]}${xt}${gb ? ' ' + gb + 'GB' : ''}${colorSuffix}`.trim();
         }
         m = s.match(/ARC\s*(A?\d{3,4})/i);

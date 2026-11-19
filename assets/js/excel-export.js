@@ -149,7 +149,7 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
                     ean = '';
                 } else if (ean) {
                     const dbData = await getComponentDataFromDB(ean, fornitore);
-                    if (dbData && dbData.nome) descrizione = dbData.nome;
+                    if (dbData?.nome && !M.codiceNonRisolto(dbData.nome, ean)) descrizione = dbData.nome;
                     if (!descrizione) descrizione = domComp.name || comp?.name || '';
                 }
             } else if (comp && comp.ean) {
@@ -158,8 +158,18 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
                 fornitore = comp.supplier || extractSupplierFromText(String(rawEan)) || '';
                 if (ean) {
                     const dbData = await getComponentDataFromDB(ean, fornitore);
-                    descrizione = (dbData && dbData.nome) ? dbData.nome : (comp.name || '');
+                    descrizione = dbData?.nome && !M.codiceNonRisolto(dbData.nome, ean) ? dbData.nome : (comp.name || '');
                 }
+            }
+
+            // Risoluzione esatta del codice, senza sostituire una descrizione manuale leggibile.
+            if (ean && (!descrizione || M.codiceNonRisolto(descrizione, ean))) {
+                const esatto = A.nomeDaCodice?.(dati, ean, {line_items: order.line_items || order.items || []}, compType);
+                if (esatto?.nome && !M.codiceNonRisolto(esatto.nome, ean)) descrizione = esatto.nome;
+            }
+            if (M.codiceNonRisolto(descrizione || ean, ean)) {
+                pushLine((descrizione || ean) + ' - DA VERIFICARE: modello del codice non risolto; identificare il prodotto prima del montaggio.', compType);
+                continue;
             }
 
             // v35: normalizzazione generici + colore anche nel PDF/Excel
@@ -200,7 +210,7 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
                 fornitore = domComp.supplier || extractSupplierFromText(String(ean)) || '';
                 if (ean && String(ean).toUpperCase() !== 'INTEGRATA') {
                     const dbData = await getComponentDataFromDB(ean, fornitore);
-                    if (dbData && dbData.nome) descrizione = dbData.nome;
+                    if (dbData?.nome && !M.codiceNonRisolto(dbData.nome, ean)) descrizione = dbData.nome;
                 }
             } else if (comp && (comp.ean || comp.name)) {
                 ean = String(comp.ean || '').trim();
@@ -208,7 +218,7 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
                 descrizione = comp.name || '';
                 if (ean) {
                     const dbData = await getComponentDataFromDB(ean, fornitore);
-                    if (dbData && dbData.nome) descrizione = dbData.nome;
+                    if (dbData?.nome && !M.codiceNonRisolto(dbData.nome, ean)) descrizione = dbData.nome;
                 }
             }
 
@@ -272,7 +282,10 @@ async function collectOrdersForExport({ verificaPagamenti = false } = {}) {
         });
         const righeSalvate = savedComponents.map(c => ({tipo:c.type,ean:c.ean,nome:c.name,fornitore:c.supplier}));
         const piano = A.pianoMontaggioUpgrade(auto, righeSalvate, {});
-        const records = M.distinta(componentRecords, opzioni, A.upgradePagatiDellUnita(auto), piano, pdfCaseColor);
+        // I servizi/accessori venduti come prodotti separati (es. Minimal Booster)
+        // non sono tutti presenti nel piano del Buyer Desk. Non vanno persi.
+        const righeOrdine = M.extraOrdine(order, componentRecords, [...savedComponents, ...Object.values(domComponents), ...allCustomItems]);
+        const records = M.distinta(componentRecords, [...opzioni, ...righeOrdine], A.upgradePagatiDellUnita(auto), piano, pdfCaseColor);
 
         const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);
         const configName = (configBadge ? configBadge.textContent.trim() : (savedOrder?.configName || '')) || 'PC GAMING';
@@ -344,7 +357,7 @@ async function exportProcessedOrdersToPDF() {
             const records = ord.records || ord.lines.map(nome => ({tipo:'EXTRA',nome}));
             doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
             const blockHeight = headerRowH + titleRowH + records.reduce((h,r) => h + 1.6 + Math.max(
-                doc.splitTextToSize(r.nome, colConfigW - 2).length,
+                doc.splitTextToSize(window.MontaggioExport.testoPdf(r.nome), colConfigW - 2).length,
                 doc.splitTextToSize(r.tipo, colTypeW - 2).length) * 3.3, 0) + 4;
 
             // se non ci sta nella pagina corrente -> nuova pagina (anti-spezzamento)
@@ -365,7 +378,7 @@ async function exportProcessedOrdersToPDF() {
                 doc.setFont('helvetica','bold'); doc.setFontSize(8);
                 const categoria = doc.splitTextToSize(r.tipo, colTypeW - 2).join('\n');
                 doc.setFont('helvetica','normal');
-                const nome = doc.splitTextToSize(r.nome, colConfigW - 2).join('\n');
+                const nome = doc.splitTextToSize(window.MontaggioExport.testoPdf(r.nome), colConfigW - 2).join('\n');
                 body.push([{ content:categoria, styles:{fontStyle:'bold',fontSize:8} }, { content:nome, styles:{fontSize:8} }]);
             });
 
@@ -428,357 +441,44 @@ async function exportProcessedOrdersToPDF() {
 // ============================================================
 async function exportProcessedOrdersToExcel() {
     if (!processedOrdersMap || processedOrdersMap.size === 0) {
-        showNotification('Nessun ordine elaborato da esportare', 'warning');
-        return;
+        showNotification('Nessun ordine elaborato da esportare', 'warning'); return;
     }
-
     if (typeof XLSX === 'undefined') {
-        showNotification('Errore: libreria Excel non caricata', 'error');
-        return;
+        showNotification('Errore: libreria Excel non caricata', 'error'); return;
     }
-
-    const exportExcelBtn = document.getElementById('export-excel-btn');
-    const exportExcelBtnLabelEl = exportExcelBtn ? exportExcelBtn.querySelector('span') : null;
-    const previousExcelBtnHtml = exportExcelBtn ? exportExcelBtn.innerHTML : '';
-    const previousExcelBtnDisabled = exportExcelBtn ? exportExcelBtn.disabled : false;
-    if (exportExcelBtn) exportExcelBtn.disabled = true;
-
-    const setExcelBtnProgress = (pct, done, total) => {
-        if (!exportExcelBtn || !exportExcelBtnLabelEl) return;
-        exportExcelBtnLabelEl.textContent = `${pct}%`;
-        exportExcelBtn.title = `Export Excel: ${pct}% (${done}/${total})`;
-    };
-
+    const btn = document.getElementById('export-excel-btn');
+    const previousHtml = btn?.innerHTML, previousDisabled = btn?.disabled, previousTitle = btn?.title;
+    if (btn) { btn.disabled = true; btn.title = 'Verifica upgrade e generazione Excel...'; }
     try {
-        const activeFilter = document.querySelector('.filter-button.active');
-        const filterOperator = activeFilter ? activeFilter.dataset.operator : null;
-
-        const getWorksheetNumberForOrder = (order) => {
-            const cachedOrder = processedOrdersCache[order.id] || {};
-            return Math.min(4, Math.max(1, parseInt(cachedOrder.foglioDiLavoro ?? order.foglioDiLavoro ?? 1, 10) || 1));
-        };
-
-        const createWorksheetPayload = async (ordersForWorksheet, componentOrder, onOrderExported) => {
-            const excelData = [];
-            const orderHeaderRowIndexes = [];
-            const configNameRowIndexes = [];
-            const merges = [];
-            let ordersExported = 0;
-
-            excelData.push(['NUMERO ORDINE', 'CONFIGURAZIONE PC GAMING']);
-
-            for (const [orderName, order] of ordersForWorksheet) {
-                if (ordersExported > 0) excelData.push(['', '']);
-
-                const savedOrder = processedOrdersCache[order.id];
-                const savedComponents = savedOrder?.components || [];
-
-                const componentsByType = {};
-                for (const comp of savedComponents) componentsByType[comp.type] = comp;
-
-                const domComponents = {};
-
-                const orderInputs = document.querySelectorAll(`input[data-order-id="${order.id}"][data-ean]`);
-                const orderSpans = document.querySelectorAll(`.component-name-display[data-order-id="${order.id}"][data-ean]`);
-
-                orderInputs.forEach(input => {
-                    const compType = input.dataset.componentType;
-                    const compTypeKey = String(compType || '').trim().toUpperCase();
-                    const ean = input.value || input.dataset.ean || '';
-                    const title = input.title || '';
-                    let name = '';
-                    if (title && title.includes(':')) {
-                        const parts = title.split('\n');
-                        if (parts[0]) name = parts[0].split(':').slice(1).join(':').trim();
-                    }
-                    const supplierBadge = document.querySelector(`.supplier-badge-clickable[data-order-id="${order.id}"][data-component-type="${compType}"]`);
-                    const supplier = supplierBadge?.dataset?.supplier || '';
-                    domComponents[compTypeKey] = { ean, name, supplier };
-                });
-
-                orderSpans.forEach(span => {
-                    const compType = span.dataset.componentType;
-                    const compTypeKey = String(compType || '').trim().toUpperCase();
-                    const ean = span.dataset.ean || '';
-                    const title = span.title || '';
-                    const textContent = span.textContent.trim();
-                    let name = textContent;
-                    if (title && title.includes(':')) {
-                        const parts = title.split('\n');
-                        if (parts[0]) {
-                            const titlePart = parts[0];
-                            if (titlePart.startsWith('EAN:')) name = textContent;
-                            else name = titlePart.split(':').slice(1).join(':').trim();
-                        }
-                    }
-                    if (name === 'Caricamento...') name = '';
-                    const supplierBadge = document.querySelector(`.supplier-badge-clickable[data-order-id="${order.id}"][data-component-type="${compType}"]`);
-                    const supplier = supplierBadge?.dataset?.supplier || '';
-                    domComponents[compTypeKey] = { ean, name, supplier };
-                });
-
-                const componentLines = [];
-
-                // Stessa regola della scheda: solo la riga PC, senza confondere le OPZIONI.
-                let xlsCaseColor = window.MontaggioExport?.coloreCase(
-                    [domComponents['CASE'] || componentsByType['CASE'] || {}].map(c => ({...c,type:'CASE'})), order, savedOrder) || '';
-                if (!['WHITE', 'BLACK'].includes(xlsCaseColor)) xlsCaseColor = '';
-                {
-                    const caseComp = domComponents['CASE'] || componentsByType['CASE'];
-                    const caseTxt = `${caseComp?.name || ''} ${caseComp?.ean || ''}`.toUpperCase();
-                    if (/WHITE|BIANCO|BIANCA/.test(caseTxt)) xlsCaseColor = 'WHITE';
-                    else if (/BLACK|NERO|NERA/.test(caseTxt)) xlsCaseColor = 'BLACK';
-                    if (!xlsCaseColor && caseComp?.ean) {
-                        try {
-                            const SB_URL = window.SUPABASE_URL || 'https://nulkachuhjdzohkzwvly.supabase.co';
-                            const SB_KEY = window.SUPABASE_KEY || 'sb_publishable_jodHsyRQmowfQrcm-YbuHg_3kRdy9L3';
-                            const r = await fetch(`${SB_URL}/rest/v1/gpo_mapping?ean=eq.${encodeURIComponent(caseComp.ean)}&select=component_name,variant_value&limit=1`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
-                            if (r.ok) {
-                                const rows = await r.json();
-                                const nm = `${rows[0]?.component_name || ''} ${rows[0]?.variant_value || ''}`.toUpperCase();
-                                if (/WHITE|BIANCO|BIANCA|SNOW/.test(nm)) xlsCaseColor = 'WHITE';
-                                else if (/BLACK|NERO|NERA|PITCH/.test(nm)) xlsCaseColor = 'BLACK';
-                            }
-                        } catch (e) {}
-                    }
-                }
-
-                for (let index = 0; index < componentOrder.length; index++) {
-                    const compType = componentOrder[index];
-                    const comp = componentsByType[compType];
-                    const domComp = domComponents[compType];
-                    let ean = '';
-                    let descrizione = '';
-                    let fornitore = '';
-                    if (domComp && domComp.ean) {
-                        const rawEan = domComp.ean;
-                        ean = String(rawEan).trim();
-                        descrizione = domComp.name || '';
-                        fornitore = domComp.supplier || extractSupplierFromText(String(rawEan)) || '';
-                        if (String(ean).toUpperCase() === 'INTEGRATA') {
-                            descrizione = 'GPU Integrata';
-                            ean = '';
-                        } else if (ean) {
-                            const dbData = await getComponentDataFromDB(ean, fornitore);
-                            if (dbData && dbData.nome) descrizione = dbData.nome;
-                            if (!descrizione) descrizione = domComp.name || comp?.name || '';
-                        }
-                    } else if (comp && comp.ean) {
-                        const rawEan = comp.ean;
-                        ean = String(rawEan).trim();
-                        fornitore = comp.supplier || extractSupplierFromText(String(rawEan)) || '';
-                        if (ean) {
-                            const dbData = await getComponentDataFromDB(ean, fornitore);
-                            descrizione = (dbData && dbData.nome) ? dbData.nome : (comp.name || '');
-                        }
-                    }
-                    const testo = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
-                    if (testo) {
-                        let testoNorm = testo;
-                        if (descrizione && typeof window.normalizeDisplayName === 'function' &&
-                            (compType === 'GPU' || compType === 'SSD' || compType === 'MOBO')) {
-                            testoNorm = window.normalizeDisplayName(compType, descrizione, xlsCaseColor);
-                        }
-                        componentLines.push(window.MontaggioExport?.descrizioneHardware(testoNorm) || testoNorm);
-                    }
-                }
-                {
-                    const baseSet = new Set(componentOrder.map(t => String(t).toUpperCase()));
-                    const seenExcel = new Set(componentLines.map(l => String(l).trim().toUpperCase()));
-                    const extraSet = new Set();
-                    for (const t of Object.keys(componentsByType)) {
-                        const k = String(t || '').trim().toUpperCase();
-                        if (k && !baseSet.has(k)) extraSet.add(k);
-                    }
-                    for (const t of Object.keys(domComponents)) {
-                        const k = String(t || '').trim().toUpperCase();
-                        if (k && !baseSet.has(k)) extraSet.add(k);
-                    }
-                    for (const compTypeKey of extraSet) {
-                        const domComp = domComponents[compTypeKey];
-                        const comp = componentsByType[compTypeKey] || componentsByType[Object.keys(componentsByType).find(k => String(k).toUpperCase() === compTypeKey)];
-                        let ean = '', descrizione = '', fornitore = '';
-                        if (domComp && (domComp.ean || domComp.name)) {
-                            ean = String(domComp.ean || '').trim();
-                            descrizione = domComp.name || '';
-                            fornitore = domComp.supplier || extractSupplierFromText(String(ean)) || '';
-                            if (ean && String(ean).toUpperCase() !== 'INTEGRATA') {
-                                const dbData = await getComponentDataFromDB(ean, fornitore);
-                                if (dbData && dbData.nome) descrizione = dbData.nome;
-                            }
-                        } else if (comp && (comp.ean || comp.name)) {
-                            ean = String(comp.ean || '').trim();
-                            fornitore = comp.supplier || extractSupplierFromText(String(ean)) || '';
-                            descrizione = comp.name || '';
-                            if (ean) {
-                                const dbData = await getComponentDataFromDB(ean, fornitore);
-                                if (dbData && dbData.nome) descrizione = dbData.nome;
-                            }
-                        }
-                        if (compTypeKey === 'MONITOR' && ean && typeof window.nomeLeggibileDelCodice === 'function') {
-                            const esatto = await window.nomeLeggibileDelCodice(order.id, ean, 'MONITOR');
-                            if (esatto?.nome) descrizione = esatto.nome;
-                        }
-                        const rawTestoX = (descrizione && descrizione.trim()) ? descrizione.trim() : (ean ? String(ean).trim() : '');
-                        const testoX = window.MontaggioExport?.descrizioneHardware(rawTestoX) || rawTestoX;
-                        if (testoX && !seenExcel.has(testoX.toUpperCase())) {
-                            seenExcel.add(testoX.toUpperCase());
-                            componentLines.push(testoX);
-                        }
-                    }
-                }
-
-                const customItems = await loadCustomItemsFromDB(order.id);
-                const escapedOrderId = CSS.escape(String(order.id));
-                const customItemRows = document.querySelectorAll(`#custom-items-${escapedOrderId} .custom-item-row`);
-                const domCustomItems = [];
-                customItemRows.forEach(row => {
-                    const name = row.querySelector('strong')?.textContent?.replace(':', '').trim() || '';
-                    const spans = row.querySelectorAll('span');
-                    const value = spans?.[0]?.textContent?.trim() || '';
-                    const supplier = row.dataset?.supplier || '';
-                    const ean = row.dataset?.ean || '';
-                    if (name || value || ean) domCustomItems.push({ name, value, supplier, ean });
-                });
-                const allCustomItems = [...customItems];
-                for (const domItem of domCustomItems) {
-                    const exists = customItems.some(item =>
-                        String(item?.name || '') === String(domItem?.name || '') &&
-                        String(item?.value || '') === String(domItem?.value || '')
-                    );
-                    if (!exists) allCustomItems.push(domItem);
-                }
-                for (const item of allCustomItems) {
-                    let itemEan = String(item?.ean || '').trim();
-                    let itemDesc = String(item?.value || item?.name || '').trim();
-                    let itemSupplier = String(item?.supplier || '').trim();
-                    if (itemEan) {
-                        const dbData = await getComponentDataFromDB(itemEan, itemSupplier);
-                        if (dbData && dbData.nome) itemDesc = dbData.nome;
-                    }
-                    const testoExtra = itemDesc || itemEan;
-                    if (testoExtra) componentLines.push(window.MontaggioExport?.descrizioneHardware(testoExtra) || testoExtra);
-                }
-
-                const configBadge = document.querySelector(`.config-badge[data-order-id="${order.id}"], .order-card[data-order-id="${order.id}"] .config-badge`);
-                const configName = (configBadge ? configBadge.textContent.trim() : (savedOrder?.configName || '')) || 'PC GAMING';
-
-                const blockStartRow0 = excelData.length;
-                excelData.push([orderName, configName]);
-                orderHeaderRowIndexes.push(blockStartRow0 + 1);
-                configNameRowIndexes.push(blockStartRow0 + 1);
-
-                componentLines.forEach((line, i) => {
-                    excelData.push(['', `${i + 1}. ${line}`]);
-                });
-
-                const blockEndRow0 = excelData.length - 1;
-                if (blockEndRow0 > blockStartRow0) {
-                    merges.push({ s: { r: blockStartRow0, c: 0 }, e: { r: blockEndRow0, c: 0 } });
-                }
-
-                ordersExported++;
-                onOrderExported();
-            }
-
-            return { excelData, orderHeaderRowIndexes, configNameRowIndexes, merges, ordersExported };
-        };
-
-        const activeWorksheetNumber = getActiveWorksheetTab();
-
-        const ordersToExport = [];
-        for (const [orderName, order] of processedOrdersMap.entries()) {
-            if (getWorksheetNumberForOrder(order) !== activeWorksheetNumber) continue;
-            if (filterOperator) {
-                const operatorAssignment = getOperatorAssignment(order.id);
-                if (operatorAssignment !== filterOperator) continue;
-            }
-            ordersToExport.push([orderName, order]);
+        // La stessa distinta del PDF: stessi pagamenti verificati, sostituzioni, extra e filtri.
+        const { orders, worksheetNumber } = await collectOrdersForExport({ verificaPagamenti: true });
+        if (!orders.length) { showNotification('Nessun ordine da esportare con i filtri attuali', 'warning'); return; }
+        const rows = [['NUMERO ORDINE', 'CATEGORIA', 'COMPONENTE / EXTRA']], merges = [], headers = [];
+        for (const ord of orders) {
+            const start = rows.length;
+            rows.push([ord.orderName, ord.configName, '']); headers.push(start);
+            merges.push({s:{r:start,c:1},e:{r:start,c:2}});
+            for (const r of ord.records) rows.push(['',r.tipo,r.nome]);
+            if (rows.length > start + 1) merges.push({s:{r:start,c:0},e:{r:rows.length-1,c:0}});
         }
-
-        const totalOrdersToExport = ordersToExport.length;
-        const updateExportProgress = (done) => {
-            const pct = totalOrdersToExport > 0 ? Math.round((done / totalOrdersToExport) * 100) : 0;
-            setExcelBtnProgress(pct, done, totalOrdersToExport);
-        };
-        updateExportProgress(0);
-
-        const componentOrder = ['CPU', 'MOBO', 'SSD', 'RAM', 'GPU', 'PSU', 'COOLER', 'CASE'];
-        let ordersExported = 0;
-        let ordersDoneForProgress = 0;
-
-        const wb = XLSX.utils.book_new();
-        const headerStyle = { font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 }, fill: { patternType: 'solid', fgColor: { rgb: '404040' } }, alignment: { vertical: 'center', horizontal: 'left' } };
-        const orderNumberStyle = { font: { bold: true, sz: 12 }, alignment: { vertical: 'top', horizontal: 'left' } };
-        const configNameStyle = { font: { bold: true, sz: 11 }, alignment: { vertical: 'top', horizontal: 'left' } };
-        const componentStyle = { alignment: { vertical: 'top', horizontal: 'left', wrapText: true } };
-
-        {
-            const worksheetNumber = activeWorksheetNumber;
-            const { excelData, orderHeaderRowIndexes, configNameRowIndexes, merges, ordersExported: worksheetExportedCount } = await createWorksheetPayload(
-                ordersToExport, componentOrder,
-                () => { ordersDoneForProgress++; updateExportProgress(ordersDoneForProgress); }
-            );
-
-            const ws = XLSX.utils.aoa_to_sheet(excelData);
-            const setStyle = (rowIndex0, colIndex0, style) => {
-                const addr = XLSX.utils.encode_cell({ r: rowIndex0, c: colIndex0 });
-                if (!ws[addr]) return;
-                ws[addr].s = { ...(ws[addr].s || {}), ...style };
-            };
-            setStyle(0, 0, headerStyle);
-            setStyle(0, 1, headerStyle);
-            for (const r1 of orderHeaderRowIndexes) setStyle(r1 - 1, 0, orderNumberStyle);
-            for (const r1 of configNameRowIndexes) setStyle(r1 - 1, 1, configNameStyle);
-            for (let r = 1; r < excelData.length; r++) {
-                const addr = XLSX.utils.encode_cell({ r, c: 1 });
-                if (ws[addr] && !configNameRowIndexes.includes(r + 1)) {
-                    ws[addr].s = { ...(ws[addr].s || {}), ...componentStyle };
-                }
-            }
-            if (merges.length) ws['!merges'] = merges;
-            ws['!cols'] = [{ wch: 18 }, { wch: 65 }];
-
-            XLSX.utils.book_append_sheet(wb, ws, `Tavolo ${worksheetNumber}`);
-            ordersExported += worksheetExportedCount;
-        }
-
-        if (ordersExported === 0) {
-            showNotification('Nessun ordine da esportare con i filtri attuali', 'warning');
-            if (exportExcelBtn) {
-                exportExcelBtn.innerHTML = previousExcelBtnHtml;
-                exportExcelBtn.disabled = previousExcelBtnDisabled;
-                exportExcelBtn.title = 'Esporta ordini in Excel';
-            }
-            return;
-        }
-
-        const now = new Date();
-        const dateStr = `${now.getDate()}-${now.getMonth() + 1}-${now.getFullYear()}`;
-        const timeStr = `${now.getHours()}-${now.getMinutes()}`;
-        const fileName = `Ordini_E${activeWorksheetNumber}_${dateStr}_${timeStr}.xlsx`;
-        XLSX.writeFile(wb, fileName);
-
-        if (exportExcelBtn) {
-            exportExcelBtn.innerHTML = previousExcelBtnHtml;
-            exportExcelBtn.disabled = previousExcelBtnDisabled;
-            exportExcelBtn.title = 'Esporta ordini in Excel';
-        }
-        showNotification(`✅ Export Excel completato: ${ordersExported} ordini`, 'success');
-
-    } catch (error) {
-        console.error('❌ Errore durante export Excel:', error);
-        showNotification('Errore durante export Excel: ' + error.message, 'error');
-        if (exportExcelBtn) {
-            exportExcelBtn.innerHTML = previousExcelBtnHtml;
-            exportExcelBtn.disabled = previousExcelBtnDisabled;
-            exportExcelBtn.title = 'Esporta ordini in Excel';
-        }
+        const ws = XLSX.utils.aoa_to_sheet(rows);
+        const style = (r,c,value) => { const cell=ws[XLSX.utils.encode_cell({r,c})]; if(cell) cell.s=value; };
+        const heading = {font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{patternType:'solid',fgColor:{rgb:'404040'}},alignment:{vertical:'center',wrapText:true}};
+        for(let c=0;c<3;c++) style(0,c,heading);
+        for(let r=1;r<rows.length;r++) for(let c=0;c<3;c++) style(r,c,{font:{bold:c===0 || headers.includes(r)},alignment:{vertical:'top',wrapText:true}});
+        ws['!merges']=merges; ws['!cols']=[{wch:18},{wch:27},{wch:95}];
+        const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,`Tavolo ${worksheetNumber}`);
+        const now=new Date();
+        XLSX.writeFile(wb,`Ordini_E${worksheetNumber}_${now.getDate()}-${now.getMonth()+1}-${now.getFullYear()}_${now.getHours()}-${now.getMinutes()}.xlsx`);
+        const warnings=orders.reduce((n,o)=>n+o.records.filter(r=>r.avviso).length,0);
+        showNotification(`Export Excel completato: ${orders.length} ordini`+(warnings?`; ${warnings} voci DA VERIFICARE nella distinta.`:''),warnings?'warning':'success');
+    } catch(error) {
+        console.error('Errore durante export Excel:',error);
+        showNotification('Errore durante export Excel: '+error.message,'error');
+    } finally {
+        if(btn) {btn.innerHTML=previousHtml;btn.disabled=previousDisabled;btn.title=previousTitle || 'Esporta ordini in Excel';}
     }
 }
-
-
-
 
 const componentDataLookupCache = new Map();
 
@@ -883,4 +583,4 @@ function initializeExportExcelButton() {
     }
 }
 
-console.log('✅ excel-export.js caricato (v31 - PDF compatto + tipi extra + nomi HYTE/GELI)');
+console.log('✅ excel-export.js caricato: distinta unica PDF/Excel con verifica pagamenti');

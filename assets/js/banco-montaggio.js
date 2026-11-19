@@ -10,6 +10,7 @@
 
     const K_ACQUISTI = '_acquisti_parziali_gestionale';
     const K_CONFERMATO = '_acquisto_confermato_gestionale';
+    const K_ESCLUSIONI = '_esclusioni_acquisto_gestionale';
     const PREFISSO_USO = 'MAG-USO-';
     // stessa tabella dei tipi del motore di accoppiamento
     const TIPI = {
@@ -42,6 +43,10 @@
         if (a && (a.stato === 'ordinato' || a.stato === 'pagato') && a.type === c.type &&
             String(a.ean || '') === String(c.ean || '') && String(a.supplier || '') === String(c.supplier || '') &&
             Number(a.quantity) === quanti(c)) return a.stato;
+        // «Fuori dagli acquisti»: esclusione ancora valida per questa stessa riga (stesso pezzo, fornitore e quantita').
+        if (c.id != null && Object.values(p[K_ESCLUSIONI] || {}).some(v => v && (v.excluded === true || v.escluso === true) &&
+            !v.personalizzato && v.componentId != null && String(v.componentId) === String(c.id) && v.tipo === c.type &&
+            norm(v.ean) === norm(c.ean) && su(v.fornitore) === su(c.supplier) && Number(v.quantita) === quanti(c))) return 'escluso';
         return 'da_acquistare';
     }
 
@@ -174,7 +179,8 @@
             if (ok.has(norm(r.c.ean))) out.push({ u, r });
         }
         const eDelPreferito = u => !!pref && [u.id, u.base, u.nome, String(u.nome).split(' ')[0]].some(x => su(x).replace(/^#/, '') === pref);
-        const peso = x => (eDelPreferito(x.u) ? 0 : 10) + (x.r.acquisto === 'da_acquistare' ? 1 : 0);
+        const registrato = a => a === 'acquistato' || a === 'pagato' || a === 'ordinato';
+        const peso = x => (eDelPreferito(x.u) ? 0 : 10) + (registrato(x.r.acquisto) ? 0 : 1);
         return out.sort((a, b) => peso(a) - peso(b) || String(a.u.base).localeCompare(String(b.u.base), undefined, { numeric: true }) || a.u.n - b.u.n);
     }
 
@@ -268,7 +274,7 @@
         return { leggi, segnaArrivo, annullaArrivo, segnaMontato, smonta, togli, ricollega, associa, salvaPc, riapriPc };
     }
 
-    const logica = { K_ACQUISTI, K_CONFERMATO, PREFISSO_USO, norm, su, unita, tipoMotore, proprieta, identita, identitaBanco, statoAcquisto,
+    const logica = { K_ACQUISTI, K_CONFERMATO, K_ESCLUSIONI, PREFISSO_USO, norm, su, unita, tipoMotore, proprieta, identita, identitaBanco, statoAcquisto,
         rigaFisica, prelieviDellUnita, assegnaPrelievi, collega, costruisciUnita, statoUnita, codiciPossibili,
         candidatiArrivo, candidatiMontaggio, creaDati };
     if (typeof module !== 'undefined') module.exports = logica;
@@ -280,7 +286,10 @@
 
     const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const el = id => document.getElementById(id);
-    const ACQUISTO = { acquistato: 'Acquistato', pagato: 'Pagato', ordinato: 'Ordinato', magazzino: 'Dal magazzino', da_acquistare: 'Da acquistare' };
+    // stesse parole della pagina Acquisti
+    const ACQUISTO = { acquistato: 'Acquistato', pagato: 'Acquistato e pagato', ordinato: 'Ordinato, da pagare', magazzino: 'Dal magazzino',
+        da_acquistare: 'Da ordinare', escluso: 'Fuori dagli acquisti' };
+    const COLORE_ACQUISTO = { da_acquistare: 'rosso', ordinato: 'giallo', escluso: 'grigio' };
     const PESO_STATO = { pronto: 0, montaggio: 1, montato: 2, attesa: 3, assemblato: 4, collaudato: 5, vuoto: 6 };
     let root = null, dati = null, modello = { unita: [], codici: [] }, sezione = 'arrivi', aperta = null;
     const registro = { di: null, righe: [] };      // registro del montaggio del PC aperto
@@ -289,7 +298,7 @@
     #banco-container.tab-content{grid-template-columns:1fr;gap:0;padding:12px 16px}
     #banco-container.tab-content.active{display:block}
     /* Superficie chiara e opaca: si legge con qualunque sfondo scelto dall'utente. */
-    .bm-page{color:var(--mg-ink,#1d2029);background:rgba(255,255,255,.95);border:1px solid rgba(29,32,41,.1);border-radius:14px;padding:16px 18px 24px;box-shadow:0 2px 6px rgba(29,32,41,.06)}
+    .bm-page{color:var(--mg-ink,#1d2029);background:rgba(255,255,255,.95);border:1px solid rgba(29,32,41,.1);border-radius:14px;padding:16px 18px 24px;box-shadow:0 2px 6px rgba(29,32,41,.06);font-size:16px;line-height:1.45}
     .bm-head{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px}
     .bm-head h2{margin:0 8px 0 0;color:inherit}
     .bm-status{font-size:13px;padding:4px 10px;border-radius:6px;display:none}
@@ -297,43 +306,44 @@
     .bm-status.err{display:inline-block;background:#fde2e0;color:#a11c12}
     .bm-status.info{display:inline-block;background:#dceafe;color:#0b4fae}
     .bm-subnav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-    .bm-subnav button{background:#ededf0;color:#1d2029;border:1px solid rgba(29,32,41,.12);border-radius:10px;padding:8px 14px;cursor:pointer;font-size:14px;font-weight:600}
+    .bm-subnav button{background:#ededf0;color:#1d2029;border:1px solid rgba(29,32,41,.12);border-radius:10px;padding:9px 16px;cursor:pointer;font-size:16px;font-weight:600}
     .bm-subnav button.active{background:#1d2029;border-color:#1d2029;color:#fff}
     .bm-panel{display:none}.bm-panel.active{display:block}
     .bm-card{background:#fff;border:1px solid rgba(29,32,41,.12);border-radius:12px;padding:14px;margin-bottom:12px}
-    .bm-card h3{margin:0 0 10px;font-size:16px;color:inherit}
+    .bm-card h3{margin:0 0 10px;font-size:19px;color:inherit}
     .bm-card.rosso{border-color:#e5a3a3;background:#fdecec}
     .bm-card.giallo{border-color:#e8cf7a;background:#fff6dc}
     .bm-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
-    .bm-page input,.bm-page select,.bm-modal input,.bm-modal select{background:#fff;color:#1d2029;border:1px solid rgba(29,32,41,.28);border-radius:8px;padding:8px 10px;font-size:14px}
+    .bm-page input,.bm-page select,.bm-modal input,.bm-modal select{background:#fff;color:#1d2029;border:1px solid rgba(29,32,41,.28);border-radius:8px;padding:9px 11px;font-size:16px}
     .bm-page input::placeholder,.bm-modal input::placeholder{color:#7b808c}
-    .bm-scan{font-size:18px!important;padding:10px 12px!important;min-width:260px;border:2px solid #005bd5!important}
-    .bm-btn{background:#ededf0;color:#1d2029;border:1px solid rgba(29,32,41,.15);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap}
+    .bm-scan{font-size:20px!important;padding:10px 12px!important;min-width:260px;border:2px solid #005bd5!important}
+    .bm-btn{background:#ededf0;color:#1d2029;border:1px solid rgba(29,32,41,.15);border-radius:8px;padding:8px 13px;cursor:pointer;font-size:15px;font-weight:600;white-space:nowrap}
     .bm-btn:hover{background:#dcdce0}
     .bm-btn.primary{background:#005bd5;border-color:#005bd5;color:#fff}.bm-btn.ok{background:#1f8a4c;border-color:#1f8a4c;color:#fff}
-    .bm-btn.danger{background:#c0392b;border-color:#c0392b;color:#fff}.bm-btn.sm{padding:4px 8px;font-size:12px}
+    .bm-btn.danger{background:#c0392b;border-color:#c0392b;color:#fff}.bm-btn.sm{padding:6px 10px;font-size:14px}
     .bm-btn.primary:hover{background:#0049ab}.bm-btn.ok:hover{background:#18703d}.bm-btn.danger:hover{background:#a23024}
     .bm-wrap{overflow:auto;max-height:calc(100vh - 340px)}
-    .bm-table{width:100%;border-collapse:collapse;font-size:13px;color:#1d2029}
+    .bm-table{width:100%;border-collapse:collapse;font-size:15px;color:#1d2029}
+    .bm-table td.bm-nome{font-size:16px;font-weight:600}
     .bm-table th{position:sticky;top:0;background:#f0f0f3;color:#1d2029;text-align:left;padding:8px;font-weight:700;border-bottom:1px solid rgba(29,32,41,.15)}
     .bm-table td{padding:7px 8px;border-top:1px solid rgba(29,32,41,.08);vertical-align:middle}
     .bm-table tr.spento td{opacity:.55}
-    .bm-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700;white-space:nowrap}
+    .bm-pill{display:inline-block;padding:3px 9px;border-radius:10px;font-size:13px;font-weight:700;white-space:nowrap}
     .bm-pill.rosso{background:#fde2e0;color:#a11c12}.bm-pill.giallo{background:#fff0c2;color:#7a5200}
     .bm-pill.blu{background:#dceafe;color:#0b4fae}.bm-pill.viola{background:#eadcf8;color:#5b2a91}
     .bm-pill.verde{background:#d9f3e3;color:#17643a}.bm-pill.grigio{background:#ececef;color:#4a4e59}
-    .bm-muted{color:var(--mg-muted,#626773);font-size:12px}
-    .bm-log{font-family:Consolas,monospace;font-size:12.5px;max-height:190px;min-height:22px;overflow:auto;background:#f5f4f1;border:1px solid rgba(29,32,41,.1);border-radius:8px;padding:8px;color:#1d2029}
+    .bm-muted{color:var(--mg-muted,#626773);font-size:14px}
+    .bm-log{font-family:Consolas,monospace;font-size:14px;max-height:190px;min-height:24px;overflow:auto;background:#f5f4f1;border:1px solid rgba(29,32,41,.1);border-radius:8px;padding:8px;color:#1d2029}
     .bm-log div{padding:2px 0}.bm-log .e{color:#a11c12;font-weight:600}.bm-log .o{color:#17643a}.bm-log .w{color:#7a5200}
     .bm-modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99999}
     .bm-modal{background:#fff;color:#1d2029;border:1px solid rgba(29,32,41,.15);border-radius:14px;padding:18px 20px;width:min(560px,92vw);max-height:90vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)}
-    .bm-modal h3{margin:0 0 8px;color:inherit}.bm-modal .bm-nota{font-size:13px;color:#7a5200;margin:0 0 10px}
-    .bm-modal label{display:block;font-size:12px;color:#626773;margin:8px 0 3px}
+    .bm-modal h3{margin:0 0 8px;color:inherit}.bm-modal .bm-nota{font-size:15px;color:#7a5200;margin:0 0 10px}
+    .bm-modal label{display:block;font-size:14px;color:#626773;margin:8px 0 3px}
     .bm-modal input,.bm-modal select{width:100%;box-sizing:border-box}
     .bm-modal .bm-chk{display:flex;align-items:center;gap:8px;margin-top:10px}.bm-modal .bm-chk input{width:auto}
-    .bm-modal .bm-chk label{margin:0;font-size:14px;color:#1d2029}
+    .bm-modal .bm-chk label{margin:0;font-size:16px;color:#1d2029}
     .bm-modal-azioni{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
-    @media (max-width:700px){.bm-page{padding:12px}.bm-scan{min-width:0;width:100%}.bm-wrap{max-height:none}.bm-table{font-size:12px}}
+    @media (max-width:700px){.bm-page{padding:12px}.bm-scan{min-width:0;width:100%}.bm-wrap{max-height:none}.bm-table{font-size:14px}.bm-table td.bm-nome{font-size:15px}}
     `;
 
     function stato(testo, tipo) {
@@ -350,9 +360,12 @@
             return 'Tabelle del banco non ancora create: esegui sql/banco_montaggio.sql in Supabase (SQL Editor).';
         return m;
     }
+    let inCorso = 0;                               // operazioni aperte: niente aggiornamenti automatici sopra
     async function azione(fn) {
+        inCorso++;
         try { return await fn(); }
         catch (e) { console.error('[Banco]', e); stato(testoErrore(e), 'err'); return undefined; }
+        finally { inCorso--; }
     }
     function log(id, testo, cls) {
         if (id === 'bm-mon-log') registro.righe.unshift({ testo: new Date().toLocaleTimeString('it-IT') + '  ' + testo, cls: cls || '' });
@@ -538,13 +551,16 @@
         const righe = inAttesa().filter(x => !q || su([x.u.nome, x.r.c.type, x.r.c.name, x.r.c.ean, x.r.c.supplier].join(' ')).includes(q));
         if (!righe.length) { t.innerHTML = `<tr><td class="bm-muted">${modello.unita.length ? 'Nessun pezzo in attesa di arrivo.' : 'Nessuna scheda elaborata da spedire. Se hai appena aperto il gestionale, passa prima dalla pagina Ordini e premi Aggiorna.'}</td></tr>`; return; }
         t.innerHTML = '<tr><th>Ordine</th><th>Tipo</th><th>Pezzo in scheda</th><th>Codice</th><th>Fornitore</th><th>Acquisto</th><th>Arrivati</th><th></th></tr>' +
-            righe.map(({ u, r }) => `<tr><td><b>${esc(u.nome)}</b></td><td>${esc(r.c.type)}</td><td>${esc(nomePezzo(r.c))}</td><td class="bm-muted">${esc(r.c.ean)}</td>
-              <td>${esc(r.c.supplier)}</td><td><span class="bm-pill ${r.acquisto === 'da_acquistare' ? 'rosso' : r.acquisto === 'ordinato' ? 'giallo' : 'blu'}">${esc(ACQUISTO[r.acquisto])}</span></td>
+            righe.map(({ u, r }) => `<tr><td><b>${esc(u.nome)}</b></td><td>${esc(r.c.type)}</td><td class="bm-nome">${esc(nomePezzo(r.c))}</td><td class="bm-muted">${esc(r.c.ean)}</td>
+              <td>${esc(r.c.supplier)}</td><td><span class="bm-pill ${COLORE_ACQUISTO[r.acquisto] || 'blu'}">${esc(ACQUISTO[r.acquisto])}</span></td>
               <td>${r.arrivati}/${r.quantita}</td><td><button class="bm-btn sm" data-arr="${esc(u.id)}|${esc(r.c.id)}">Arrivato</button></td></tr>`).join('');
         t.querySelectorAll('[data-arr]').forEach(b => { b.onclick = () => arrivoAMano(b.dataset.arr); });
     }
     const trova = chiave => { const [id, cid] = String(chiave).split('|'); const u = modello.unita.find(x => x.id === id); const r = u && u.righe.find(x => String(x.c.id) === cid); return u && r ? { u, r } : null; };
-    function avvisoAcquisto(r) { return r.acquisto === 'da_acquistare' ? '  (attenzione: nel gestionale non risulta ancora ordinato o pagato)' : ''; }
+    function avvisoAcquisto(r) {
+        return r.acquisto === 'da_acquistare' ? '  (attenzione: nella pagina Acquisti non risulta ancora ordinato o pagato)'
+            : r.acquisto === 'escluso' ? '  (nella pagina Acquisti è fuori dagli acquisti)' : '';
+    }
 
     async function ricevi() {
         const campo = el('bm-arr-codice'), letto = campo.value.trim(), pref = el('bm-arr-ordine').value.trim();
@@ -645,13 +661,13 @@
             else if (!r.fisica) arrivo = '<span class="bm-pill grigio">Da fare al banco</span>';
             else if (r.prelievo) arrivo = '<span class="bm-pill blu">Dal magazzino</span>';
             else if (r.arrivati >= r.quantita) arrivo = '<span class="bm-pill blu">Arrivato</span>';
-            else arrivo = `<span class="bm-pill ${r.acquisto === 'da_acquistare' ? 'rosso' : 'giallo'}">${r.arrivati ? `Arrivati ${r.arrivati}/${r.quantita}` : 'Non arrivato'} · ${esc(ACQUISTO[r.acquisto].toLowerCase())}</span>`;
+            else arrivo = `<span class="bm-pill ${COLORE_ACQUISTO[r.acquisto] || 'giallo'}">${r.arrivati ? `Arrivati ${r.arrivati}/${r.quantita}` : 'Non arrivato'} · ${esc(ACQUISTO[r.acquisto].toLowerCase())}</span>`;
             const montaggio = r.nonMontare ? `<span class="bm-muted">monta: ${esc(r.nonMontare.descrizione)}</span>`
                 : r.montato ? `<span class="bm-pill verde">Montato</span>${r.b.seriale ? ` <span class="bm-muted">S/N ${esc(r.b.seriale)}</span>` : ''}` : '';
             const azioni = r.nonMontare ? '' : r.montato ? `<button class="bm-btn sm danger" data-smo="${k}">Smonta</button>`
                 : `<button class="bm-btn sm ok" data-mon="${k}">Montato</button>` + (r.fisica && !r.prelievo
                     ? (r.arrivati >= r.quantita ? ` <button class="bm-btn sm" data-noarr="${k}">Annulla arrivo</button>` : ` <button class="bm-btn sm" data-arr="${k}">Arrivato</button>`) : '');
-            return `<tr class="${cls}"><td><b>${esc(r.c.type)}</b>${r.quantita > 1 ? ` × ${r.quantita}` : ''}</td><td>${esc(nomePezzo(r.c))}</td><td class="bm-muted">${esc(r.c.ean)}</td>
+            return `<tr class="${cls}"><td><b>${esc(r.c.type)}</b>${r.quantita > 1 ? ` × ${r.quantita}` : ''}</td><td class="bm-nome">${esc(nomePezzo(r.c))}</td><td class="bm-muted">${esc(r.c.ean)}</td>
               <td>${esc(r.c.supplier)}</td><td>${arrivo}</td><td>${montaggio}</td><td style="white-space:nowrap">${azioni}</td></tr>`;
         }).join('');
         corpo.innerHTML = avvisi.join('') + `<div class="bm-card">
@@ -756,6 +772,15 @@
         });
     }
 
+    // Come la pagina Acquisti: tornando sulla scheda del browser si rileggono distinte e stati d'acquisto,
+    // cosi' un acquisto o una sostituzione fatti altrove non restano fermi a prima. Mai sopra un lavoro in corso.
+    function aggiornaAlRitorno() {
+        if (document.visibilityState !== 'visible' || inCorso || !root || document.querySelector('.bm-modal-ov') ||
+            !document.querySelector('#banco-container.active') ||
+            ['bm-arr-codice', 'bm-mon-codice', 'bm-mon-seriale'].some(id => el(id) && el(id).value.trim())) return;
+        aggiorna(false);
+    }
+
     /* -------------------------------- avvio -------------------------------- */
     function avvia() {
         if (!costruisci()) return;
@@ -765,5 +790,6 @@
         }));
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', avvia); else avvia();
+    document.addEventListener('visibilitychange', aggiornaAlRitorno);
     window.BancoMontaggio.ui = { aggiorna, vai, apriPc };
 })();

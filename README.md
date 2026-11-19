@@ -179,6 +179,9 @@ Regole rispettate (vedi [regole economiche](docs/regole-economiche.md)):
   non propone e non applica sostituzioni.
 - **Magazzino**: un pezzo è «dal magazzino» solo con il prelievo registrato per quel PC («Prendi dal
   magazzino»). Il banco non cambia le quantità dell'Inventario e non ne tiene di proprie.
+- **Acquisti**: lo stato di ogni pezzo usa le stesse parole della pagina Acquisti («Ordinato, da pagare»,
+  «Acquistato e pagato», «Da ordinare», «Fuori dagli acquisti») ed è letto dal database a ogni lettura del
+  codice a barre e quando si torna sulla scheda del browser, come fa Acquisti. Il banco non registra acquisti.
 - **Costi**: il banco non legge, non mostra e non salva costi.
 - **Upgrade pagati**: il pezzo sostituito da un upgrade è «NON MONTARE» e il PC non si chiude senza la spunta
   dell'upgrade montato. Se i dati della Panoramica non sono caricati nella sessione, la verifica è dichiarata

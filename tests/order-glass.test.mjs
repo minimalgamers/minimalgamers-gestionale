@@ -30,6 +30,17 @@ test('current purchase plan shows the cheaper supplier and correct VAT margin wi
  i.conti.confermato=true;assert.equal(G.render(i).input.costo,230);
 });
 
+test('a proposed replacement still allows registering the original article already purchased',()=>{
+ const i=input();i.conti.righe[0].componentId=33;
+ i.proposte=[{tipo:'GPU',da:{ean:'GPU',fornitore:'ACTION'},a:{codice:'NEW',fornitore:'OMEGA',descrizione:'Compatible GPU',costo:100,ordinabile:true}}];
+ const v=G.render(i);
+ assert.match(v.html,/Già acquistato · registra ACTION GPU/);
+ assert.equal(v.list[0].salvato.ean,'GPU');assert.equal(v.list[0].salvato.fornitore,'ACTION');
+ assert.equal(v.list[0].ean,'NEW');assert.equal(v.list[0].fornitore,'OMEGA');
+ i.conti.righe[0].acquistato={stato:'pagato'};
+ assert.doesNotMatch(G.render(i).html,/Già acquistato · registra/);
+});
+
 test('a purchase plan preserves fixed coolers, manual costs, replaced pieces and stale quotes',()=>{
  for(const patch of [{tipo:'COOLER'},{tipo:'PSU'},{fonte:'inserito'},{fonte:'magazzino'},{fonte:'fisso_utente'}]){
   const i=input();Object.assign(i.conti.righe[0],patch);const r=i.conti.righe[0];

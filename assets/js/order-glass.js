@@ -117,8 +117,9 @@
                 `<td class="mg-ledger-actions">${actionable && r.kind==='hardware' && !input.auto?.solo_contabile && !r.esclusa ? `<button type="button" data-glass-change="${n}" aria-label="Cambia ${esc(r.tipo)} dal Buyer Desk">Cambia</button>` : ''}` +
                 (modificaDistinta && !r.locked ? `<button type="button" data-glass-manual="${n}">Modifica a mano</button>` +
                     `<button type="button" data-glass-exclude="${n}">${r.esclusa?'Rimetti da ordinare':'Escludi acquisto'}</button>` : '') +
-                (modificaDistinta && !r.esclusa && (!r.locked || r.acquistato?.stato==='ordinato') && !r.proposto ?
-                    `<button type="button" data-glass-purchase="${n}">${r.acquistato?'Segna pagato':'Registra acquisto'}</button>` : '') +
+                (modificaDistinta && !r.esclusa && (!r.locked || r.acquistato?.stato==='ordinato') ?
+                    `<button type="button" data-glass-purchase="${n}">${r.acquistato?'Segna pagato':r.proposto ?
+                        `Già acquistato · registra ${esc(r.salvato.fornitore)} ${esc(r.salvato.ean)}`:'Registra acquisto'}</button>` : '') +
                 `${actionable && !r.proposto ? `<button type="button" data-glass-cost="${list.indexOf(r)}" aria-label="${r.costo==null?'Inserisci':'Modifica'} costo ${esc(r.tipo)}">${icon('pencil-simple')}</button>` : r.locked && r.kind!=='service' ? '<small>Conservato</small>' : ''}` +
                 (lim && !r.locked ? `<details class="mg-budget"><summary role="button" aria-label="Limiti di spesa ${esc(r.tipo)}">Limiti</summary><div><b>Massimo netto per questa riga</b><br>${lim.zero<0 ? 'Perdita non recuperabile cambiando solo questa riga' : `Per restare in positivo: ${money(lim.zero)}`}<br>` +
                     `${lim.target == null ? 'Obiettivo non disponibile' : lim.target<0 ? 'Obiettivo non raggiungibile cambiando solo questa riga' : `Per l’obiettivo: ${money(lim.target)}`}<br><small>A parità degli altri costi. ${q>1?'Totale per '+q+' pezzi.':''}</small></div></details>` : '') +

@@ -69,6 +69,11 @@ test('no business script, protected adapter, body markup or handler changes', ()
         .replace(/\s*<script src="assets\/js\/montaggio-export\.js\?v=\d+"><\/script>/, '')
         // 29/10: Liquid Glass order desk explicitly selected by Antonio. Original body/handlers stay protected.
         .replace(/\s*<script src="assets\/js\/order-glass\.js\?v=\d+"><\/script>/, '')
+        // 19/11: pagina Banco (arrivi e montaggio) richiesta da Antonio. Solo bottone, pannello e script nuovi:
+        // il resto del body e degli handler resta protetto.
+        .replace(/ {16}<button class="tab-button" data-tab="banco"[^\n]*<\/button>\n/, '')
+        .replace(/ {4}<div id="banco-container" class="tab-content" data-content="banco"><\/div>\n/, '')
+        .replace(/ {4}<script src="assets\/js\/banco-montaggio\.js\?v=\d+"><\/script>\n/, '')
         .replace(/(\.(?:js|css))\?v=\d+/g, '$1')).digest('hex');
     assert.equal(bodyHash(html), bodyHash(before), 'Body markup/handlers must remain identical (LF/CRLF normalized).');
     assert.equal(bodyHash(git(['show', `${appIphone}:index.html`])), bodyHash(before));

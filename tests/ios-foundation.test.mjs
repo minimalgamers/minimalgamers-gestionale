@@ -35,7 +35,10 @@ test('existing navigation keys, authentication fields and controls remain presen
 test('all existing IDs, classes, data attributes and inline handlers are unchanged', () => {
   const legacyHtml = html.replace(/\r\n/g, '\n').replace(/ {12}<div class="manual-build-picker">[\s\S]*?<p id="manual-build-status"[^>]*><\/p>\n {12}<\/div>\n/, '')
         .replace(/ {12}<div id="manual-build-extras"><\/div>\n/, '');
-  const contract = (legacyHtml.match(/\b(?:id|data-[\w-]+|on\w+|class)="[^"]*"/g) || [])
+  // 19/11: pagina Banco (arrivi e montaggio) richiesta da Antonio. Si escludono solo il bottone e il pannello nuovi.
+  const senzaBanco = legacyHtml.replace(/ {16}<button class="tab-button" data-tab="banco"[^\n]*<\/button>\n/, '')
+        .replace(/ {4}<div id="banco-container" class="tab-content" data-content="banco"><\/div>\n/, '');
+  const contract = (senzaBanco.match(/\b(?:id|data-[\w-]+|on\w+|class)="[^"]*"/g) || [])
     .filter(x => !['class="mg-ios"','class="mg-masthead"'].includes(x));
   // Captured from main ffd263f before the visual changes; no credentials or values.
   assert.equal(createHash('sha256').update(JSON.stringify(contract)).digest('hex'),

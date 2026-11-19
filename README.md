@@ -29,6 +29,7 @@ I file principali:
 | `multi-order-handler.js` | gestione di più ordini insieme |
 | `excel-export.js` | esportazioni |
 | `category-summary.js`, `supplier-summary.js` | riepiloghi per categoria e fornitore |
+| `banco-montaggio.js` | pagina Banco: arrivo dei pezzi, montaggio e seriali (sola lettura sulle schede) |
 | `message-template-engine.js`, `message-templates-page.js` | messaggi ai clienti |
 | `gpo-page-manager.js`, `amazon-products-manager.js`, `api-adapter.js`, `pc-config-parser.js`, `search-fix.js` | pagine e utilità di supporto |
 
@@ -155,3 +156,37 @@ L'alimentatore lo decide la scheda video finale (`applyGpuPsuRule` in `app.js`, 
 fino alla RX 9060 XT il DeepCool PF-600X 600W, dalla RX 7800 XT / 9070 / RTX 5070 alla RTX 5080
 il DeepCool 850W Gold, con la RTX 5090 il PQ1000. Le build DeepCool e MSI tengono il loro
 alimentatore se basta. Le vecchie regole scheda madre → alimentatore sono spente.
+
+## Banco: arrivi e montaggio (19/11/2026)
+
+La pagina **Banco** (accanto a E4, `data-tab="banco"`, codice in `assets/js/banco-montaggio.js`) serve a chi
+riceve i pezzi e monta i PC. Mostra le stesse schede delle scrivanie E1–E4: elaborate e ancora da spedire.
+
+Il gestionale ordini resta l'unica fonte per pezzi, fornitori, acquisti, sostituzioni, costi e giacenze.
+Il banco li **legge soltanto** e registra tre fatti fisici:
+
+- **Arrivo**: si spara il codice a barre della scatola; il pezzo va al primo PC in coda che lo aspetta,
+  prima a chi ha l'acquisto registrato (ordinato o pagato). Un arrivo senza acquisto registrato viene accettato
+  con un avviso, perché l'arrivo è un fatto e la registrazione dell'acquisto resta nel riepilogo fornitori.
+- **Montaggio**: si spara il pezzo sul PC aperto, con il seriale se serve. Si monta solo il prodotto scritto
+  in scheda: un pezzo di un altro ordine viene bloccato. Software e servizi si spuntano a mano.
+- **PC finito**: assemblato e poi collaudato, con il seriale del PC. «Spedito» resta quello di Shopify.
+
+Regole rispettate (vedi [regole economiche](docs/regole-economiche.md)):
+
+- **Sostituzioni**: si confermano nella scheda dell'ordine («Sostituisci», matita del registro acquisti). Se la
+  scheda cambia dopo un arrivo, il banco mostra in rosso il pezzo che non serve più e aspetta quello nuovo;
+  non propone e non applica sostituzioni.
+- **Magazzino**: un pezzo è «dal magazzino» solo con il prelievo registrato per quel PC («Prendi dal
+  magazzino»). Il banco non cambia le quantità dell'Inventario e non ne tiene di proprie.
+- **Costi**: il banco non legge, non mostra e non salva costi.
+- **Upgrade pagati**: il pezzo sostituito da un upgrade è «NON MONTARE» e il PC non si chiude senza la spunta
+  dell'upgrade montato. Se i dati della Panoramica non sono caricati nella sessione, la verifica è dichiarata
+  «non fatta» e si rimanda alla scheda o al PDF di montaggio.
+- **Codici a barre**: il confronto usa la stessa normalizzazione dei codici del gestionale. Se il codice sulla
+  scatola è diverso da quello in scheda, l'operatore conferma una volta a quale pezzo corrisponde
+  (`banco_codici`); una somiglianza nel nome non basta mai.
+
+Le tabelle `banco_pezzi`, `banco_pc` e `banco_codici` si creano con `sql/banco_montaggio.sql` (Supabase → SQL
+Editor); lo script non tocca le tabelle esistenti. Due operatori sulla stessa riga non si sovrascrivono: il
+secondo riceve l'invito ad aggiornare. Test: `node --test tests/banco-montaggio.test.mjs`.

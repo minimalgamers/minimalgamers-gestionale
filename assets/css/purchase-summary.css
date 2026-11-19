@@ -32,3 +32,158 @@ body.mg-ios #suppliers-container :is(.acc-rf-azione,.acc-cod,.acc-rf-code):focus
     body.mg-ios #suppliers-container .acc-rf-costo { font-size: 15px; }
     body.mg-ios #suppliers-container :is(.acc-cod,.acc-rf-code) { flex: 1 1 100px; }
 }
+
+/* Acquisti: one primary work area, with purchase stages above the list. */
+#suppliers-container.acc-rf-layout {
+    --purchase-ink: #17273d;
+    --purchase-muted: #495b71;
+    --purchase-line: #d7e0ea;
+    --purchase-paper: #fff;
+    --purchase-accent: #2157a0;
+    --purchase-tint: #ecf4ff;
+    color: var(--purchase-ink);
+    font-size: 16px;
+    line-height: 1.45;
+}
+#suppliers-container.acc-rf-layout.active {
+    display: grid;
+    grid-template-columns: minmax(240px, 295px) minmax(0, 1fr);
+    gap: clamp(16px, 2vw, 30px);
+}
+#suppliers-container.acc-rf-layout #suppliers-header {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    min-height: 0;
+    padding: 24px;
+    box-sizing: border-box;
+    text-align: left;
+    color: var(--purchase-ink);
+    background: var(--purchase-paper);
+}
+#suppliers-container.acc-rf-layout #suppliers-header h1 {
+    margin: 0 0 4px;
+    color: var(--purchase-ink);
+    font-size: 29px;
+    font-weight: 750;
+    letter-spacing: -.025em;
+    text-shadow: none;
+    text-align: left;
+}
+#suppliers-container.acc-rf-layout .acc-rf-scrivania {
+    font-size: 16px;
+    color: var(--purchase-muted);
+}
+#suppliers-container.acc-rf-layout #riepilogo-auto {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    gap: 16px;
+}
+.acc-rf-quadro, .acc-rf-contenuto, .acc-rf-layout #riepilogo-auto > .acc-rf-vuoto {
+    padding: clamp(16px, 2vw, 26px);
+    border: 1px solid var(--purchase-line);
+    border-radius: 16px;
+    background: var(--purchase-paper);
+    box-shadow: 0 10px 30px #17273d12;
+    min-width: 0;
+}
+.acc-rf-fasi {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+.acc-rf-layout .acc-rf-fasi button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+    min-width: 0;
+    min-height: 84px;
+    padding: 12px 14px;
+    background: #f5f7fa;
+    color: var(--purchase-muted);
+    border: 1px solid var(--purchase-line);
+    border-radius: 11px;
+    font: inherit;
+    font-weight: 650;
+    text-align: left;
+    white-space: normal;
+    cursor: pointer;
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-fasi button[aria-pressed="true"] {
+    background: var(--purchase-tint) !important;
+    color: var(--purchase-accent) !important;
+    border-color: #5c86bf !important;
+    box-shadow: inset 0 -3px 0 var(--purchase-accent) !important;
+}
+.acc-rf-fasi strong { color: var(--purchase-ink); font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums; }
+.acc-rf-dati { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 14px 0 0; color: var(--purchase-muted); }
+.acc-rf-dati strong { color: var(--purchase-ink); }
+.acc-rf-filtri { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 16px; }
+.acc-rf-filtri label { display: grid; gap: 5px; font-weight: 650; min-width: 0; }
+.acc-rf-filtri select {
+    max-width: 100%;
+    min-height: 42px;
+    padding: 6px 10px;
+    border: 1px solid var(--purchase-line);
+    border-radius: 8px;
+    color: var(--purchase-ink);
+    background: var(--purchase-paper);
+    font: inherit;
+}
+.acc-rf-gruppo { border-top: 1px solid var(--purchase-line); padding: 16px 0 5px; }
+.acc-rf-gruppo > header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px 16px;
+}
+.acc-rf-gruppo h3, .acc-rf-contenuto > h3 { color: var(--purchase-ink); font-size: 20px; margin: 0; }
+.acc-rf-gruppo h3 span, .acc-rf-storico summary span {
+    margin-left: 8px;
+    color: var(--purchase-muted);
+    font-size: 15px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+.acc-rf-gruppo header > div { display: flex; flex-wrap: wrap; gap: 8px; }
+#suppliers-container.acc-rf-layout .acc-rf-gruppo header .acc-rf-copia { width: auto; margin: 0; }
+body.mg-ios #suppliers-container.acc-rf-layout .supplier-item-name { font-size: 18px; color: var(--purchase-ink); }
+body.mg-ios #suppliers-container.acc-rf-layout :is(.supplier-item-header,.acc-rf-code,.acc-rf-costo,.acc-rf-azione,.acc-rf-copia) { font-size: 16px; }
+body.mg-ios #suppliers-container.acc-rf-layout :is(.acc-nota,.acc-rf-unit,.acc-rf-stock,.acc-rf-rationale,.acc-rf-split,.acc-rf-costo small,.acc-rf-avviso,.acc-rf-state-detail) {
+    font-size: 14px;
+    line-height: 1.5;
+}
+#suppliers-container.acc-rf-layout .acc-rf-copia { text-align: left; }
+.acc-rf-layout :is(.acc-rf-menu,.acc-rf-contatti,.acc-rf-storico,.acc-rf-email)>summary {
+    color: var(--purchase-ink);
+    font-size: 16px;
+    font-weight: 650;
+    cursor: pointer;
+    padding: 9px 0;
+}
+.acc-rf-layout .acc-rf-storico {
+    padding: 8px 12px;
+    border: 1px solid var(--purchase-line);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    background: #f5f7fa;
+}
+.acc-rf-layout .acc-rf-email>summary { margin-top: 8px; }
+.acc-rf-layout .acc-rf-email-row { display: flex; flex-direction: column; align-items: stretch; margin: 0 0 10px; }
+.acc-rf-layout .acc-rf-email-row > button { text-align: left; }
+.acc-rf-layout .acc-rf-vuoto { color: var(--purchase-muted); margin: 0; padding: 14px 0; }
+#suppliers-container.acc-rf-layout :is(button,select,summary):focus-visible {
+    outline: 3px solid var(--purchase-accent);
+    outline-offset: 3px;
+}
+@media (max-width: 1080px) {
+    .acc-rf-fasi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+    #suppliers-container.acc-rf-layout.active { grid-template-columns: minmax(0, 1fr); padding: 12px; gap: 12px; }
+    #suppliers-container.acc-rf-layout #suppliers-header { padding: 16px; }
+    .acc-rf-fasi button { padding: 10px; }
+    .acc-rf-filtri label { flex: 1 1 150px; }
+}

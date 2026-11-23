@@ -50,7 +50,7 @@ test('aprire Acquisti rilegge un pagamento fatto in un’altra scheda prima di m
     app.riepilogo.fase = 'storico';
     app.disegnaRiepilogo();
     assert.match(panel.innerHTML,/Acquistati e pagati[\s\S]*AMD Ryzen 7 9700X/);
-    assert.doesNotMatch(panel.innerHTML,/data-rf-forn=|data-rf-email=/);
+    assert.doesNotMatch(panel.innerHTML,/data-rf-forn=|data-rf-email=|data-rf-cambia(?:-gruppo)?=/);
 });
 
 test('un articolo cambiato e pagato altrove prevale sullo SKU ancora visibile nella scheda',async () => {
@@ -67,18 +67,24 @@ test('un articolo cambiato e pagato altrove prevale sullo SKU ancora visibile ne
     assert.equal(app.riepilogo.ultimo.registrati[0].ean,'CPU-NETTO');
 });
 
-test('la proposta rimane nel controllo e le azioni secondarie sono raccolte in un menu',() => {
+test('il cambio fornitore è visibile su righe pronte, proposte e bloccate',() => {
     const {app}=setup();
-    const ready = {fornitore:'ACTION', categoria:'CPU', codice:'CPU-A', descrizione:'AMD Ryzen 5 9600X', quantita:2, costo:220, n:0};
+    const ready = {fornitore:'ACTION', categoria:'CPU', codice:'CPU-A', descrizione:'AMD Ryzen 5 9600X', quantita:2,
+        costo:220, n:0, pezzi:[{id:'4884',tipo:'CPU',componentId:21}]};
     const pending = {fornitore:'ACTION', categoria:'COOLER', codice:'COOLER-A', descrizione:'MSI MAG CoreFrozr AA13', quantita:1,
         costo:19, n:1, daApplicare:true, pezzi:[{id:'4880',tipo:'COOLER',componentId:29}]};
-    const summary = {righe:[ready,pending], fornitori:[{nome:'ACTION',righe:[ready,pending]}], categorie:[]};
+    const blocked = {fornitore:'ACTION', categoria:'RAM', codice:'RAM-A', descrizione:'RAM senza stock', quantita:1,
+        costo:80, n:2, nonDisponibile:true, pezzi:[{id:'4880',tipo:'RAM',componentId:30}]};
+    const righe = [ready,pending,blocked];
+    const summary = {righe, fornitori:[{nome:'ACTION',righe}], categorie:[]};
     const [pronti,verifica] = app.fasiAcquisti(summary);
     assert.equal(pronti.numero,2);
-    assert.equal(verifica.numero,1);
+    assert.equal(verifica.numero,2);
     const first = app.htmlAcquistiAttivi(summary,pronti.righe,'pronti','fornitori');
-    assert.match(first,/AMD Ryzen 5 9600X/);
+    assert.match(first,/AMD Ryzen 5 9600X[\s\S]*data-rf-cambia="0"[^>]*>🔁 Cambia fornitore<\/button><details class="acc-rf-menu">/);
     assert.doesNotMatch(first,/MSI MAG CoreFrozr|data-rf-forn=/);
     const second = app.htmlAcquistiAttivi(summary,verifica.righe,'verifica','fornitori');
-    assert.match(second,/MSI MAG CoreFrozr[\s\S]*<summary>Altre azioni<\/summary>[\s\S]*Cambia dal Buyer Desk/);
+    assert.match(second,/MSI MAG CoreFrozr[\s\S]*data-rf-applica="1"[^>]*>[^<]+<\/button><button[^>]+data-rf-cambia="1"/);
+    assert.match(second,/RAM senza stock[\s\S]*data-rf-cambia="2"[^>]*>🔁 Cambia fornitore<\/button><details class="acc-rf-menu">/);
+    assert.match(second,/<summary>Altre azioni<\/summary><div[^>]*><button[^>]+data-rf-escludi="1"/);
 });

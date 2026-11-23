@@ -4289,12 +4289,14 @@
         const modificabili = (r.pezzi || []).filter(p => !p.personalizzato);
         const incompatibili = [...new Set(membri.map(x => x.categoriaIncoerente).filter(Boolean))];
         const proposte = membri.filter(x=>x.daApplicare).map(x=>`<button type="button" class="acc-rf-azione acc-rf-apply" data-rf-applica="${x.n}"${propostaConfermabile(x)?'':' disabled title="Verifica prima disponibilità e costo della proposta"'}>✓ Applica proposta alle schede${aggregata?` (${x.quantita} ${x.quantita===1?'pezzo':'pezzi'})`:''}</button>`).join('');
+        const cambia = modificabili.length && !magazzino
+            ? `<button type="button" class="acc-rf-azione" ${aggregata?`data-rf-cambia-gruppo="${indici}"`:`data-rf-cambia="${r.n}"`} title="Apri il Buyer Desk. La sostituzione si salva nelle distinte dei PC selezionati dopo la conferma.">🔁 ${compatta?'Cambia fornitore':'Cambia dal Buyer Desk'}</button>`
+            : '';
         const altreAzioni = [
             r.link ? `<a class="acc-rf-azione" href="${esc(r.link.url)}" target="_blank" rel="noopener" title="${esc(r.link.url)}">🛒 ${esc(r.link.testo)}</a>` : '',
-            modificabili.length && !magazzino ? `<button type="button" class="acc-rf-azione" ${aggregata?`data-rf-cambia-gruppo="${indici}"`:`data-rf-cambia="${r.n}"`} title="La sostituzione confermata si salva anche nella distinta di montaggio dei PC selezionati">🔁 Cambia dal Buyer Desk</button>` : '',
             r.pezzi?.length && !magazzino ? `<button type="button" class="acc-rf-azione acc-rf-trash" ${aggregata?`data-rf-escludi-gruppo="${indici}"`:`data-rf-escludi="${r.n}"`} title="Esclude questi ${r.quantita} pezzi solo dagli acquisti. La distinta di montaggio resta invariata.">🗑 Escludi dagli acquisti</button>` : ''
         ].filter(Boolean).join('');
-        const azioni = proposte + (compatta && altreAzioni
+        const azioni = proposte + cambia + (compatta && altreAzioni
             ? `<details class="acc-rf-menu"><summary>Altre azioni</summary><div class="acc-rf-azioni">${altreAzioni}</div></details>`
             : altreAzioni);
         const info = r.statoVisivo?.livello === 'info' && !r.nonDisponibile && r.poco == null;

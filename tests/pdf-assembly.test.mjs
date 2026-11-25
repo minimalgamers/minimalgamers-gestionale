@@ -145,7 +145,7 @@ test('collector reale: ventole fuori DOM, pagato sconosciuto e voci custom inclu
     assert.match(records.find(x=>x.tipo==='VENTOLE').nome,/5X VENTOLE RGB - BIANCO/);
     assert.match(records.find(x=>x.tipo==='CASE').nome,/COLORE: BIANCO/);
     assert.equal(records.filter(x=>x.tipo==='EXTRA').length,3);
-    assert.equal(records.find(x=>x.tipo==='COOLER').nome,'DISSIPATORE A LIQUIDO 360MM');
+    assert.equal(records.find(x=>x.tipo==='COOLER').nome,'DISSIPATORE A LIQUIDO 360MM — BIANCO (WHITE)');
     assert.equal(JSON.stringify(comps),before);assert.ok(calls.length>0);
 });
 test('accessori dal solo SKU: nome esatto della riga corrispondente, sconosciuto resta da verificare',async()=>{

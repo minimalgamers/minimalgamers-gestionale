@@ -1106,12 +1106,25 @@
             if (requisitoUpgradeUguale(tipo, `${r.ean || ''} ${r.nome || r.descrizione || ''}`, u.valore)) continue;
             const p = (auto.pezzi || []).find(x => x.tipo === tipo &&
                 (chiave(x.cliente) === chiave(u.valore) || requisitoUpgradeUguale(tipo, x.cliente, u.valore)));
+            const colori = window.MontaggioExport;
+            const liquido = tipo === 'COOLER' && /LIQUID|\bAIO\b/i.test(u.valore);
+            const coloreCase = liquido && colori
+                ? colori.coloreCase(righeScheda.map(riga => ({
+                    ...riga, nome: riga.nome || riga.descrizione
+                })))
+                : '';
+            const colore = (liquido && colori?.colore(u.valore)) ||
+                (['BLACK', 'WHITE'].includes(coloreCase) ? coloreCase : '');
             const a = p && p.auto;
-            const modelloValido = a && a.codice && requisitoUpgradeUguale(tipo, `${a.descrizione || ''} ${a.codice}`, u.valore);
+            const testoModello = a ? `${a.descrizione || ''} ${a.codice || ''}` : '';
+            const modelloValido = a && a.codice && requisitoUpgradeUguale(tipo, testoModello, u.valore) &&
+                (!colore || colori.colore(testoModello) === colore);
             const costo = p && (!a || modelloValido) ? costoPezzo(p, salvati || {}).costo : null;
+            const nome = modelloValido ? a.descrizione || a.codice : u.valore;
+            const descrizione = colore && !colori.colore(nome) ? `${nome} — ${colori.nomeColore(colore)}` : nome;
             out.push({ tipo, precedente: { ...r }, scelta: u.valore, ordine: u.ordine_upgrade,
                 codice: modelloValido ? a.codice : u.valore,
-                descrizione: modelloValido ? a.descrizione || a.codice : u.valore,
+                descrizione, colore,
                 fornitore: modelloValido ? a.fornitore || '' : (p && p.fisso && p.fisso.fornitore) || '',
                 costo: costo == null ? null : costo, stimato: true,
                 ...(p?.riferimento_costo && p.costo_inserito == null ? {fonte:p.riferimento_costo.fonte,riferimento:p.riferimento_costo} : {}),
@@ -1141,7 +1154,7 @@
             if (badge) badge.dataset.manSupplier = badge.dataset.supplier || '';
             row.dataset.accAuto = '1'; row.dataset.accPaid = '1';
             span.dataset.ean = x.codice; span.textContent = x.descrizione;
-            span.title = `Da montare: ${x.scelta}\nUpgrade pagato ${x.ordine}\nModello/acquisto da confermare. Distinta acquistata conservata.`;
+            span.title = `Da montare: ${x.colore ? x.descrizione : x.scelta}\nUpgrade pagato ${x.ordine}\nModello/acquisto da confermare. Distinta acquistata conservata.`;
             if (badge) {
                 badge.dataset.supplier = x.fornitore;
                 badge.textContent = x.fornitore ? (typeof getSupplierAbbreviation === 'function' ? getSupplierAbbreviation(x.fornitore) : x.fornitore.slice(0, 2)) : '--';
@@ -1160,7 +1173,7 @@
 
     function dettagliMontaggioUpgrade(lista) {
         return (lista || []).map(x => `<div class="acc-upgrade-montaggio"><b>DA MONTARE · ${esc(x.tipo)}</b>` +
-            `<div>${esc(x.scelta)} <small>· pagato ${esc(x.ordine)}</small></div>` +
+            `<div>${esc(x.colore ? x.descrizione : x.scelta)} <small>· pagato ${esc(x.ordine)}</small></div>` +
             `<div><small>${x.modelloDaConfermare ? 'Modello e disponibilità da confermare' : `Proposta: ${esc(x.fornitore)} ${esc(x.codice)}`}` +
             ` · costo ${x.costo == null ? 'da verificare' : `stimato ${eur(x.costo)} netti, non acquisto confermato`}</small></div>` +
             `<div><b>NON MONTARE:</b> ${esc(x.precedente.descrizione || x.precedente.nome || x.precedente.ean)}` +
@@ -3510,7 +3523,10 @@
         const tb = /(\d+)\s*TB/.exec(T);
         if (/HDD|HARD ?DISK/.test(T) || (categoria === 'SSD ADDON' && /AGGIUNTIV/.test(T))) return cerca(`hard disk 2,5 pollici ${tb ? tb[1] + 'TB' : '1TB'} SATA interno`, true);
         if (/240\s*MM/.test(T)) return cerca(`dissipatore a liquido 240mm ARGB${colore}`);
-        if (/360\s*MM/.test(T)) return cerca(`dissipatore a liquido 360mm ARGB${colore}`);
+        if (/360\s*MM/.test(T)) {
+            const variante = /\b(?:DISPLAY|LCD)\b/.test(T) ? 'con display LCD' : 'ARGB';
+            return cerca(`dissipatore a liquido 360mm ${variante}${colore}`);
+        }
         if (/MONITOR/.test(T)) {
             const pollici = /(\d{2})\s*('|"|POLLICI)/.exec(T), hz = /(\d{3})\s*HZ/.exec(T);
             return cerca(`monitor gaming${pollici ? ' ' + pollici[1] + ' pollici' : ''}${hz ? ' ' + hz[1] + 'Hz' : ''}${/2K|QHD|1440/.test(T) ? ' QHD' : ' Full HD'}`);
@@ -3711,7 +3727,7 @@
             const f = c[forn] || (c[forn] = {});
             const k = (testoStockAcquisto(x.codice) || `~${testoStockAcquisto(x.descrizione)}`) + (x.daApplicare ? '|proposta' : '') +
                 (x.daDecidere ? '|mancante' : '') + (x.sceltaSalvata && x.daConfermare ? '|scelta-da-verificare' : '') +
-                (x.categoriaIncoerente ? '|categoria-incoerente' : '');
+                (x.categoriaIncoerente ? '|categoria-incoerente' : '') + (x.colore ? `|${x.colore}` : '');
             const r = f[k] || (f[k] = { codice: x.codice || '', ean: '', mpn: '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
                 fornitore: forn, categoria, categoriaIncoerente:x.categoriaIncoerente || '',
@@ -3753,7 +3769,7 @@
                 // Gli acquisti congelati non riappaiono: solo il nuovo pezzo della scelta pagata.
                 // Nessuna sostituzione generale e nessun pulsante Cambia sullo storico.
                 aggiungi(categoriaScheda(x.tipo), { fornitore: x.fornitore, codice: x.codice,
-                    descrizione: x.descrizione, quantita: 1, costo: x.costo, stimato: true,
+                    descrizione: x.descrizione, colore: x.colore, quantita: 1, costo: x.costo, stimato: true,
                     daConfermare: true, disponibilita: 'upgrade pagato: acquisto e disponibilità da confermare' }, s.nome);
             }
             const salvati = s.salvati || [];

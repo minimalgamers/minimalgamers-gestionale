@@ -4,11 +4,12 @@ import vm from 'node:vm';
 import test from 'node:test';
 
 const source = readFileSync(new URL('../assets/js/accoppiamento-auto.js', import.meta.url), 'utf8');
+const montaggio = readFileSync(new URL('../assets/js/montaggio-export.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../assets/js/app.js', import.meta.url), 'utf8');
 const fresh = () => {
     const context = { window: {}, console, localStorage: { getItem() { return null; } },
         fetch() { throw Error('no network or writes'); } };
-    vm.createContext(context); vm.runInContext(source, context);
+    vm.createContext(context); vm.runInContext(montaggio, context); vm.runInContext(source, context);
     return { A: context.window.AccoppiamentoAuto, context };
 };
 const rows = () => [
@@ -81,6 +82,46 @@ test('ordine congelato nel riepilogo: solo nuovo AIO, mai riordinare AG300/GPU',
     assert.equal(summary.righe.length, 1); assert.equal(summary.righe[0].codice, 'AIO360-BLK');
     assert.equal(summary.righe[0].daConfermare, true); assert.equal(summary.righe[0].stimato, true);
     assert.equal(summary.righe.some(r => /DPAG300|RTX5070/.test(r.codice)), false);
+});
+test('il 360 con display mostra il colore del case in Acquisti e nella distinta PDF, con varianti separate', () => {
+    const { A, context } = fresh();
+    const M = context.window.MontaggioExport;
+    const upgrade = event({ valore: 'DISSIPATORE A LIQUIDO 360MM CON DISPLAY LED' });
+    const automatic = pc({ upgrade_pagati: [upgrade], pezzi: [
+        { tipo: 'COOLER', cliente: upgrade.valore, fisso: { descrizione: upgrade.valore, costo: 94.26 } }
+    ] });
+    const scheda = (id, codiceCase) => ({ id, nome: '#' + id, confermato: true, voci: [], salvati: [],
+        righe: [...rows(), { tipo: 'CASE', ean: codiceCase }] });
+    const nero = scheda('4867', 'DPCG5304F');
+    const bianco = scheda('4868', 'DPCG530WH4F');
+    const data = { ordini: { '4867': { pc: [automatic] }, '4868': { pc: [automatic] } } };
+    const summary = A.daOrdinare(data, [nero, bianco], {});
+    assert.equal(summary.righe.length, 2);
+    assert.equal(summary.pronti, 0);
+    const rigaNera = summary.righe.find(r => r.ordini.includes('#4867'));
+    assert.match(rigaNera.descrizione, /DISPLAY LED — NERO \(BLACK\)$/);
+    assert.equal(rigaNera.costo, 94.26);
+    assert.equal(rigaNera.quantita, 1);
+    assert.equal(rigaNera.daConfermare, true);
+    assert.match(new URL(rigaNera.link.url).searchParams.get('k'), /360mm con display LCD nero/);
+    assert.match(summary.righe.find(r => r.ordini.includes('#4868')).descrizione, /DISPLAY LED — BIANCO \(WHITE\)$/);
+    const piano = A.pianoMontaggioUpgrade(automatic, nero.righe, {});
+    const distinta = M.distinta(nero.righe, [], [upgrade], piano, 'BLACK');
+    assert.equal(distinta.find(r => r.tipo === 'COOLER').nome, rigaNera.descrizione);
+});
+test('per il 360 a liquido la scelta esplicita prevale e una proposta di altro colore non viene usata', () => {
+    const { A } = fresh();
+    const valore = 'DISSIPATORE A LIQUIDO 360MM CON DISPLAY LED BIANCO';
+    const automatic = pc({ upgrade_pagati: [event({ valore })], pezzi: [
+        { tipo: 'COOLER', cliente: valore, auto: {
+            codice: 'AIO-360-BK', descrizione: 'AIO 360MM LCD BLACK', fornitore: 'ABACO', costo: 95
+        } }
+    ] });
+    const piano = A.pianoMontaggioUpgrade(automatic, [...rows(), { tipo: 'CASE', ean: 'DPCG5304F' }], {});
+    assert.equal(piano[0].descrizione, valore);
+    assert.equal(piano[0].colore, 'WHITE');
+    assert.equal(piano[0].modelloDaConfermare, true);
+    assert.equal(piano[0].costo, null);
 });
 test('archiviazione secondaria mancante compare come aggiunta senza sostituire SSD principale', () => {
     const { A } = fresh();

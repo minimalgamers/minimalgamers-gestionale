@@ -149,11 +149,53 @@ body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-fasi button[aria-pressed=
 }
 .acc-rf-gruppo header > div { display: flex; flex-wrap: wrap; gap: 8px; }
 #suppliers-container.acc-rf-layout .acc-rf-gruppo header .acc-rf-copia { width: auto; margin: 0; }
+.acc-rf-articoli {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
+    align-items: start;
+    gap: 10px;
+    margin: 12px 0 6px;
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .supplier-item {
+    box-sizing: border-box;
+    padding: 12px;
+    border: 1px solid var(--purchase-line);
+    border-radius: 10px;
+    background: var(--purchase-paper);
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .acc-rf-indisponibile {
+    border-color: #e7c9cd;
+    border-left: 3px solid #ae4450;
+    background: #fff8f8;
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .acc-rf-pending:not(.acc-rf-indisponibile) {
+    border-left: 3px solid #ba903c;
+    background: #fffbf2;
+}
 body.mg-ios #suppliers-container.acc-rf-layout .supplier-item-name { font-size: 18px; color: var(--purchase-ink); }
 body.mg-ios #suppliers-container.acc-rf-layout :is(.supplier-item-header,.acc-rf-code,.acc-rf-costo,.acc-rf-azione,.acc-rf-copia) { font-size: 16px; }
 body.mg-ios #suppliers-container.acc-rf-layout :is(.acc-nota,.acc-rf-unit,.acc-rf-stock,.acc-rf-rationale,.acc-rf-split,.acc-rf-costo small,.acc-rf-avviso,.acc-rf-state-detail) {
     font-size: 14px;
     line-height: 1.5;
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli :is(.supplier-item-header,.acc-rf-azioni) { gap: 6px; }
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .supplier-item-quantity { min-width: 38px; padding: 5px 8px; }
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .supplier-item-name {
+    margin: 8px 0 2px;
+    font-size: 16px;
+    line-height: 1.35;
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli :is(.acc-rf-avviso,.acc-rf-split,.acc-rf-azioni) { margin-top: 7px; }
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .acc-rf-azione { padding: 6px 10px; font-size: 14px; }
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .acc-rf-dettagli {
+    margin: 7px 0 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+}
+body.mg-ios #suppliers-container.acc-rf-layout .acc-rf-articoli .acc-rf-dettagli[open] {
+    border-top: 1px solid var(--purchase-line);
+    padding-top: 6px;
 }
 #suppliers-container.acc-rf-layout .acc-rf-copia { text-align: left; }
 .acc-rf-layout :is(.acc-rf-menu,.acc-rf-contatti,.acc-rf-storico,.acc-rf-email)>summary {

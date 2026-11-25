@@ -1106,12 +1106,25 @@
             if (requisitoUpgradeUguale(tipo, `${r.ean || ''} ${r.nome || r.descrizione || ''}`, u.valore)) continue;
             const p = (auto.pezzi || []).find(x => x.tipo === tipo &&
                 (chiave(x.cliente) === chiave(u.valore) || requisitoUpgradeUguale(tipo, x.cliente, u.valore)));
+            const colori = window.MontaggioExport;
+            const liquido = tipo === 'COOLER' && /LIQUID|\bAIO\b/i.test(u.valore);
+            const coloreCase = liquido && colori
+                ? colori.coloreCase(righeScheda.map(riga => ({
+                    ...riga, nome: riga.nome || riga.descrizione
+                })))
+                : '';
+            const colore = (liquido && colori?.colore(u.valore)) ||
+                (['BLACK', 'WHITE'].includes(coloreCase) ? coloreCase : '');
             const a = p && p.auto;
-            const modelloValido = a && a.codice && requisitoUpgradeUguale(tipo, `${a.descrizione || ''} ${a.codice}`, u.valore);
+            const testoModello = a ? `${a.descrizione || ''} ${a.codice || ''}` : '';
+            const modelloValido = a && a.codice && requisitoUpgradeUguale(tipo, testoModello, u.valore) &&
+                (!colore || colori.colore(testoModello) === colore);
             const costo = p && (!a || modelloValido) ? costoPezzo(p, salvati || {}).costo : null;
+            const nome = modelloValido ? a.descrizione || a.codice : u.valore;
+            const descrizione = colore && !colori.colore(nome) ? `${nome} — ${colori.nomeColore(colore)}` : nome;
             out.push({ tipo, precedente: { ...r }, scelta: u.valore, ordine: u.ordine_upgrade,
                 codice: modelloValido ? a.codice : u.valore,
-                descrizione: modelloValido ? a.descrizione || a.codice : u.valore,
+                descrizione, colore,
                 fornitore: modelloValido ? a.fornitore || '' : (p && p.fisso && p.fisso.fornitore) || '',
                 costo: costo == null ? null : costo, stimato: true,
                 ...(p?.riferimento_costo && p.costo_inserito == null ? {fonte:p.riferimento_costo.fonte,riferimento:p.riferimento_costo} : {}),
@@ -1141,7 +1154,7 @@
             if (badge) badge.dataset.manSupplier = badge.dataset.supplier || '';
             row.dataset.accAuto = '1'; row.dataset.accPaid = '1';
             span.dataset.ean = x.codice; span.textContent = x.descrizione;
-            span.title = `Da montare: ${x.scelta}\nUpgrade pagato ${x.ordine}\nModello/acquisto da confermare. Distinta acquistata conservata.`;
+            span.title = `Da montare: ${x.colore ? x.descrizione : x.scelta}\nUpgrade pagato ${x.ordine}\nModello/acquisto da confermare. Distinta acquistata conservata.`;
             if (badge) {
                 badge.dataset.supplier = x.fornitore;
                 badge.textContent = x.fornitore ? (typeof getSupplierAbbreviation === 'function' ? getSupplierAbbreviation(x.fornitore) : x.fornitore.slice(0, 2)) : '--';
@@ -1160,7 +1173,7 @@
 
     function dettagliMontaggioUpgrade(lista) {
         return (lista || []).map(x => `<div class="acc-upgrade-montaggio"><b>DA MONTARE · ${esc(x.tipo)}</b>` +
-            `<div>${esc(x.scelta)} <small>· pagato ${esc(x.ordine)}</small></div>` +
+            `<div>${esc(x.colore ? x.descrizione : x.scelta)} <small>· pagato ${esc(x.ordine)}</small></div>` +
             `<div><small>${x.modelloDaConfermare ? 'Modello e disponibilità da confermare' : `Proposta: ${esc(x.fornitore)} ${esc(x.codice)}`}` +
             ` · costo ${x.costo == null ? 'da verificare' : `stimato ${eur(x.costo)} netti, non acquisto confermato`}</small></div>` +
             `<div><b>NON MONTARE:</b> ${esc(x.precedente.descrizione || x.precedente.nome || x.precedente.ean)}` +
@@ -2226,7 +2239,8 @@
     }
     async function aggiornaSchedeUpgrade() {
         await Promise.all(Object.keys(contesti).map(id => aggiornaOrdine(id).catch(() => {})));
-        if (riepilogo.modo === 'auto') await renderRiepilogoAuto();
+        if (riepilogo.modo === 'auto' && !riepilogo.inCaricamento && document.querySelector('#suppliers-container.active'))
+            await renderRiepilogoAuto(false, false, Boolean(riepilogo.ultimo));
     }
 
     // Chiamata da loadComponentsForOrder quando le righe dell'ordine sono pronte
@@ -3473,7 +3487,8 @@
         'SSD ADDON': '#16a085', HDD: '#16a085', PSU: '#e74c3c', COOLER: '#2980b9', CASE: '#2ecc71', MONITOR: '#8e44ad',
         'KIT GAMING': '#d35400', SEDIA: '#c0392b', SCRIVANIA: '#8e6e53' };
     const SENZA_PEZZO = /^(GENERICO|INTEGRATA|N\/?A|-)?$/i;          // come il riepilogo manuale: righe senza un pezzo
-    const riepilogo = { n: null, ids: [], nomi: {}, modo: null, token: 0, ultimo: null, quando: '', solo: null, fase: 'pronti', inCaricamento: false };
+    const riepilogo = { n: null, ids: [], nomi: {}, modo: null, token: 0, ultimo: null, quando: '', solo: null, fase: 'pronti',
+        inCaricamento: false, verificaInCorso: false, riletturaIl: 0 };
 
     function categoriaScheda(tipo) {
         const t = String(tipo || '').toUpperCase().trim();
@@ -3510,7 +3525,10 @@
         const tb = /(\d+)\s*TB/.exec(T);
         if (/HDD|HARD ?DISK/.test(T) || (categoria === 'SSD ADDON' && /AGGIUNTIV/.test(T))) return cerca(`hard disk 2,5 pollici ${tb ? tb[1] + 'TB' : '1TB'} SATA interno`, true);
         if (/240\s*MM/.test(T)) return cerca(`dissipatore a liquido 240mm ARGB${colore}`);
-        if (/360\s*MM/.test(T)) return cerca(`dissipatore a liquido 360mm ARGB${colore}`);
+        if (/360\s*MM/.test(T)) {
+            const variante = /\b(?:DISPLAY|LCD)\b/.test(T) ? 'con display LCD' : 'ARGB';
+            return cerca(`dissipatore a liquido 360mm ${variante}${colore}`);
+        }
         if (/MONITOR/.test(T)) {
             const pollici = /(\d{2})\s*('|"|POLLICI)/.exec(T), hz = /(\d{3})\s*HZ/.exec(T);
             return cerca(`monitor gaming${pollici ? ' ' + pollici[1] + ' pollici' : ''}${hz ? ' ' + hz[1] + 'Hz' : ''}${/2K|QHD|1440/.test(T) ? ' QHD' : ' Full HD'}`);
@@ -3711,7 +3729,7 @@
             const f = c[forn] || (c[forn] = {});
             const k = (testoStockAcquisto(x.codice) || `~${testoStockAcquisto(x.descrizione)}`) + (x.daApplicare ? '|proposta' : '') +
                 (x.daDecidere ? '|mancante' : '') + (x.sceltaSalvata && x.daConfermare ? '|scelta-da-verificare' : '') +
-                (x.categoriaIncoerente ? '|categoria-incoerente' : '');
+                (x.categoriaIncoerente ? '|categoria-incoerente' : '') + (x.colore ? `|${x.colore}` : '');
             const r = f[k] || (f[k] = { codice: x.codice || '', ean: '', mpn: '', descrizione: x.descrizione || x.codice || '', quantita: 0, costo: 0,
                 senzaCosto: false, stimato: false, disponibilita: '', daConfermare: false, ordini: [], scheda: [], pezzi: [],
                 fornitore: forn, categoria, categoriaIncoerente:x.categoriaIncoerente || '',
@@ -3753,7 +3771,7 @@
                 // Gli acquisti congelati non riappaiono: solo il nuovo pezzo della scelta pagata.
                 // Nessuna sostituzione generale e nessun pulsante Cambia sullo storico.
                 aggiungi(categoriaScheda(x.tipo), { fornitore: x.fornitore, codice: x.codice,
-                    descrizione: x.descrizione, quantita: 1, costo: x.costo, stimato: true,
+                    descrizione: x.descrizione, colore: x.colore, quantita: 1, costo: x.costo, stimato: true,
                     daConfermare: true, disponibilita: 'upgrade pagato: acquisto e disponibilità da confermare' }, s.nome);
             }
             const salvati = s.salvati || [];
@@ -4303,6 +4321,15 @@
         const specifiche = [...(r.requisiti || []), ...(r.politiche || []), ...(r.motivi || [])].filter(Boolean);
         const quantitaStock = (r.stock || []).map(x => x.disponibile).filter(x => Number.isFinite(x));
         const stock = r.stock?.length ? (quantitaStock.length ? `Stock libero: ${Math.max(...quantitaStock)} pezzi (prima delle assegnazioni${aggregata?', stessa referenza: valori non sommati':''})` : 'Stock libero non quantificato') : '';
+        const ordini = r.ordini || [];
+        const nota = `<div class="acc-nota">${esc(ordini.join(' '))}${disp ? `${ordini.length ? ' · ' : ''}${esc(disp)}` : ''}</div>`;
+        const dettaglioListino = r.listini?.length ? `Listino originale fornitore: ${r.listini.map(eur).join(' / ')}` : '';
+        const motivi = specifiche.map(x => `<p>${esc(x)}</p>`).join('');
+        const notaStock = stock ? `<div class="acc-rf-stock">${esc(stock)} · assegnati a questa riga: ${r.quantita}</div>` : '';
+        const etichettaOrdini = ordini.length > 2 ? `${ordini.length} ordini` : ordini.join(', ');
+        const dettagli = compatta && (ordini.length || disp || dettaglioListino || motivi || stock) ?
+            `<details class="acc-rf-rationale acc-rf-dettagli"><summary>Dettagli${etichettaOrdini ? ' · ' + esc(etichettaOrdini) : ''}</summary>${nota}` +
+            (dettaglioListino ? `<p>${dettaglioListino}</p>` : '') + notaStock + motivi + '</details>' : '';
         return `<div class="supplier-item${aggregata?' acc-rf-reference-group':''}${r.daApplicare ? ' acc-rf-pending' : ''}${!magazzino && info && !incompatibili.length ? ' acc-rf-informativo' : !magazzino && (incompatibili.length || r.nonDisponibile || r.daVerificare || r.poco != null || r.daDecidere) ? ' acc-rf-indisponibile' : ''}">` +
             `<div class="supplier-item-header"><span class="supplier-item-quantity" style="background:${colore};box-shadow:0 2px 8px ${colore}40">x${r.quantita}</span>` +
             (categoria ? `<span class="acc-rf-cat">${esc(categoria)}</span>` : '') +
@@ -4310,8 +4337,8 @@
             `<span class="acc-rf-costo">${magazzino ? '' : `${costo}<small>totale riga</small>`}</span></div>` +
             `<div class="supplier-item-name">${esc(r.descrizione)}</div>` +
             (!magazzino ? `<div class="acc-rf-unit">${prezzi.length>1?'Prezzi netti unitari':'Acquisto netto unitario'}: <b>${unitario}</b>` +
-                (r.listini?.length ? ` · listino originale fornitore: ${r.listini.map(eur).join(' / ')}` : '') + `</div>` : '') +
-            `<div class="acc-nota">${esc((r.ordini || []).join(' '))}${disp ? ' · ' + esc(disp) : ''}</div>` +
+                (!compatta && dettaglioListino ? ` · ${dettaglioListino}` : '') + `</div>` : '') +
+            (compatta ? '' : nota) +
             (aggregata ? `<div class="acc-rf-state-summary"><span>${pronti} ${pronti===1?'pronto':'pronti'} per la copia</span><span>${pendenti} da confermare</span>${bloccati?`<span>${bloccati} bloccati</span>`:''}</div>` : '') +
             (aggregata || prezzi.length>1 || r.senzaCosto ? `<details class="acc-rf-state-detail"><summary>Dettaglio stati e costi</summary>` + membri.map(x=>`<div><b>${x.quantita} × ${esc(statoRiga(x))}</b> · ${x.senzaCosto&&!x.costo?'Costo non disponibile':`${x.stimato?'≈ ':''}${eur(x.costo)}${x.senzaCosto?' + costo mancante':''}`}` +
                     ` · ${dettaglioCosto(x)}<small>${esc((x.ordini || []).join(' '))}</small>` +
@@ -4319,15 +4346,20 @@
                     `${x.verificaDisponibilita?`<p>${esc(x.statoVisivo?.testo || x.verificaDisponibilita.testo)}</p>`:x.nonDisponibile?'<p>Non disponibile da questo fornitore.</p>':''}` +
                     `${x.disponibilita?`<p>${esc(x.disponibilita)}</p>`:''}${x.daConfermare?'<p>Disponibilità da confermare.</p>':''}` +
                     `${motivoScadenzaOfferta(x.proposta)?`<p>${esc(motivoScadenzaOfferta(x.proposta))}</p>`:''}</div>`).join('') + '</details>' : '') +
-            (stock ? `<div class="acc-rf-stock">${esc(stock)} · assegnati a questa riga: ${r.quantita}</div>` : '') +
-            (specifiche.length ? `<details class="acc-rf-rationale"><summary>Perché questo pezzo</summary>${specifiche.map(x => `<p>${esc(x)}</p>`).join('')}</details>` : '') +
-            (r.daApplicare ? `<div class="acc-rf-split">${compatta ? 'Proposta da confermare prima di ordinare.' : `${aggregata?`${pendenti} pezzi da confermare nelle distinte${bloccati?' · verifica anche le quantità bloccate':''}`:`Proposta per ${r.pezzi.length} PC: da confermare nelle distinte`}. ${aggregata?'Le proposte non confermate sono escluse':'Esclusa'} da copia e bozze d’ordine fino alla conferma.`}</div>` : '') +
+            (compatta ? '' : notaStock + (motivi ? `<details class="acc-rf-rationale"><summary>Perché questo pezzo</summary>${motivi}</details>` : '')) +
+            (r.daApplicare ? `<div class="acc-rf-split">${compatta
+                ? (pendenti ? 'Proposta disponibile. Applicala alle schede per far passare i pezzi tra quelli pronti.' : 'Proposta bloccata. Verifica disponibilità e costo.')
+                : `${aggregata?`${pendenti} pezzi da confermare nelle distinte${bloccati?' · verifica anche le quantità bloccate':''}`:`Proposta per ${r.pezzi.length} PC: da confermare nelle distinte`}. ${aggregata?'Le proposte non confermate sono escluse':'Esclusa'} da copia e bozze d’ordine fino alla conferma.`}</div>` : '') +
             (r.daDecidere ? `<div class="acc-rf-avviso">Quantità ancora da coprire: ${r.quantita}. Non inclusa nelle bozze d’ordine.</div>` : '') +
             incompatibili.map(m => `<div class="acc-rf-avviso">⚠ ${esc(m)} Riga esclusa da copia e bozze d’ordine.</div>`).join('') +
-            (r.poco != null ? `<div class="acc-rf-avviso">Stock verificato ${r.poco} / richiesti ${r.quantita}: riga bloccata. Ricalcola per vedere le altre assegnazioni disponibili.</div>` : '') +
-            (r.verificaDisponibilita ? `<div class="acc-rf-avviso">${info ? 'ℹ' : '⚠'} ${esc(r.statoVisivo?.testo || r.verificaDisponibilita.testo)}</div>` :
+            (r.poco != null ? `<div class="acc-rf-avviso">${compatta
+                ? `${r.poco} disponibili su ${r.quantita} richiesti. ${cambia ? 'Cambia fornitore per coprire i pezzi mancanti.' : 'Aggiorna il riepilogo per verificare lo stock.'}`
+                : `Stock verificato ${r.poco} / richiesti ${r.quantita}: riga bloccata. Ricalcola per vedere le altre assegnazioni disponibili.`}</div>` : '') +
+            (compatta && r.poco != null ? '' : r.verificaDisponibilita ? `<div class="acc-rf-avviso">${info ? 'ℹ' : '⚠'} ${esc(r.statoVisivo?.testo || r.verificaDisponibilita.testo)}</div>` :
                 r.nonDisponibile ? `<div class="acc-rf-avviso">⚠ oggi non disponibile da questo fornitore</div>` : '') +
-            (azioni ? `<div class="acc-rf-azioni">${azioni}</div>` : '') + `</div>`;
+            (compatta && r.daConfermare && !r.verificaDisponibilita && r.poco == null && disp
+                ? `<div class="acc-rf-avviso">${esc(disp)}</div>` : '') +
+            (azioni ? `<div class="acc-rf-azioni">${azioni}</div>` : '') + dettagli + `</div>`;
     }
 
     function htmlEsclusioniAcquisto(r) {
@@ -4490,8 +4522,8 @@
             const registra = fornitore && pezziDaRegistrareFornitore({...fornitore, righe}).length
                 ? `<button type="button" class="acc-rf-copia" data-rf-registra-fornitore="${esc(nome)}">Registra acquisto</button>` : '';
             const applica = fornitore && fase === 'verifica' ? htmlApplicaProposteFornitore({...fornitore, righe}) : '';
-            return `<section class="acc-rf-gruppo"><header><h3>${esc(nome)} <span>${pezzi} pz</span></h3><div>${copia}${registra}${applica}</div></header>` +
-                raggruppaReferenzeAcquisto(righe,nome).map(x => htmlRigaDaOrdinare(x,COLORI[x.fornitore] || '#dce6f1',false,perCategoria ? x.fornitore : x.categoria,true)).join('') + '</section>';
+            return `<section class="acc-rf-gruppo"><header><h3>${esc(nome)} <span>${pezzi} pz</span></h3><div>${copia}${registra}${applica}</div></header><div class="acc-rf-articoli">` +
+                raggruppaReferenzeAcquisto(righe,nome).map(x => htmlRigaDaOrdinare(x,COLORI[x.fornitore] || '#dce6f1',false,perCategoria ? x.fornitore : x.categoria,true)).join('') + '</div></section>';
         }).join('');
     }
 
@@ -4680,21 +4712,24 @@
         finally { button.disabled = false; }
     }
 
-    async function renderRiepilogoAuto(forza, aggiornaAcquisti = !!forza) {
+    async function renderRiepilogoAuto(forza, aggiornaAcquisti = !!forza, inBackground = false) {
         const box = contenitoreAuto();
         const barra = barraRiepilogo();
         const lato = barra ? barra.querySelector('.acc-rf-lato') : null;
         if (!box) return;
-        const tok = ++riepilogo.token;
+        const tok = inBackground ? riepilogo.token : ++riepilogo.token;
         if (!riepilogo.n) {
             box.innerHTML = `<div class="suppliers-empty-state"><h2>Apri il riepilogo da una scrivania</h2><p>Vai in E1, E2, E3 o E4 e premi il pulsante del riepilogo fornitori.</p></div>`;
             if (lato) lato.innerHTML = '';
             return;
         }
-        riepilogo.inCaricamento = true;
-        box.setAttribute('aria-busy','true');
-        box.innerHTML = '<div class="acc-rf-vuoto" role="status">Aggiornamento acquisti e listini…</div>';
-        if (lato) lato.innerHTML = htmlStatoConfermaProposte();
+        if (!inBackground) {
+            riepilogo.inCaricamento = true;
+            box.setAttribute('aria-busy','true');
+            box.innerHTML = '<div class="acc-rf-vuoto" role="status">Aggiornamento acquisti e listini…</div>';
+            if (lato) lato.innerHTML = htmlStatoConfermaProposte();
+        }
+        if (aggiornaAcquisti) riepilogo.riletturaIl = Date.now();
         try {
             const [dati, ordini] = await Promise.all([carica(forza), aggiornaAcquisti ? rendiCorrenteAcquisti() : null]);
             if (tok !== riepilogo.token) return;
@@ -4715,16 +4750,21 @@
                     nome:riepilogo.nomi[id] || ((dati.ordini || {})[String(id).split('.')[0]] || {}).nome || `#${id}`
                 };
             });
-            riepilogo.ultimo = daOrdinare(dati, schede, leggiLS(K_FISSI, {}));
-            riepilogo.quando = oraBreve(dati.listini || dati.generato);
+            const ultimo = daOrdinare(dati, schede, leggiLS(K_FISSI, {}));
+            const quando = oraBreve(dati.listini || dati.generato);
+            if (inBackground && (!document.querySelector('#suppliers-container.active') ||
+                salvataggioAcquisti || confermaFornitoreInCorso || document.querySelector('.acc-finestra') ||
+                (quando === riepilogo.quando && JSON.stringify(ultimo) === JSON.stringify(riepilogo.ultimo)))) return;
+            riepilogo.ultimo = ultimo;
+            riepilogo.quando = quando;
             disegnaRiepilogo();
         } catch (e) {
-            if (tok !== riepilogo.token) return;
+            if (tok !== riepilogo.token || inBackground) return;
             riepilogo.ultimo = null;
             box.innerHTML = `<div class="acc-rf-vuoto" role="alert"><p>${esc(e?.message || e)}</p><button type="button" data-rf-riprova>Riprova</button></div>`;
             box.querySelector('[data-rf-riprova]').addEventListener('click', () => renderRiepilogoAuto(forza,true));
         } finally {
-            if (tok === riepilogo.token) {
+            if (tok === riepilogo.token && !inBackground) {
                 riepilogo.inCaricamento = false;
                 box.removeAttribute('aria-busy');
             }
@@ -5518,11 +5558,14 @@
         }, true);
     }
 
-    function aggiornaRiepilogoAlRitorno() {
+    async function aggiornaRiepilogoAlRitorno() {
         if (document.visibilityState !== 'visible' || riepilogo.modo !== 'auto' || riepilogo.inCaricamento ||
+            !riepilogo.ultimo || riepilogo.verificaInCorso || Date.now() - riepilogo.riletturaIl < 30_000 ||
             salvataggioAcquisti || confermaFornitoreInCorso || document.querySelector('.acc-finestra') ||
             !document.querySelector('#suppliers-container.active')) return;
-        renderRiepilogoAuto(false,true);
+        riepilogo.verificaInCorso = true;
+        try { await renderRiepilogoAuto(false, true, true); }
+        finally { riepilogo.verificaInCorso = false; }
     }
 
     function apriAutomatico(idOrdine) {

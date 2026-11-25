@@ -4284,6 +4284,25 @@
         return gruppi.length === 1 ? gruppi[0] : null;
     }
 
+    const COLORI_LT360_VISION = new Map([
+        ['R-LT360VISION-BKAMMC-G-1', 'BLACK'], ['6933412730156', 'BLACK'],
+        ['R-LT360VISION-WHAMMC-G-1', 'WHITE'], ['6933412730163', 'WHITE'],
+        ['ABACO|DPLT360VISIONARGB', 'BLACK'], ['ACTION|CHLDECZEW0051', 'BLACK']
+    ]);
+
+    function descrizioneDissipatoreAcquisti(r) {
+        const M = window.MontaggioExport;
+        if (r.categoria !== 'COOLER' || !r.descrizione || !M) return r.descrizione;
+        const mpnNelNome = r.descrizione.match(/\bR-LT360VISION-(?:BK|WH)AMMC-G-1\b/i)?.[0];
+        const riferimenti = [r.mpn, r.ean, r.codice, mpnNelNome, `${r.fornitore}|${r.codice}`];
+        const verificati = riferimenti.map(x => COLORI_LT360_VISION.get(String(x || '').trim().toUpperCase())).filter(Boolean);
+        if (!verificati.length) return r.descrizione;
+        const coloreNelNome = M.colore(r.descrizione);
+        const colori = new Set(coloreNelNome ? [...verificati, coloreNelNome] : verificati);
+        if (colori.size > 1) return `${r.descrizione} — colore da verificare`;
+        return coloreNelNome ? r.descrizione : `${r.descrizione} — ${M.nomeColore(verificati[0])}`;
+    }
+
     function htmlRigaDaOrdinare(r, colore, magazzino, categoria, compatta = false) {
         const membri = r.vistaRighe || [r], aggregata = membri.length > 1;
         const indici = membri.map(x=>x.n).join(',');
@@ -4335,7 +4354,7 @@
             (categoria ? `<span class="acc-rf-cat">${esc(categoria)}</span>` : '') +
             `<span class="acc-cod acc-rf-code" data-copia="${esc(r.codice)}" title="Copia il codice">${esc(r.codice || '—')}</span>` +
             `<span class="acc-rf-costo">${magazzino ? '' : `${costo}<small>totale riga</small>`}</span></div>` +
-            `<div class="supplier-item-name">${esc(r.descrizione)}</div>` +
+            `<div class="supplier-item-name">${esc(descrizioneDissipatoreAcquisti(r))}</div>` +
             (!magazzino ? `<div class="acc-rf-unit">${prezzi.length>1?'Prezzi netti unitari':'Acquisto netto unitario'}: <b>${unitario}</b>` +
                 (!compatta && dettaglioListino ? ` · ${dettaglioListino}` : '') + `</div>` : '') +
             (compatta ? '' : nota) +

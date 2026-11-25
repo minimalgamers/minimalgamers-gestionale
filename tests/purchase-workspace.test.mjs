@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../assets/js/accoppiamento-auto.js', import.meta.url), 'utf8');
+const montaggio = readFileSync(new URL('../assets/js/montaggio-export.js', import.meta.url), 'utf8');
 const saved = {id:21, type:'CPU', ean:'5848', supplier:'TIER ONE', name:'AMD Ryzen 7 9700X', quantity:1, price:null};
 const row = {tipo:'CPU', ean:saved.ean, fornitore:saved.supplier, nome:saved.name, quantita:1, costo:190, fonte:'listino'};
 const record = {...saved, stato:'pagato', costo:188.5, canale:'TIER ONE', il:'2026-11-19T10:00:00Z'};
@@ -27,6 +28,7 @@ function setup() {
         },
         processedOrdersCache:{'4884':desk([saved])}
     });
+    vm.runInContext(montaggio,context);
     vm.runInContext(source,context);
     const app = context.window.AccoppiamentoAuto;
     const data = {ordini:{}};
@@ -123,6 +125,22 @@ test('la vista compatta mostra subito lo stock insufficiente e tiene gli ordini 
     assert.match(html, /class="acc-rf-articoli"/);
     assert.match(html, /5 disponibili su 38 richiesti\.[\s\S]*data-rf-cambia="0"/);
     assert.match(html, /<summary>Dettagli · 3 ordini<\/summary>[\s\S]*#1 #2 #3/);
+});
+
+test('il colore del LT360 VISION in Acquisti viene dall’identità del prodotto', () => {
+    const { app } = setup();
+    const nome = "DEEPCOOL RAFF. LIQUIDO LT360 VISION ARGB LCD 4.5''";
+    const prodotto = {fornitore:'ABACO', categoria:'COOLER', codice:'DPLT360VISIONARGB',
+        descrizione:nome, quantita:4, costo:377.04, n:0, nonDisponibile:true};
+    const html = riga => app.htmlAcquistiAttivi({righe:[riga], categorie:[],
+        fornitori:[{nome:riga.fornitore, righe:[riga]}]}, [riga], 'verifica', 'fornitori');
+    assert.match(html(prodotto), /DPLT360VISIONARGB[\s\S]*— NERO \(BLACK\)/);
+    assert.match(html(prodotto), /oggi non disponibile da questo fornitore/);
+    assert.match(html({...prodotto, codice:'ALTRO-CODICE', mpn:'R-LT360VISION-WHAMMC-G-1'}), /— BIANCO \(WHITE\)/);
+    assert.match(html({...prodotto, codice:'ALTRO-CODICE', ean:'6933412730163'}), /— BIANCO \(WHITE\)/);
+    assert.doesNotMatch(html({...prodotto, fornitore:'ALTRO'}), /NERO|BIANCO/);
+    assert.match(html({...prodotto, mpn:'R-LT360VISION-WHAMMC-G-1'}), /colore da verificare/);
+    assert.equal(prodotto.descrizione, nome);
 });
 
 test('il cambio fornitore è visibile su righe pronte, proposte e bloccate',() => {
